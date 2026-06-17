@@ -75,6 +75,19 @@ if(CMAKE_CXX_COMPILER_ID STREQUAL "GNU")
 endif()
 
 # ----------------------------------------------------------------------------
+# Target 6: aktive DNCP-Discovery (eigenständig; ws2_32 + iphlpapi)
+# ----------------------------------------------------------------------------
+add_executable(lan866x-dncpdisc dncpdisc.cpp)
+set_target_properties(lan866x-dncpdisc PROPERTIES CXX_STANDARD 20)
+if(WIN32)
+    target_compile_definitions(lan866x-dncpdisc PRIVATE WIN32 _WIN32_WINNT=0x0601)
+    target_link_libraries(lan866x-dncpdisc PRIVATE ws2_32 Iphlpapi)
+endif()
+if(CMAKE_CXX_COMPILER_ID STREQUAL "GNU")
+    target_link_options(lan866x-dncpdisc PRIVATE -static -static-libgcc -static-libstdc++)
+endif()
+
+# ----------------------------------------------------------------------------
 # Hinweis zur C-Vorlage (src/main.c, rcp.c, rcp.h):
 #   Portable MCU32-Vorlage (reines C auf libsomeip). Wird NICHT hier gebaut,
 #   sondern im MCU32-Projekt mit einer lwIP/FreeRTOS-Implementierung der

@@ -35,6 +35,7 @@ Das Paket besteht aus zwei Teilen:
 - **`lan866x-gpio`** – GPIO-Pin setzen/lesen.
 - **`lan866x-spi`** – SPI-Transfer (Full-Duplex).
 - **`lan866x-dncpmon`** – passiver **DNCP**-Monitor (eigenständig, nicht SOME/IP).
+- **`lan866x-dncpdisc`** – **aktive** DNCP-Discovery (Registry-Broadcast → Announces sammeln, read-only).
 
 ---
 
@@ -173,7 +174,15 @@ out\lan866x-dncpmon.exe                REM lauscht dauerhaft (Strg+C beendet)
 out\lan866x-dncpmon.exe --timeout 30   REM nach 30 s ohne Pakete beenden
 ```
 Dekodiert **DNCP**-Pakete (Dynamic Node Configuration Protocol) auf **UDP 65526/65527** — Announce/Registry mit MAC, Device-ID, IPv4/IPv6, Zustand (Unconfigured/Configured) und PLCA-IDs. Eigenständig (nur Winsock), **nicht** Teil von SOME/IP/`libLAN866x`.
-> Rein **passiv**: zeigt nur DNCP-Verkehr, der real auf dem Bus läuft (DNCP muss aktiv sein; oft nur am End-of-Line). Aktives Enumerieren (Registry-Request) ist hier nicht implementiert (erfordert DNCP-Lib/Spec).
+> Rein **passiv**: zeigt nur DNCP-Verkehr, der real auf dem Bus läuft. Zum aktiven Triggern siehe `lan866x-dncpdisc`.
+
+### DNCP-Discovery (aktiv, read-only)
+```bat
+out\lan866x-dncpdisc.exe                       REM 3 Runden, Channel 11
+out\lan866x-dncpdisc.exe --channel 11 --rounds 5 --timeout 4
+```
+Agiert als **temporärer DNCP-Server** (gemäß AN1891): broadcastet eine **leere Registry** an `224.0.0.1:65527`; Knoten, die sich darin nicht finden, senden ein **Announce** an `224.0.0.1:65526`, das gesammelt und dekodiert wird (MAC, Device-ID, IPv4, State, PLCA-IDs).
+> **Nur lesend** — weist keine PLCA-IDs/IPs zu, persistiert nichts (kein Assign/StoreSettings/Activate). EnumChannel = Default (11), damit der Enumeration-Channel der Knoten unverändert bleibt. **Nur verwenden, wenn kein anderer DNCP-Server aktiv ist.** Live verifiziert (LAN8662 antwortete).
 
 ---
 
@@ -209,6 +218,7 @@ lan866x-tools/
 ├── gpio.cpp             Track A: GPIO setzen/lesen
 ├── spi.cpp              Track A: SPI-Transfer
 ├── dncpmon.cpp          Track A: passiver DNCP-Monitor (eigenständig)
+├── dncpdisc.cpp         Track A: aktive DNCP-Discovery (eigenständig)
 ├── include/             öffentliche Header (lan866x_client.hpp, ...)
 ├── libepmicrochip/      SOME/IP-Stack (C) + liblan866x + Windows-Plattform-Stub
 ├── src/                 Track B: portable C-Vorlage für MCU32

@@ -65,7 +65,7 @@ REM --- alle erzeugten exes nach release\ kopieren ---------------------------
 if not exist "release" mkdir "release"
 set "BINDIR=%BUILD_DIR%"
 if exist "%BUILD_DIR%\Release" set "BINDIR=%BUILD_DIR%\Release"
-for %%T in (discovery i2cscan gpio spi dncpmon) do (
+for %%T in (discovery i2cscan gpio spi dncpmon dncpdisc) do (
     copy /Y "%BINDIR%\lan866x-%%T.exe" "release\" >nul 2>nul && echo [build] -^> release\lan866x-%%T.exe
 )
 
