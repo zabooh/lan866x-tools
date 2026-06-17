@@ -34,6 +34,7 @@ Das Paket besteht aus zwei Teilen:
 - **`lan866x-i2cscan`** – scannt den I²C-Bus eines Endpoints (à la `i2cdetect`).
 - **`lan866x-gpio`** – GPIO-Pin setzen/lesen.
 - **`lan866x-spi`** – SPI-Transfer (Full-Duplex).
+- **`lan866x-dncpmon`** – passiver **DNCP**-Monitor (eigenständig, nicht SOME/IP).
 
 ---
 
@@ -166,6 +167,14 @@ out\lan866x-spi.exe --miso 12 --sck 13 --cs 14 --mosi 15 --tx 0102
 ```
 Ausgabe: `TX: …` / `RX: …`. Default-Pins MISO=PA12 SCK=PA13 CS=PA14 MOSI=PA15. Pins werden vor `OpenSpi` entsperrt.
 
+### DNCP-Monitor (passiv)
+```bat
+out\lan866x-dncpmon.exe                REM lauscht dauerhaft (Strg+C beendet)
+out\lan866x-dncpmon.exe --timeout 30   REM nach 30 s ohne Pakete beenden
+```
+Dekodiert **DNCP**-Pakete (Dynamic Node Configuration Protocol) auf **UDP 65526/65527** — Announce/Registry mit MAC, Device-ID, IPv4/IPv6, Zustand (Unconfigured/Configured) und PLCA-IDs. Eigenständig (nur Winsock), **nicht** Teil von SOME/IP/`libLAN866x`.
+> Rein **passiv**: zeigt nur DNCP-Verkehr, der real auf dem Bus läuft (DNCP muss aktiv sein; oft nur am End-of-Line). Aktives Enumerieren (Registry-Request) ist hier nicht implementiert (erfordert DNCP-Lib/Spec).
+
 ---
 
 ## 5. Wie funktioniert die Discovery?
@@ -199,6 +208,7 @@ lan866x-tools/
 ├── i2cscan.cpp          Track A: I²C-Bus-Scanner
 ├── gpio.cpp             Track A: GPIO setzen/lesen
 ├── spi.cpp              Track A: SPI-Transfer
+├── dncpmon.cpp          Track A: passiver DNCP-Monitor (eigenständig)
 ├── include/             öffentliche Header (lan866x_client.hpp, ...)
 ├── libepmicrochip/      SOME/IP-Stack (C) + liblan866x + Windows-Plattform-Stub
 ├── src/                 Track B: portable C-Vorlage für MCU32

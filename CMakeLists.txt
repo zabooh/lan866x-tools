@@ -62,6 +62,19 @@ foreach(tool gpio spi)
 endforeach()
 
 # ----------------------------------------------------------------------------
+# Target 5: DNCP-Monitor (eigenständig, nur Winsock - DNCP != SOME/IP)
+# ----------------------------------------------------------------------------
+add_executable(lan866x-dncpmon dncpmon.cpp)
+set_target_properties(lan866x-dncpmon PROPERTIES CXX_STANDARD 20)
+if(WIN32)
+    target_compile_definitions(lan866x-dncpmon PRIVATE WIN32 _WIN32_WINNT=0x0601)
+    target_link_libraries(lan866x-dncpmon PRIVATE ws2_32)
+endif()
+if(CMAKE_CXX_COMPILER_ID STREQUAL "GNU")
+    target_link_options(lan866x-dncpmon PRIVATE -static -static-libgcc -static-libstdc++)
+endif()
+
+# ----------------------------------------------------------------------------
 # Hinweis zur C-Vorlage (src/main.c, rcp.c, rcp.h):
 #   Portable MCU32-Vorlage (reines C auf libsomeip). Wird NICHT hier gebaut,
 #   sondern im MCU32-Projekt mit einer lwIP/FreeRTOS-Implementierung der
