@@ -1,8 +1,10 @@
-# LAN866x Tools – SOME/IP console tools (RCP)
+# LAN866x Tools – SOME/IP console tools (RCP), pure C
 
-Minimal **C** host that remote-controls LAN866x **control endpoints** via the **Remote Control Protocol (RCP)** on top of the pure **C SOME/IP stack (`libsomeip`)**. Access is via the **T1S-USB adapter** (EVB-LAN8670-USB) as an Ethernet bridge.
+A **pure-C** host that remote-controls LAN866x endpoints via the **Remote Control Protocol (RCP)** on top of the **C SOME/IP stack (`libsomeip`)**. Access is via the **T1S-USB adapter** (EVB-LAN8670-USB) as an Ethernet bridge.
 
-> 📦 **Self-contained package:** This directory contains **all** sources required to build. Unpack → build, no external paths needed.
+> 🟦 **100 % C — no C++.** Every tool, the RCP wrapper and the platform layer are C; they link **without `libstdc++`**. The same code base ports to a 32-bit MCU (lwIP/FreeRTOS) by swapping a single file — see [chapter 9](#9-porting-to-mcu32).
+>
+> 📦 **Self-contained:** this directory contains **all** sources required to build. Unpack → build, no external paths.
 
 ## Table of contents
 
@@ -14,30 +16,28 @@ Minimal **C** host that remote-controls LAN866x **control endpoints** via the **
 6. [Project structure](#6-project-structure)
 7. [Example pin mapping (LAN8660)](#7-example-pin-mapping-lan8660)
 8. [RCP method IDs](#8-rcp-method-ids)
-9. [C template for MCU32 (Track B)](#9-c-template-for-mcu32-track-b)
+9. [Porting to MCU32](#9-porting-to-mcu32)
 
 ---
 
 ## 1. Overview
 
-**Purpose:** Windows prototype → later used 1:1 as a template for a **32-bit embedded device** (MCU32 + lwIP + FreeRTOS). Typical **control-endpoint use case**: only **GPIO / I2C / SPI** (+ UART), e.g. with a LAN8660.
+**Purpose:** a Windows host prototype that doubles as a **1:1 template for a 32-bit embedded device** (MCU32 + lwIP + FreeRTOS). Everything is plain C.
 
-The package consists of two parts:
+The tools (all build to `lan866x-<name>.exe`):
 
-| Track | File(s) | Status | Purpose |
-|---|---|---|---|
-| **A – tools (C++)** | `discovery.cpp`, `i2cscan.cpp`, ... | ✅ **builds & runs** | Ready-to-use PC tools on top of the prebuilt stack |
-| **B – C host template** | `src/*.c` | template | Portable C code → MCU32 (lwIP/FreeRTOS), see [chapter 9](#9-c-template-for-mcu32-track-b) |
+| Tool | Purpose |
+|---|---|
+| **`lan866x-discovery`** | list reachable endpoints + type + full `GetStatus` / `GetNetworkStatus` |
+| **`lan866x-i2cscan`** | scan an endpoint's I2C bus (like `i2cdetect`) |
+| **`lan866x-gpio`** | set / read a GPIO pin |
+| **`lan866x-spi`** | SPI transfer (full-duplex) |
+| **`lan866x-adc`** | read the on-chip ADC (analog input or internal temperature) |
+| **`lan866x-pwm`** | drive a PWM output on a digital pin |
+| **`lan866x-dncpmon`** | passive **DNCP** monitor (standalone, not SOME/IP) |
+| **`lan866x-dncpdisc`** | active **DNCP** discovery (Registry broadcast → collect Announces, read-only) |
 
-**Track A tools** (use `libepmicrochip` over the T1S-USB adapter):
-- **`lan866x-discovery`** – lists reachable endpoints + type + RCP service `0xFF10` + full `GetStatus`/`GetNetworkStatus` info.
-- **`lan866x-i2cscan`** – scans the I2C bus of an endpoint (like `i2cdetect`).
-- **`lan866x-gpio`** – set/read a GPIO pin.
-- **`lan866x-spi`** – SPI transfer (full-duplex).
-- **`lan866x-adc`** – read the on-chip ADC (analog input or internal temperature sensor).
-- **`lan866x-pwm`** – drive a PWM output on a digital pin.
-- **`lan866x-dncpmon`** – passive **DNCP** monitor (standalone, not SOME/IP).
-- **`lan866x-dncpdisc`** – **active** DNCP discovery (Registry broadcast → collect Announces, read-only).
+The first six use `src/rcp.c` (RCP over `libsomeip`) + the C platform stub `src/someip_stub_win.c`. The two DNCP tools are standalone (Winsock only — DNCP is not SOME/IP).
 
 ---
 
@@ -50,7 +50,7 @@ To **build**, the machine needs:
 - During installation choose **"Add CMake to the system PATH"**.
 - Check: `cmake --version`
 
-### 2.2 A C/C++ compiler  *(one of the two options)*
+### 2.2 A C compiler  *(one of the two options)*
 
 **Option A – MinGW-w64 (GCC)** — recommended for the command line *(tested GCC 16.1)*
 - Easiest source: **WinLibs** <https://winlibs.com/> (UCRT variant) – unzip and add the `…\mingw64\bin` folder to **PATH**.
@@ -58,7 +58,7 @@ To **build**, the machine needs:
 - Check: `gcc --version` and `mingw32-make --version`
 
 **Option B – Visual Studio 2022**
-- Installer: <https://visualstudio.microsoft.com/> → workload **"Desktop development with C++"** (includes the MSVC compiler **and** CMake).
+- Installer: <https://visualstudio.microsoft.com/> → workload **"Desktop development with C++"** (also provides the MSVC **C** compiler and CMake). No C++ runtime is linked — the sources are C.
 
 ### 2.3 Hardware & driver  *(only to run, not to build)*
 - **EVB-LAN8670-USB** (T1S-USB adapter) – shows up on Windows as a normal **Ethernet NIC**.
@@ -67,7 +67,7 @@ To **build**, the machine needs:
 
 ### 2.4 Network  *(only to run)*
 - Give the USB-T1S NIC a **static IP** in the endpoint subnet: **`192.168.0.100/24`**. Endpoints = `192.168.0.<NodeID>`.
-- **SOME/IP-SD** uses multicast `224.0.0.1`. Allow `lan866x-discovery.exe` through the Windows **firewall**.
+- **SOME/IP-SD** uses multicast `224.0.0.1` (UDP 30490). Allow the tools through the Windows **firewall**.
 
 ---
 
@@ -85,7 +85,7 @@ build.bat clean      REM delete build folder
 Result: `out\lan866x-discovery.exe` (MinGW) or `out\Release\lan866x-discovery.exe` (VS), and all tools copied to `release\`.
 
 ### 3.2 Manual – CMake on the command line
-**Always specify the generator (`-G …`) explicitly** – otherwise CMake aborts with "CMAKE_C(XX)_COMPILER not set".
+**Always specify the generator (`-G …`) explicitly** – otherwise CMake aborts with "CMAKE_C_COMPILER not set".
 
 **MinGW-w64 (GCC):**
 ```bat
@@ -108,34 +108,29 @@ The `out/` folder is pure build output and can be deleted at any time (remove be
 out\lan866x-discovery.exe
 ```
 
-Per endpoint the tool prints the **full** status (like the Microchip Remote Configurator) — via `GetStatus (0x1002)` + `GetNetworkStatus (0x1600)`. Example (verified on the training setup):
+Per endpoint the tool prints the full status — via `GetStatus (0x1002)` + `GetNetworkStatus (0x1600)`. Example (verified live, pure C):
 ```
 Devices available = 2
 
 ========================================================
-Endpoint #0  -  192.168.0.54:6800  (SOME/IP Instance 0x0001, available=1)
+Endpoint #0  -  192.168.0.101:6800  (instance 0x0001, available=1)
 ========================================================
-  Uptime:             0h 17m 17.897s
+  Uptime:             2h 38m 18s
   Application:        main/app.bin
-  Chip Identifier:    LAN8661B
-  Main Name:          Endpoint Demo Display And Remote
-  Bootloader Name:    Endpoint Demo Display
-  Main Version:       LAN8661-main-ws2812_V1.3.2-64
+  Chip Identifier:    LAN8662B   -> Audio Endpoint
+  Main Version:       LAN8662-main_V1.3.0-54
   Root Version:       LAN866x-root_V1.2.0-53
-  Bootloader Version: LAN866x-bootloader_V1.3.1-60
-  COMO Version:       V2.1.1
-  Service Version:    V1.8
+  Bootloader Version: LAN866x-bootloader_V1.3.0-54
+  COMO Version:       0x00020006
+  Service Version:    0x00010600
   Keys Version:       V0.0.1
-  StartupInformation:
-        ..Software Reset
-        ..Security Mode: 1
-  MAC:                8C:71:12:2D:02:FA
-  IPv4:               192.168.0.54
-  IPv6:               FDF8:6EF3:E05A:0001:0000:0000:0000:0054
+  StartupInformation: 0x0000000000000219 (Security Mode 1)
+  MAC:                8C:71:12:2B:98:7F
+  IPv4:               192.168.0.101
   Endpoint Status:    Link-Up
   OASPI Status:       Disabled
   Arbitration:        PLCA no fallback
-  PLCA Node Id:       4
+  PLCA Node Id:       1
 ```
 
 **Nothing found?** Check: driver installed · NIC IP `192.168.0.x` set · bus terminated · endpoints powered · firewall allowed.
@@ -146,14 +141,14 @@ out\lan866x-i2cscan.exe                 REM first endpoint, SDA=PA08 SCL=PA09, 4
 out\lan866x-i2cscan.exe --ip 192.168.0.54
 out\lan866x-i2cscan.exe --ep 1 --sda 8 --scl 9 --speed 1
 ```
-Probes 0x08..0x77 with a 1-byte read and prints an `i2cdetect` grid. Example (Proximity 3 Click on the demo board):
+Probes 0x08..0x77 with a 1-byte read and prints an `i2cdetect` grid (uses a short ~150 ms per-probe timeout since absent addresses never reply). Example (Proximity 3 Click on the demo board):
 ```
      0  1  2  3  4  5  6  7  8  9  a  b  c  d  e  f
 50: -- 51 -- -- -- -- -- -- -- -- -- -- -- -- -- --
 
 1 device(s) found on the I2C bus.
 ```
-> Pins must match the board configuration (`--sda`/`--scl`, PA number 0–15). The tool releases SDA/SCL before `OpenI2C` automatically (`ReleaseDigitalPins`).
+> Pins must match the board configuration (`--sda`/`--scl`, PA number 0–15). The tool releases SDA/SCL before `OpenI2C` automatically (`ReleaseDigitalPins`). If I2C is not configured on that endpoint, `OpenI2C` returns `RT_NOT_REACHABLE` ("OpenI2C failed").
 
 ### GPIO set/read
 ```bat
@@ -193,7 +188,7 @@ Opens a PWM channel on a digital pin. Duty cycle wire encoding: `0 = 0% .. 2^31 
 out\lan866x-dncpmon.exe                REM listen forever (Ctrl+C to stop)
 out\lan866x-dncpmon.exe --timeout 30   REM stop after 30 s without packets
 ```
-Decodes **DNCP** packets (Dynamic Node Configuration Protocol) on **UDP 65526/65527** — Announce/Registry with MAC, device id, IPv4/IPv6, state (Unconfigured/Configured) and PLCA ids. Standalone (Winsock only), **not** part of SOME/IP/`libLAN866x`.
+Decodes **DNCP** packets (Dynamic Node Configuration Protocol) on **UDP 65526/65527** — Announce/Registry with MAC, device id, IPv4/IPv6, state (Unconfigured/Configured) and PLCA ids. Standalone (Winsock only), **not** part of SOME/IP.
 > Purely **passive**: only shows DNCP traffic actually present on the bus. To trigger actively, see `lan866x-dncpdisc`.
 
 ### DNCP discovery (active, read-only)
@@ -202,7 +197,7 @@ out\lan866x-dncpdisc.exe                       REM 3 rounds, channel 11
 out\lan866x-dncpdisc.exe --channel 11 --rounds 5 --timeout 4
 ```
 Acts as a **temporary DNCP server** (per AN1891): broadcasts an **empty Registry** to `224.0.0.1:65527`; nodes that do not find themselves in it send an **Announce** to `224.0.0.1:65526`. Per node **all Announce fields** are decoded: MAC, vendor device id, **IPv4 + IPv6**, state, persistency, BurstFramesPerTO, protocol version and all PLCA node ids.
-> **Read-only** — assigns no PLCA ids/IPs, persists nothing (no Assign/StoreSettings/Activate). EnumChannel = default (11), so the nodes' enumeration channel stays unchanged. **Use only when no other DNCP server is active.** Verified live (a LAN8662 responded).
+> **Read-only** — assigns no PLCA ids/IPs, persists nothing. EnumChannel = default (11). **Use only when no other DNCP server is active.** Verified live (a LAN8662 responded).
 
 ---
 
@@ -210,20 +205,20 @@ Acts as a **temporary DNCP server** (per AN1891): broadcasts an **empty Registry
 
 The tools do **not** know the endpoint IPs in advance – they learn them at runtime via **SOME/IP Service Discovery (SD)**:
 
-1. **Join multicast:** the tool joins the SD group **`224.0.0.1`** (the "Joined Multicast group" lines at startup – one per PC network interface). SOME/IP Service Discovery runs on **UDP port 30490**.
-2. **Send FindService:** it queries via SD **`FindService`** for the RCP service **`0xFF10`**.
-3. **Endpoints respond:** every endpoint that offers `0xFF10` sends back an **`OfferService`** – **containing its own IP/port** (the method endpoint is **UDP 6800**, e.g. `192.168.0.102:6800`). Endpoints also send Offers periodically on their own.
-4. **Build the list:** `libepmicrochip` collects the offers → `GetAllClients()`. **So the IP comes from the endpoint, not from the tool.**
+1. **Join multicast:** the platform stub joins the SD group **`224.0.0.1`** on each PC interface (the "Joined Multicast group" lines at startup). SD runs on **UDP port 30490**.
+2. **Request the service:** `rcp_init()` calls `SOMEIP_Client_AddService(0xFF10, requested=true)`; the stack sends `FindService` and also receives the endpoints' periodic `OfferService`.
+3. **Endpoints respond:** every endpoint that offers `0xFF10` sends an **`OfferService`** containing **its own IP/port** (method endpoint = **UDP 6800**, e.g. `192.168.0.101:6800`). The SD event callback (`on_event`) stores it.
+4. **Build the list:** `rcp_get_endpoints()` returns the collected list. **The IP comes from the endpoint, not the tool.**
 
 ```
-PC  --FindService(0xFF10)-->  224.0.0.1  (multicast)
-EP1 --OfferService: I am 192.168.0.101 -->  PC
-EP2 --OfferService: I am 192.168.0.102 -->  PC
+PC  --FindService(0xFF10)-->  224.0.0.1:30490  (multicast)
+EP1 --OfferService: I am 192.168.0.101:6800 -->  PC
+EP2 --OfferService: I am 192.168.0.102:6800 -->  PC
 ```
 
-**Target endpoint:** default is `[0]` (first found). Select with `--ip <addr>` or `--ep <index>`. Newly attached endpoints appear automatically.
+**Target endpoint:** default is `[0]` (first found). Select with `--ip <addr>` or `--ep <index>`.
 
-> Multiple PC interfaces: the tool joins on all of them; responses arrive only over the **T1S interface** (`192.168.0.x`). Its NIC must therefore have an IP in the endpoint subnet (chapter 2.4).
+> Multiple PC interfaces: the stub joins on all of them; responses arrive only over the **T1S interface** (`192.168.0.x`). Its NIC must have an IP in the endpoint subnet (chapter 2.4).
 
 ---
 
@@ -232,27 +227,28 @@ EP2 --OfferService: I am 192.168.0.102 -->  PC
 ```
 lan866x-tools/
 ├── build.bat            Windows build script (chapter 3)
-├── CMakeLists.txt       builds the tool targets
-├── discovery.cpp        Track A: endpoint/service discovery (ready to run)
-├── i2cscan.cpp          Track A: I2C bus scanner
-├── gpio.cpp             Track A: GPIO set/read
-├── spi.cpp              Track A: SPI transfer
-├── adc.cpp              Track A: ADC read (analog / temperature)
-├── pwm.cpp              Track A: PWM output
-├── dncpmon.cpp          Track A: passive DNCP monitor (standalone)
-├── dncpdisc.cpp         Track A: active DNCP discovery (standalone)
-├── include/             public headers (lan866x_client.hpp, ...)
-├── libepmicrochip/      SOME/IP stack (C) + liblan866x + Windows platform stub
-├── src/                 Track B: portable C template for MCU32
-│   ├── main.c           demo loop (init → discovery → GPIO/I2C/SPI)
-│   ├── rcp.h            method IDs, pin map, API
-│   ├── rcp.c            RCP wrapper over libsomeip (pure C)
-│   ├── probe.c          pure-C demo tool (discovery + GetStatus) → lan866x-probe-c
-│   └── someip_stub_win.c  pure-C Windows platform stub (replaces the C++ stub)
+├── CMakeLists.txt       C-only build: rcpcore lib + 8 tool executables
+├── discovery.c          list endpoints + full GetStatus/GetNetworkStatus
+├── i2cscan.c            I2C bus scanner
+├── gpio.c               GPIO set/read
+├── spi.c                SPI transfer
+├── adc.c                ADC read (analog / temperature)
+├── pwm.c                PWM output
+├── dncpmon.c            passive DNCP monitor (standalone, Winsock)
+├── dncpdisc.c           active DNCP discovery (standalone, Winsock)
+├── src/
+│   ├── rcp.h / rcp.c    RCP over libsomeip — typed methods, 1:1 with the C++ client
+│   ├── someip_stub_win.c  C Windows platform stub (the file you swap for MCU32)
+│   └── tool_common.h    tiny shared discover-and-select helper
+├── include/             lan866x_common.h (RCP request/reply structs, used by rcp.c)
+├── libepmicrochip/
+│   └── libsomeip/       the C SOME/IP stack (src/*.c) + windows-udp-handler.c
 ├── README.md
 └── PORTING.md           MCU32 port (lwIP/FreeRTOS)
 ```
-All sources required to build live **inside** this directory.
+> `libepmicrochip/` also still contains Microchip's C++ vendor sources (`liblan866x`, `librtp`, `someip-stub.cpp`). They are **not built** — this toolset uses only the C `libsomeip` core. They can be deleted for a strictly C-only tree.
+
+The build produces a shared static lib **`rcpcore`** (rcp.c + someip_stub_win.c + windows-udp-handler.c + libsomeip/src/\*.c) that each SOME/IP tool links; the DNCP tools link only Winsock.
 
 ---
 
@@ -271,7 +267,7 @@ All sources required to build live **inside** this directory.
 
 ## 8. RCP method IDs
 
-Service `0xFF10`. **Verified** against the authoritative Microchip SOME/IP dissector table (Wireshark `SOMEIP_method_event_identifiers`).
+Service `0xFF10`. **Verified** against the authoritative Microchip SOME/IP dissector table (Wireshark `SOMEIP_method_event_identifiers`). Each request is encoded as `Fill_Header` + one `Fill_<field>` per parameter (tag data id 0,1,2,…) + `Update_Length`; replies are parsed field-by-field — exactly as the C++ `LAN866XClientImpl`.
 
 | Method | ID | | Method | ID |
 |---|---|---|---|---|
@@ -292,20 +288,20 @@ Service `0xFF10`. **Verified** against the authoritative Microchip SOME/IP disse
 
 ---
 
-## 9. C template for MCU32 (Track B)
+## 9. Porting to MCU32
 
-`src/main.c`, `rcp.c`, `rcp.h` are the **portable C template** for the embedded target (pure C on `libsomeip`). All method IDs are now **verified** against the dissector table (incl. ADC `0x1700`/`0x1720` and PWM `0x1800`/`0x1804`); only the parameter layouts marked `[V3]/[V4]` and the RX dispatch function `on_data_received()` (template: `LAN866XClientImpl::OnDataReceived`) remain to be completed.
+The whole toolset is already vanilla C on `libsomeip`, so the embedded port is small. The **only platform-specific file is `src/someip_stub_win.c`** — it implements the `SOMEIP_CB_*` callbacks (UDP sockets, semaphores, critical sections, time, buffers) on Win32 + Winsock. For MCU32 you **replace just that one file** with an lwIP/FreeRTOS implementation of the same callback set; `rcp.c`/`rcp.h` and the tool logic stay unchanged.
 
-> **Recommended base:** Microchip ships a generated, callback-based **pure-C client** (`lan866x_c/`, `lan866x_client.c/.h` + `lan866x_common.h`) in the multi-language library repo (see the *LAN866x Library Integration Manual*). It uses the **same `RT_*` return codes and `*Var_t`/`*Reply_t` structs** as `include/lan866x_common.h` here, so it is the ideal drop-in for the embedded port. This `rcp.c/.h` is a compact, self-contained stand-in for when that generated client is not vendored. See [PORTING.md](PORTING.md).
+What stays / what is swapped:
 
-**Pure-C proof on Windows (`lan866x-probe-c`):** to show the C path really is C, this CMake also builds **`lan866x-probe-c`** — discovery + `GetStatus` — from **C sources only**: `probe.c` + `rcp.c` + a C platform stub `someip_stub_win.c` (reusing `windows-udp-handler.c`) + the C SOME/IP core (`libsomeip/src/*.c`). No C++ translation unit is involved, so it **links without `libstdc++`**:
+| Layer | Windows | MCU32 |
+|---|---|---|
+| Tool + `rcp.c` (RCP encode/decode) | C | **same** |
+| SOME/IP core (`libsomeip/src/*.c`) | C | **same** |
+| Platform stub (`SOMEIP_CB_*`) | `src/someip_stub_win.c` (Winsock, Win32 threads) | **new lwIP/FreeRTOS file** |
+| Time base (`SOMEIP_CB_GetTimeMS`) | `GetTickCount()` | `xTaskGetTickCount()` |
+| T1S link | USB-Ethernet bridge | LAN8650/51 MAC-PHY (OA-SPI) or LAN8670 PHY (RMII) + lwIP |
 
-```bat
-out\lan866x-probe-c.exe                  REM discover + GetStatus on endpoint [0]
-out\lan866x-probe-c.exe --ip 192.168.0.102 --wait 8
-```
-Verified: the binary contains **0** C++ runtime symbols (vs ~2600 in the C++ tools) and imports only system DLLs; ~127 kB vs ~1 MB. `rcp.c`'s `on_data_received()` is now complete (RX dispatch ported 1:1 from `LAN866XClientImpl::OnDataReceived`).
-
-For the **MCU32** port you keep `probe.c`/`rcp.c` and replace **only** `someip_stub_win.c` with an lwIP/FreeRTOS implementation of the same `SOMEIP_CB_*` set.
+**Recommended base:** Microchip also ships a generated, callback-based **pure-C client** (`lan866x_c/`) in the multi-language library repo (see the *LAN866x Library Integration Manual*); it uses the same `RT_*` codes and `*Var_t`/`*Reply_t` structs as `include/lan866x_common.h`. `src/rcp.c` here is a compact, self-contained equivalent built directly on `libsomeip`.
 
 ➡️ Details: **[PORTING.md](PORTING.md)**.

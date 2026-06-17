@@ -1,12 +1,12 @@
 # Porting to MCU32 (lwIP + FreeRTOS)
 
-The prototype is structured so that for the embedded port **only the platform layer** is swapped. App logic (`main.c`), the RCP wrapper (`rcp.c/.h`) and the SOME/IP core (`libsomeip/src/*.c`) stay **unchanged**.
+The toolset is already vanilla C, structured so that for the embedded port **only the platform layer** is swapped. The tools, the RCP wrapper (`rcp.c/.h`) and the SOME/IP core (`libsomeip/src/*.c`) stay **unchanged**.
 
 ## What stays / what is swapped
 
 | Layer | Windows prototype | MCU32 |
 |---|---|---|
-| App + RCP encoding (`main.c`, `rcp.c`) | C | **same** |
+| Tools + RCP encoding (`*.c`, `rcp.c`) | C | **same** |
 | SOME/IP core (`someip-client/-gen/-pars/-transmit/-timer.c`) | C | **same** |
 | UDP transport | `stub/windows-udp-handler.c` (Winsock) | **lwIP handler (new)** |
 | Time base (`someip-timer`) | system clock | **`xTaskGetTickCount()`** |
@@ -15,7 +15,7 @@ The prototype is structured so that for the embedded port **only the platform la
 
 ## The real porting boundary: the `SOMEIP_CB_*` callbacks
 
-The libsomeip core calls a fixed set of **platform callbacks**. On Windows these are provided by `libsomeip/stub/someip-stub.cpp` (+ `windows-udp-handler.c`, Win32 threads). **You reimplement exactly these functions** for MCU32 (lwIP + FreeRTOS) — the rest stays:
+The libsomeip core calls a fixed set of **platform callbacks**. In this toolset they are provided **in C** by `src/someip_stub_win.c` (+ `windows-udp-handler.c`, Win32 threads). **You reimplement exactly these functions** for MCU32 (lwIP + FreeRTOS) — the rest stays:
 
 | Callback | Task | MCU32 implementation |
 |---|---|---|
@@ -27,11 +27,9 @@ The libsomeip core calls a fixed set of **platform callbacks**. On Windows these
 | `SOMEIP_CB_ProvideBuffer` | memory for TX | static pool / `pbuf` |
 | `SOMEIP_CB_NeedService` | "CheckTimers needed soon" | notify task |
 | `SOMEIP_CB_Log` | logging | UART/ITM |
-| RX dispatch (`on_data_received`) | parse + `SOMEIP_Client_DataReceived` / `SOMEIP_Transmit_ReceivedResponse` | adopt from `LAN866XClientImpl::OnDataReceived` |
+> So the MCU32 port is essentially: **implement this table** + define `MULTICAST_IP[]={224,0,0,1}`. The tools and the RCP wrapper (`rcp.c`) stay unchanged.
 
-> So the MCU32 port is essentially: **implement this table** + define `MULTICAST_IP[]={224,0,0,1}`. App (`main.c`) and RCP wrapper (`rcp.c`) stay unchanged.
-
-**Concrete C reference:** `src/someip_stub_win.c` already implements this whole table **in C** for Windows (Win32 + Winsock, reusing `windows-udp-handler.c`). It is what the `lan866x-probe-c` target links against — a working, pure-C platform layer with **no C++**. For MCU32 you replace this one file with an lwIP/FreeRTOS version of the same functions; `probe.c`/`rcp.c` stay as-is. The RX dispatch in `rcp.c` (`on_data_received`) is complete and was ported 1:1 from `LAN866XClientImpl::OnDataReceived`.
+**Concrete C reference:** `src/someip_stub_win.c` already implements this whole table **in C** for Windows (Win32 + Winsock, reusing `windows-udp-handler.c`) — a working, pure-C platform layer with **no C++**, shared by every tool via the `rcpcore` static library. For MCU32 you replace this one file with an lwIP/FreeRTOS version of the same functions; the tools and `rcp.c` stay as-is. The RX dispatch lives in `rcp.c` (`on_data_received`) and was ported 1:1 from `LAN866XClientImpl::OnDataReceived` (responses → `SOMEIP_Transmit_ReceivedResponse`).
 
 ## Concrete steps
 
