@@ -127,6 +127,10 @@ void rcp_poll(void);
 /* true once at least one endpoint service has been discovered.            */
 bool rcp_is_ready(void);
 
+/* --- System -------------------------------------------------------------- */
+/* GetStatus (0x1002): empty request, raw response payload into outRx.      */
+bool rcp_get_status(uint8_t *outRx, uint16_t *outRxLen);
+
 /* --- GPIO --------------------------------------------------------------- */
 bool rcp_open_gpio(const uint8_t *pinIds, uint8_t count);
 bool rcp_set_gpio(const uint8_t *gpioValues, uint8_t len);  /* bitmask/values per pin */

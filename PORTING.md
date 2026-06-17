@@ -31,6 +31,8 @@ The libsomeip core calls a fixed set of **platform callbacks**. On Windows these
 
 > So the MCU32 port is essentially: **implement this table** + define `MULTICAST_IP[]={224,0,0,1}`. App (`main.c`) and RCP wrapper (`rcp.c`) stay unchanged.
 
+**Concrete C reference:** `src/someip_stub_win.c` already implements this whole table **in C** for Windows (Win32 + Winsock, reusing `windows-udp-handler.c`). It is what the `lan866x-probe-c` target links against — a working, pure-C platform layer with **no C++**. For MCU32 you replace this one file with an lwIP/FreeRTOS version of the same functions; `probe.c`/`rcp.c` stay as-is. The RX dispatch in `rcp.c` (`on_data_received`) is complete and was ported 1:1 from `LAN866XClientImpl::OnDataReceived`.
+
 ## Concrete steps
 
 1. **Replace the UDP handler:** `windows-udp-handler.c` with an lwIP variant. Implement the platform functions the core expects (`SomeIPSocket_Init`, send, RX → `SOMEIP_Client_DataReceived(...)`). Prefer the lwIP **RAW API** (`LWIP_SOCKET=0`, less RAM).

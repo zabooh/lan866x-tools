@@ -24,6 +24,9 @@
 #include "rcp.h"
 #include "someip.h"
 #include <string.h>
+#ifdef RCP_DEBUG
+#  include <stdio.h>   /* only for the optional [tx]/[rx] trace below */
+#endif
 
 #define MAXP  SOMEIP_TRANSMIT_MAX_PAYLOAD_LEN
 
@@ -88,18 +91,48 @@ static void on_event(enum SOMEIP_CB_Event evnt,
     }
 }
 
-/* --- RX: feed UDP data into the stack + route responses ----------------- */
+/* --- RX: route method responses to the waiting transmit buffer ----------
+ * This is the RX callback of the *transmit* socket (SOMEIP_Transmit_Init).
+ * It mirrors LAN866XClientImpl::OnDataReceived 1:1: parse the SOME/IP header
+ * and, for RESPONSE/ERROR messages of our service, hand the payload to
+ * SOMEIP_Transmit_ReceivedResponse() which matches it (by remote IP +
+ * sessionId) to the pending buffer and fires its callback synchronously.
+ *
+ * The Service-Discovery path is handled on a *separate*, internally-opened
+ * socket whose RX callback is the stack's own SD handler - we must NOT call
+ * SOMEIP_Client_DataReceived() here (the C++ client does not either).
+ *
+ * Stub IP convention (see platform stub OnUdpRx): pIp->destinAddr holds the
+ * remote peer (the endpoint), pIp->sourceAddr the local interface. */
 static enum SOMEIP_ReturnCode on_data_received(const uint8_t *b, uint16_t bLen,
                                                struct SOMEIP_IpAddr *pIp, void *rxTag)
 {
+    struct SOMEIP_Header par;
+    uint16_t parsed = 0u;
+    enum SOMEIP_ReturnCode rc;
     (void)rxTag;
-    /* SD and event path: */
-    enum SOMEIP_ReturnCode rc = SOMEIP_Client_DataReceived(b, bLen, pIp, NULL);
-    /* >>> OPEN: parse method responses and route them to the waiting transmit
-     * buffer: parse the SOME/IP header (someip-pars.h) -> sessionId/retCode
-     * -> SOMEIP_Transmit_ReceivedResponse(srcIp, s_tr, sessionId, retCode,
-     *    &payload, payloadLen). Template: lan866x_client.cpp::OnDataReceived. */
-    return rc;
+    if (!pIp) return SOMEIP_E_NOT_REACHABLE;
+
+    rc = SOMEIP_Parser_Read_Header(b, bLen, &par, &parsed);
+#ifdef RCP_DEBUG
+    fprintf(stderr, "[rx] %u bytes from %u.%u.%u.%u svc=%04X mid=%04X mt=%02X sid=%u rcHdr=%d\n",
+            bLen, pIp->destinAddr[0],pIp->destinAddr[1],pIp->destinAddr[2],pIp->destinAddr[3],
+            par.serviceId, par.methodId, par.msgType, par.sessionId, (int)rc);
+#endif
+    if (rc != SOMEIP_E_OK) return SOMEIP_E_MALFORMED_MESSAGE;
+
+    if (par.serviceId == RCP_SERVICE_ID && par.interfaceVersion == 0x1u) {
+        if (par.msgType == MSGTYPE_RESPONSE || par.msgType == MSGTYPE_ERROR) {
+            SOMEIP_Transmit_ReceivedResponse(pIp->destinAddr, s_tr, par.sessionId,
+                                             par.retCode, &b[parsed],
+                                             (uint16_t)(bLen - parsed));
+            return SOMEIP_E_OK;
+        }
+        /* MSGTYPE_NOTIFICATION (events 0x8000/0x8010/0x8020): not used by this
+         * minimal host - decode here later if events are needed. */
+        return SOMEIP_E_OK;
+    }
+    return SOMEIP_E_OK;   /* not our service */
 }
 
 /* --- method response callback (from the transmit layer) ----------------- */
@@ -154,10 +187,20 @@ static bool rcp_call(uint16_t methodId, bool fireAndForget,
     memcpy(tb->ipV4Addr, s_eps[s_sel].ip, 4);
 
     s_done = false;
-    if (!SOMEIP_Transmit_Send(s_tr, tb)) return false;
+    if (!SOMEIP_Transmit_Send(s_tr, tb)) {
+#ifdef RCP_DEBUG
+        fprintf(stderr, "[tx] Transmit_Send FAILED (ip=%u.%u.%u.%u port=%u len=%u)\n",
+                tb->ipV4Addr[0],tb->ipV4Addr[1],tb->ipV4Addr[2],tb->ipV4Addr[3], tb->udpPort, consumed);
+#endif
+        return false;
+    }
+#ifdef RCP_DEBUG
+    fprintf(stderr, "[tx] sent mid=%04X sid=%u -> %u.%u.%u.%u:%u len=%u\n",
+            methodId, sid, tb->ipV4Addr[0],tb->ipV4Addr[1],tb->ipV4Addr[2],tb->ipV4Addr[3], tb->udpPort, consumed);
+#endif
     if (fireAndForget) return true;
 
-    for (int i = 0; i < 200 && !s_done; ++i) { rcp_poll(); NAP(); }
+    for (int i = 0; i < 1500 && !s_done; ++i) { rcp_poll(); NAP(); }
     if (!s_done) return false;
     if (outRx && outRxLen) {
         uint16_t n = (s_rxLen < *outRxLen) ? s_rxLen : *outRxLen;
@@ -187,6 +230,7 @@ bool rcp_init(const uint8_t localIfIP[4])
     s_tr = SOMEIP_Transmit_Init(&s_port, on_data_received, NULL);
     if (!s_tr) return false;
 
+    /* Values mirror LAN866XClientImpl::Init() so discovery behaves identically. */
     struct SOMEIP_Server_Client svc;
     memset(&svc, 0, sizeof(svc));
     svc.pEventCb = on_event;
@@ -194,22 +238,31 @@ bool rcp_init(const uint8_t localIfIP[4])
     svc.instanceId = 0x1u;
     svc.majorVersion = 1u;
     svc.minorVersion = 1u;
-    svc.ttl = 5u;
+    svc.ttl = 2u;
     svc.clientId = 0xaffeu;
-    svc.eventGroupId = 0u;
-    svc.eventHandlingEnabled = false;   /* methods, not events */
+    svc.eventGroupId = 0x2000u;
+    svc.eventHandlingEnabled = true;
     svc.ipAddr.port = s_port;
-    /* local IP is set by the stub; subnet match via MULTICAST_IP/stub */
+    svc.cbData = NULL;
+    /* local IP is set by the stub; subnet match via MULTICAST_IP/stub.
+     * subscribe=false: we use methods, not events. */
     return SOMEIP_Client_AddService(&svc, /*requested*/ true, /*subscribe*/ false);
 }
 
 void rcp_poll(void)
 {
-    SOMEIP_Client_CheckTimers();
+    /* SD + client timers are serviced by the platform stub's service thread
+     * (Windows) / the SOME/IP task (MCU32). Here we only service the transmit
+     * layer for request timeout handling. Responses themselves arrive async on
+     * the RX thread and fire on_response() synchronously. */
     SOMEIP_Transmit_CheckTimers();
 }
 
 bool rcp_is_ready(void) { return s_epCount > 0u; }
+
+/* --- system: GetStatus (empty request; raw response payload) ------------ */
+bool rcp_get_status(uint8_t *outRx, uint16_t *outRxLen)
+{ return rcp_call(RCP_M_GET_STATUS, false, NULL, 0, outRx, outRxLen); }
 
 /* --- GPIO / I2C / SPI (method IDs verified; check param layout [V3]) ---- */
 bool rcp_open_gpio(const uint8_t *pinIds, uint8_t count)

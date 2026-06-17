@@ -88,8 +88,35 @@ if(CMAKE_CXX_COMPILER_ID STREQUAL "GNU")
 endif()
 
 # ----------------------------------------------------------------------------
+# Target 9: lan866x-probe-c  -  PURE-C end-to-end proof (Track B running on PC)
+#   Built ONLY from C sources: the tool (probe.c), the RCP wrapper (rcp.c), a
+#   C platform stub (someip_stub_win.c) reusing windows-udp-handler.c, and the
+#   C SOME/IP core (libsomeip/src/*.c). No C++ TU -> links without libstdc++.
+# ----------------------------------------------------------------------------
+file(GLOB SOMEIP_C_CORE ${CMAKE_CURRENT_SOURCE_DIR}/libepmicrochip/libsomeip/src/*.c)
+add_executable(lan866x-probe-c
+    src/probe.c
+    src/rcp.c
+    src/someip_stub_win.c
+    libepmicrochip/libsomeip/stub/windows-udp-handler.c
+    ${SOMEIP_C_CORE})
+target_include_directories(lan866x-probe-c PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}/src
+    ${CMAKE_CURRENT_SOURCE_DIR}/libepmicrochip/libsomeip/inc
+    ${CMAKE_CURRENT_SOURCE_DIR}/libepmicrochip/libsomeip/stub)
+set_target_properties(lan866x-probe-c PROPERTIES C_STANDARD 11 LINKER_LANGUAGE C)
+if(WIN32)
+    target_compile_definitions(lan866x-probe-c PRIVATE WIN32 _WIN32_WINNT=0x0601)
+    target_link_libraries(lan866x-probe-c PRIVATE ws2_32 Iphlpapi)
+endif()
+if(CMAKE_C_COMPILER_ID STREQUAL "GNU")
+    target_link_options(lan866x-probe-c PRIVATE -static -static-libgcc)
+endif()
+
+# ----------------------------------------------------------------------------
 # Note on the C template (src/main.c, rcp.c, rcp.h):
-#   Portable MCU32 template (pure C on libsomeip). NOT built here, but in the
-#   MCU32 project together with an lwIP/FreeRTOS implementation of the
-#   SOMEIP_CB_* callbacks (replacing the Windows stub). See PORTING.md.
+#   Portable MCU32 template (pure C on libsomeip). The Windows proof above
+#   (lan866x-probe-c) builds rcp.c + a C stub directly; for MCU32 you replace
+#   someip_stub_win.c with an lwIP/FreeRTOS stub (same SOMEIP_CB_* set). See
+#   PORTING.md.
 # ----------------------------------------------------------------------------

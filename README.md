@@ -246,7 +246,9 @@ lan866x-tools/
 ├── src/                 Track B: portable C template for MCU32
 │   ├── main.c           demo loop (init → discovery → GPIO/I2C/SPI)
 │   ├── rcp.h            method IDs, pin map, API
-│   └── rcp.c            RCP wrapper over libsomeip
+│   ├── rcp.c            RCP wrapper over libsomeip (pure C)
+│   ├── probe.c          pure-C demo tool (discovery + GetStatus) → lan866x-probe-c
+│   └── someip_stub_win.c  pure-C Windows platform stub (replaces the C++ stub)
 ├── README.md
 └── PORTING.md           MCU32 port (lwIP/FreeRTOS)
 ```
@@ -296,6 +298,14 @@ Service `0xFF10`. **Verified** against the authoritative Microchip SOME/IP disse
 
 > **Recommended base:** Microchip ships a generated, callback-based **pure-C client** (`lan866x_c/`, `lan866x_client.c/.h` + `lan866x_common.h`) in the multi-language library repo (see the *LAN866x Library Integration Manual*). It uses the **same `RT_*` return codes and `*Var_t`/`*Reply_t` structs** as `include/lan866x_common.h` here, so it is the ideal drop-in for the embedded port. This `rcp.c/.h` is a compact, self-contained stand-in for when that generated client is not vendored. See [PORTING.md](PORTING.md).
 
-Track B is **not** built by this Windows CMake, but in the MCU32 project together with an lwIP/FreeRTOS implementation of the `SOMEIP_CB_*` callbacks (replacing the Windows stub).
+**Pure-C proof on Windows (`lan866x-probe-c`):** to show the C path really is C, this CMake also builds **`lan866x-probe-c`** — discovery + `GetStatus` — from **C sources only**: `probe.c` + `rcp.c` + a C platform stub `someip_stub_win.c` (reusing `windows-udp-handler.c`) + the C SOME/IP core (`libsomeip/src/*.c`). No C++ translation unit is involved, so it **links without `libstdc++`**:
+
+```bat
+out\lan866x-probe-c.exe                  REM discover + GetStatus on endpoint [0]
+out\lan866x-probe-c.exe --ip 192.168.0.102 --wait 8
+```
+Verified: the binary contains **0** C++ runtime symbols (vs ~2600 in the C++ tools) and imports only system DLLs; ~127 kB vs ~1 MB. `rcp.c`'s `on_data_received()` is now complete (RX dispatch ported 1:1 from `LAN866XClientImpl::OnDataReceived`).
+
+For the **MCU32** port you keep `probe.c`/`rcp.c` and replace **only** `someip_stub_win.c` with an lwIP/FreeRTOS implementation of the same `SOMEIP_CB_*` set.
 
 ➡️ Details: **[PORTING.md](PORTING.md)**.
