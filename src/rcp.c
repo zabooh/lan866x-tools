@@ -241,3 +241,24 @@ bool rcp_write_read_spi(const uint8_t *tx, uint16_t txLen, uint8_t *rx, uint16_t
 { uint8_t b[260]; uint16_t n=0; b[n++]=(uint8_t)rxLen;
   if (tx&&txLen){ memcpy(&b[n],tx,txLen); n+=txLen; }
   uint16_t out=rxLen; return rcp_call(RCP_M_WRITE_AND_READ_SPI, false, b, n, rx, &out); } /* [V3] spi-demo.cpp */
+
+/* --- ADC (OpenAdcVar_t/ReadAdcVar_t/ReadAdcReply_t in lan866x_common.h) -- */
+bool rcp_open_adc(void)
+{ uint8_t a[1]; a[0]=0u; /* PinId always 0 (analog) */
+  return rcp_call(RCP_M_OPEN_ADC, false, a, sizeof(a), NULL, NULL); }          /* [V3] */
+
+bool rcp_read_adc(uint8_t channel, uint8_t vref, uint16_t *out)
+{ uint8_t a[2]; a[0]=channel; a[1]=vref;   /* handle tracking is part of [V4] */
+  uint8_t rx[4]; uint16_t n=sizeof(rx);
+  bool r = rcp_call(RCP_M_READ_ADC, false, a, sizeof(a), rx, &n);              /* [V4] ReadAdcReply_t */
+  if (r && out && n>=3) *out = (uint16_t)(rx[1] | (rx[2]<<8));  /* {Instance, ReadData} */
+  return r; }
+
+/* --- PWM (OpenPwmVar_t/WritePwmVar_t in lan866x_common.h) ---------------- */
+bool rcp_open_pwm(uint8_t pin, uint32_t intervalNs, uint32_t dutyQ31)
+{ uint8_t a[9]; a[0]=pin; memcpy(&a[1],&intervalNs,4); memcpy(&a[5],&dutyQ31,4);
+  return rcp_call(RCP_M_OPEN_PWM, false, a, sizeof(a), NULL, NULL); }          /* [V3] */
+
+bool rcp_write_pwm(uint32_t dutyQ31)
+{ uint8_t a[4]; memcpy(&a[0],&dutyQ31,4);  /* handle tracking is part of [V4] */
+  return rcp_call(RCP_M_WRITE_PWM, false, a, sizeof(a), NULL, NULL); }         /* [V3] */

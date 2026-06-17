@@ -45,9 +45,9 @@ if(CMAKE_CXX_COMPILER_ID STREQUAL "GNU")
 endif()
 
 # ----------------------------------------------------------------------------
-# Targets 3+4: GPIO and SPI tools
+# Targets 3-6: GPIO, SPI, ADC and PWM tools (same dependency profile)
 # ----------------------------------------------------------------------------
-foreach(tool gpio spi)
+foreach(tool gpio spi adc pwm)
     add_executable(lan866x-${tool} ${tool}.cpp)
     target_include_directories(lan866x-${tool} PRIVATE ${CMAKE_SOURCE_DIR}/include)
     target_link_libraries(lan866x-${tool} PRIVATE epmicrochip)
@@ -62,7 +62,7 @@ foreach(tool gpio spi)
 endforeach()
 
 # ----------------------------------------------------------------------------
-# Target 5: DNCP monitor (standalone, Winsock only - DNCP != SOME/IP)
+# Target 7: DNCP monitor (standalone, Winsock only - DNCP != SOME/IP)
 # ----------------------------------------------------------------------------
 add_executable(lan866x-dncpmon dncpmon.cpp)
 set_target_properties(lan866x-dncpmon PROPERTIES CXX_STANDARD 20)
@@ -75,7 +75,7 @@ if(CMAKE_CXX_COMPILER_ID STREQUAL "GNU")
 endif()
 
 # ----------------------------------------------------------------------------
-# Target 6: active DNCP discovery (standalone; ws2_32 + iphlpapi)
+# Target 8: active DNCP discovery (standalone; ws2_32 + iphlpapi)
 # ----------------------------------------------------------------------------
 add_executable(lan866x-dncpdisc dncpdisc.cpp)
 set_target_properties(lan866x-dncpdisc PROPERTIES CXX_STANDARD 20)

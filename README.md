@@ -34,6 +34,8 @@ The package consists of two parts:
 - **`lan866x-i2cscan`** – scans the I2C bus of an endpoint (like `i2cdetect`).
 - **`lan866x-gpio`** – set/read a GPIO pin.
 - **`lan866x-spi`** – SPI transfer (full-duplex).
+- **`lan866x-adc`** – read the on-chip ADC (analog input or internal temperature sensor).
+- **`lan866x-pwm`** – drive a PWM output on a digital pin.
 - **`lan866x-dncpmon`** – passive **DNCP** monitor (standalone, not SOME/IP).
 - **`lan866x-dncpdisc`** – **active** DNCP discovery (Registry broadcast → collect Announces, read-only).
 
@@ -168,6 +170,24 @@ out\lan866x-spi.exe --miso 12 --sck 13 --cs 14 --mosi 15 --tx 0102
 ```
 Output: `TX: …` / `RX: …`. Default pins MISO=PA12 SCK=PA13 CS=PA14 MOSI=PA15. Pins are released before `OpenSpi`.
 
+### ADC read
+```bat
+out\lan866x-adc.exe                      REM single analog read, 3V3 reference
+out\lan866x-adc.exe --temp               REM internal temperature sensor
+out\lan866x-adc.exe --vref 1             REM use the 1V1 reference
+out\lan866x-adc.exe --count 10 --interval 200
+```
+Reads the on-chip 12-bit ADC (0..4095) and prints the scaled voltage, e.g. `raw=2048  =  1.650 V`. Channel `0` = analog input, `1` = internal temperature; reference `0` = 3V3, `1` = 1V1.
+
+### PWM output
+```bat
+out\lan866x-pwm.exe --pin 6 --freq 1000 --duty 50    REM 1 kHz, 50% on PA06
+out\lan866x-pwm.exe --pin 6 --period-ns 20000000 --duty 7.5   REM servo, 1.5 ms pulse
+out\lan866x-pwm.exe --pin 6 --duty 0                 REM stop output (0%)
+out\lan866x-pwm.exe --pin 7 --freq 500 --duty 25 --hold 5
+```
+Opens a PWM channel on a digital pin. Duty cycle wire encoding: `0 = 0% .. 2^31 = 100%` (the tool takes percent and converts). By default the signal is **left running** on the endpoint after the tool exits (the handle lives on the device); `--hold <s>` stops it again after N seconds. The pin is released before `OpenPwm`.
+
 ### DNCP monitor (passive)
 ```bat
 out\lan866x-dncpmon.exe                REM listen forever (Ctrl+C to stop)
@@ -190,9 +210,9 @@ Acts as a **temporary DNCP server** (per AN1891): broadcasts an **empty Registry
 
 The tools do **not** know the endpoint IPs in advance – they learn them at runtime via **SOME/IP Service Discovery (SD)**:
 
-1. **Join multicast:** the tool joins the SD group **`224.0.0.1`** (the "Joined Multicast group" lines at startup – one per PC network interface).
+1. **Join multicast:** the tool joins the SD group **`224.0.0.1`** (the "Joined Multicast group" lines at startup – one per PC network interface). SOME/IP Service Discovery runs on **UDP port 30490**.
 2. **Send FindService:** it queries via SD **`FindService`** for the RCP service **`0xFF10`**.
-3. **Endpoints respond:** every endpoint that offers `0xFF10` sends back an **`OfferService`** – **containing its own IP/port** (e.g. `192.168.0.102:6800`). Endpoints also send Offers periodically on their own.
+3. **Endpoints respond:** every endpoint that offers `0xFF10` sends back an **`OfferService`** – **containing its own IP/port** (the method endpoint is **UDP 6800**, e.g. `192.168.0.102:6800`). Endpoints also send Offers periodically on their own.
 4. **Build the list:** `libepmicrochip` collects the offers → `GetAllClients()`. **So the IP comes from the endpoint, not from the tool.**
 
 ```
@@ -217,6 +237,8 @@ lan866x-tools/
 ├── i2cscan.cpp          Track A: I2C bus scanner
 ├── gpio.cpp             Track A: GPIO set/read
 ├── spi.cpp              Track A: SPI transfer
+├── adc.cpp              Track A: ADC read (analog / temperature)
+├── pwm.cpp              Track A: PWM output
 ├── dncpmon.cpp          Track A: passive DNCP monitor (standalone)
 ├── dncpdisc.cpp         Track A: active DNCP discovery (standalone)
 ├── include/             public headers (lan866x_client.hpp, ...)
@@ -247,24 +269,32 @@ All sources required to build live **inside** this directory.
 
 ## 8. RCP method IDs
 
-Service `0xFF10`. Verified from `lan866x_client.cpp`.
+Service `0xFF10`. **Verified** against the authoritative Microchip SOME/IP dissector table (Wireshark `SOMEIP_method_event_identifiers`).
 
 | Method | ID | | Method | ID |
 |---|---|---|---|---|
-| GetStatus | `0x1002` | | OpenSpi | `0x1500` |
-| OpenGpio | `0x1300` | | WriteAndReadSpi | `0x1508` |
-| SetGpio | `0x1330` | | OpenUart | `0x1400` |
-| GetGpio | `0x1332` | | WriteUart | `0x1404` |
-| OpenI2C | `0x1200` | | ReadUart | `0x1420` |
-| WriteAndReadI2C | `0x1208`* | | WakeupNetwork | `0x1601` |
+| Reboot | `0x1000` | | OpenSpi | `0x1500` |
+| GetStatus | `0x1002` | | CloseSpi | `0x1502` |
+| GetNetworkStatus | `0x1600` | | WriteAndReadSpi | `0x1508` |
+| WakeupNetwork | `0x1601` | | OpenUart | `0x1400` |
+| ReleaseDigitalPins | `0x1105` | | WriteUart | `0x1404` |
+| OpenGpio | `0x1300` | | ReadUart | `0x1420` |
+| SetGpio | `0x1330` | | OpenAdc | `0x1700` |
+| GetGpio | `0x1332` | | ReadAdc | `0x1720` |
+| OpenI2C | `0x1200` | | OpenPwm | `0x1800` |
+| WriteI2C | `0x1204` | | WritePwm | `0x1804` |
+| ReadI2C | `0x1220` | | OnGpioEvents (evt) | `0x8000` |
+| WriteAndReadI2C | `0x1208` | | OnUartReceive (evt) | `0x8010` |
 
-\* I2C read/write variants are in the range `0x1203…0x1220` – verify the exact ID/payload against `lan866x_client.cpp`.
+> Note: the *Library Integration Manual* prose lists `OpenI2C = 0x0100` — that is a typo; the dissector table (and the live wire) use `0x1200`. Always trust the dissector CSV / `lan866x_common.h` over the prose.
 
 ---
 
 ## 9. C template for MCU32 (Track B)
 
-`src/main.c`, `rcp.c`, `rcp.h` are the **portable C template** for the embedded target (pure C on `libsomeip`). It is built against the real C API + verified method IDs/structs; only the parameter layouts marked `[V3]/[V4]` and the RX dispatch function `on_data_received()` (template: `LAN866XClientImpl::OnDataReceived`) remain to be completed.
+`src/main.c`, `rcp.c`, `rcp.h` are the **portable C template** for the embedded target (pure C on `libsomeip`). All method IDs are now **verified** against the dissector table (incl. ADC `0x1700`/`0x1720` and PWM `0x1800`/`0x1804`); only the parameter layouts marked `[V3]/[V4]` and the RX dispatch function `on_data_received()` (template: `LAN866XClientImpl::OnDataReceived`) remain to be completed.
+
+> **Recommended base:** Microchip ships a generated, callback-based **pure-C client** (`lan866x_c/`, `lan866x_client.c/.h` + `lan866x_common.h`) in the multi-language library repo (see the *LAN866x Library Integration Manual*). It uses the **same `RT_*` return codes and `*Var_t`/`*Reply_t` structs** as `include/lan866x_common.h` here, so it is the ideal drop-in for the embedded port. This `rcp.c/.h` is a compact, self-contained stand-in for when that generated client is not vendored. See [PORTING.md](PORTING.md).
 
 Track B is **not** built by this Windows CMake, but in the MCU32 project together with an lwIP/FreeRTOS implementation of the `SOMEIP_CB_*` callbacks (replacing the Windows stub).
 

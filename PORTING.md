@@ -51,8 +51,22 @@ The libsomeip core calls a fixed set of **platform callbacks**. On Windows these
 ## Footprint (per the roadmap overview)
 SOME/IP core **ROM ≈ 28 kB, RAM ≈ 300 B** → fits on an MCU32 incl. FreeRTOS.
 
-## Note on the C++ wrapper
-`liblan866x` (C++ `LAN866XClient`) is **not** intended for embedded. For MCU32 you build directly on `libsomeip` (C) – as done here. If Microchip provides a **pure C client API variant** of libLAN866x (the overview mentions "C … MCUs"), that would be the ideal base – worth asking for.
+## Recommended base: the official pure-C client (`lan866x_c/`)
+Microchip ships a **generated, callback-based pure-C client** — `lan866x_c/lan866x_client.c/.h` + `lan866x_common.h` — in the multi-language library repo (documented in the *LAN866x Library Integration Manual*). This is exactly the "pure C client API variant" the embedded port wants, and it should be preferred over the hand-rolled `src/rcp.c` stand-in here.
+
+It shares the **same data types** as this package (`include/lan866x_common.h`): `ReturnCode_t` (`RT_OK=0`, `RT_TIMEOUT=3`, `RT_DEVICE_NOT_AVAILABLE=4`, `RT_NOT_REACHABLE=5`) and the `*Var_t`/`*Reply_t` request/reply structs. Its integration surface is small:
+
+| API | Purpose |
+|---|---|
+| `LAN866X_Client_Init(true)` | init stack + start service discovery (SD on UDP 30490) |
+| `LAN866X_CB_Available(node, instId, avail, ip, ipLen, port)` | device appear/disappear callback (you implement) |
+| `LAN866X_EventCB_OnGpioEvents / OnUartReceive / OnAdcEvent / OnTDMeasurementCompleted` | async event callbacks (you implement) |
+| `LAN866X_VerbPeripheral(node, &var, &reply) -> ReturnCode_t` | every RPC (e.g. `LAN866X_OpenI2C`, `LAN866X_ReadAdc`, `LAN866X_WritePwm`) |
+
+`RT_NOT_REACHABLE` is **not** an error — it means that peripheral is not enabled in the node's COMO configuration; multi-node code should skip such nodes.
+
+**Porting plan with the official client:** vendor `lan866x_c/` + its `someip/` submodule, then provide only the platform layer — the `SOMEIP_CB_*` table below (lwIP + FreeRTOS) — exactly as for this package. The C++ `liblan866x` (`LAN866XClient`) is **not** intended for embedded.
 
 ## Reference
-Architecture (RTOS/lwIP), pin mapping & wake/sleep: **LAN866x Endpoint User's Guide** (§4 Functional Description, §6 SOME/IP methods) and the LAN8660/8661/8662 datasheets.
+- **LAN866x Library Integration Manual** — the official C client API, build steps, and 8 example programs (device_discovery, device_info, led_blink, adc_demo, i2c_proximity, pwm, spi_thumbstick, uart_terminal).
+- **LAN866x Endpoint User's Guide** (§4 Functional Description, §6 SOME/IP methods) and the LAN8660/8661/8662 datasheets — architecture (RTOS/lwIP), pin mapping & wake/sleep.
