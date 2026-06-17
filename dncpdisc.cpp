@@ -32,25 +32,61 @@ static const char *stateStr(uint8_t s){
 }
 static uint64_t be64(const uint8_t*p){uint64_t v=0;for(int i=0;i<8;i++)v=(v<<8)|p[i];return v;}
 
-struct Node { uint8_t mac[6]; uint64_t devid; uint32_t ipv4; uint8_t state; std::vector<uint8_t> plca; };
+struct Node {
+    uint8_t  mac[6];
+    uint64_t devid;
+    uint8_t  ipv6[16];
+    uint32_t ipv4;
+    uint8_t  persistency;
+    uint8_t  state;
+    uint8_t  burst;
+    uint8_t  proto;
+    std::vector<uint8_t> plca;
+};
 static std::vector<Node> g_nodes;
+
+/* Endpoint-Typ aus der Vendor-Device-ID/heuristisch (best effort). */
+static void printNode(const Node &n, int idx)
+{
+    printf("\n========================================================\n");
+    printf("DNCP-Knoten #%d\n", idx);
+    printf("========================================================\n");
+    printf("  MAC-Adresse:      %02X:%02X:%02X:%02X:%02X:%02X\n",
+           n.mac[0],n.mac[1],n.mac[2],n.mac[3],n.mac[4],n.mac[5]);
+    printf("  Vendor Device-ID: 0x%016llX\n", (unsigned long long)n.devid);
+    printf("  IPv4:             %u.%u.%u.%u\n",
+           (n.ipv4>>24)&0xFF,(n.ipv4>>16)&0xFF,(n.ipv4>>8)&0xFF,n.ipv4&0xFF);
+    printf("  IPv6:             ");
+    bool allzero=true; for(int i=0;i<16;i++) if(n.ipv6[i]){allzero=false;break;}
+    if (allzero) printf("(nicht gesetzt)\n");
+    else { for(int i=0;i<16;i+=2) printf("%s%02X%02X", i?":":"", n.ipv6[i], n.ipv6[i+1]); printf("\n"); }
+    printf("  State:            %s\n", stateStr(n.state));
+    printf("  Persistency:      %s\n", n.persistency?"Persistent":"Non-Persistent");
+    printf("  BurstFramesPerTO: %u\n", n.burst);
+    printf("  Protokoll-Vers.:  %u\n", n.proto);
+    printf("  PLCA Node-IDs:    %u Stueck:", (unsigned)n.plca.size());
+    for (size_t i=0;i<n.plca.size();i++) printf(" %u", n.plca[i]);
+    printf("\n");
+}
 
 static void addAnnounce(const uint8_t*b,int len)
 {
     if (len < 56) return;
-    if (b[10]!=1) return;                 /* ProtocolVersion */
     if (((b[12]<<8)|b[13]) != 0x0200) return;  /* MessageId Announce */
     const uint8_t *m = b+18;              /* uint64 MacAddress -> lower 6 Bytes */
     for (auto &n : g_nodes) if (memcmp(n.mac,m,6)==0) return; /* dedup */
-    Node n{}; memcpy(n.mac,m,6); n.devid=be64(b+24);
-    n.ipv4=(b[48]<<24)|(b[49]<<16)|(b[50]<<8)|b[51]; n.state=b[53];
+    Node n{};
+    memcpy(n.mac,m,6);
+    n.devid = be64(b+24);
+    memcpy(n.ipv6, b+32, 16);
+    n.ipv4 = (b[48]<<24)|(b[49]<<16)|(b[50]<<8)|b[51];
+    n.persistency = b[52];
+    n.state = b[53];
+    n.burst = b[54];
+    n.proto = b[10];
     uint8_t slots=b[55]; for(int j=0;j<slots && 56+j<len;j++) n.plca.push_back(b[56+j]);
     g_nodes.push_back(n);
-    printf("  + %02X:%02X:%02X:%02X:%02X:%02X  DevID 0x%016llX  IPv4 %u.%u.%u.%u  %s  PLCA[",
-           m[0],m[1],m[2],m[3],m[4],m[5],(unsigned long long)n.devid,
-           (n.ipv4>>24)&0xFF,(n.ipv4>>16)&0xFF,(n.ipv4>>8)&0xFF,n.ipv4&0xFF, stateStr(n.state));
-    for (size_t i=0;i<n.plca.size();i++) printf("%s%u", i?",":"", n.plca[i]);
-    printf("]\n");
+    printNode(n, (int)g_nodes.size()-1);
 }
 
 /* Lokale IPv4-Interfaces ermitteln (fuer Multicast-Join/-Send). */

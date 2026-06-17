@@ -181,7 +181,7 @@ Dekodiert **DNCP**-Pakete (Dynamic Node Configuration Protocol) auf **UDP 65526/
 out\lan866x-dncpdisc.exe                       REM 3 Runden, Channel 11
 out\lan866x-dncpdisc.exe --channel 11 --rounds 5 --timeout 4
 ```
-Agiert als **temporärer DNCP-Server** (gemäß AN1891): broadcastet eine **leere Registry** an `224.0.0.1:65527`; Knoten, die sich darin nicht finden, senden ein **Announce** an `224.0.0.1:65526`, das gesammelt und dekodiert wird (MAC, Device-ID, IPv4, State, PLCA-IDs).
+Agiert als **temporärer DNCP-Server** (gemäß AN1891): broadcastet eine **leere Registry** an `224.0.0.1:65527`; Knoten, die sich darin nicht finden, senden ein **Announce** an `224.0.0.1:65526`. Pro Knoten werden **alle Announce-Felder** dekodiert: MAC, Vendor-Device-ID, **IPv4 + IPv6**, State, Persistency, BurstFramesPerTO, Protokoll-Version und alle PLCA-Node-IDs.
 > **Nur lesend** — weist keine PLCA-IDs/IPs zu, persistiert nichts (kein Assign/StoreSettings/Activate). EnumChannel = Default (11), damit der Enumeration-Channel der Knoten unverändert bleibt. **Nur verwenden, wenn kein anderer DNCP-Server aktiv ist.** Live verifiziert (LAN8662 antwortete).
 
 ---
