@@ -32,6 +32,8 @@ Das Paket besteht aus zwei Teilen:
 **Track-A-Tools** (nutzen `libepmicrochip` über den T1S-USB-Adapter):
 - **`lan866x-discovery`** – listet erreichbare Endpoints + Typ + RCP-Service `0xFF10` + vollständige `GetStatus`/`GetNetworkStatus`-Infos.
 - **`lan866x-i2cscan`** – scannt den I²C-Bus eines Endpoints (à la `i2cdetect`).
+- **`lan866x-gpio`** – GPIO-Pin setzen/lesen.
+- **`lan866x-spi`** – SPI-Transfer (Full-Duplex).
 
 ---
 
@@ -149,6 +151,21 @@ Probt 0x08..0x77 per 1-Byte-Read und zeigt ein `i2cdetect`-Raster. Beispiel (Pro
 ```
 > Pins müssen zur Board-Konfiguration passen (`--sda`/`--scl`, PA-Nummer 0–15). Das Tool entsperrt SDA/SCL vor `OpenI2C` automatisch (`ReleaseDigitalPins`).
 
+### GPIO setzen/lesen
+```bat
+out\lan866x-gpio.exe --pin 2 --set 1     REM PA02 als Output, High
+out\lan866x-gpio.exe --pin 2 --get       REM PA02 als Input lesen
+out\lan866x-gpio.exe --ip 192.168.0.54 --pin 6 --set 0
+```
+
+### SPI-Transfer (Full-Duplex)
+```bat
+out\lan866x-spi.exe --tx 9F0000          REM 3 Byte senden, MISO gleichzeitig lesen
+out\lan866x-spi.exe --tx AA55 --mode 0 --speed 1000000
+out\lan866x-spi.exe --miso 12 --sck 13 --cs 14 --mosi 15 --tx 0102
+```
+Ausgabe: `TX: …` / `RX: …`. Default-Pins MISO=PA12 SCK=PA13 CS=PA14 MOSI=PA15. Pins werden vor `OpenSpi` entsperrt.
+
 ---
 
 ## 5. Wie funktioniert die Discovery?
@@ -177,9 +194,11 @@ EP2 --OfferService: ich bin 192.168.0.102 -->  PC
 ```
 lan866x-tools/
 ├── build.bat            Windows-Build-Skript (Kapitel 3)
-├── CMakeLists.txt       baut Targets "lan866x-discovery" + "lan866x-i2cscan"
+├── CMakeLists.txt       baut die vier Tool-Targets
 ├── discovery.cpp        Track A: Endpoint-/Service-Discovery (läuft sofort)
 ├── i2cscan.cpp          Track A: I²C-Bus-Scanner
+├── gpio.cpp             Track A: GPIO setzen/lesen
+├── spi.cpp              Track A: SPI-Transfer
 ├── include/             öffentliche Header (lan866x_client.hpp, ...)
 ├── libepmicrochip/      SOME/IP-Stack (C) + liblan866x + Windows-Plattform-Stub
 ├── src/                 Track B: portable C-Vorlage für MCU32

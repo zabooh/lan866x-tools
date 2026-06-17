@@ -45,6 +45,23 @@ if(CMAKE_CXX_COMPILER_ID STREQUAL "GNU")
 endif()
 
 # ----------------------------------------------------------------------------
+# Target 3+4: GPIO- und SPI-Tool
+# ----------------------------------------------------------------------------
+foreach(tool gpio spi)
+    add_executable(lan866x-${tool} ${tool}.cpp)
+    target_include_directories(lan866x-${tool} PRIVATE ${CMAKE_SOURCE_DIR}/include)
+    target_link_libraries(lan866x-${tool} PRIVATE epmicrochip)
+    set_target_properties(lan866x-${tool} PROPERTIES CXX_STANDARD 20)
+    if(WIN32)
+        target_compile_definitions(lan866x-${tool} PRIVATE WIN32 _WIN32_WINNT=0x0601)
+        target_link_libraries(lan866x-${tool} PRIVATE ws2_32 Iphlpapi)
+    endif()
+    if(CMAKE_CXX_COMPILER_ID STREQUAL "GNU")
+        target_link_options(lan866x-${tool} PRIVATE -static -static-libgcc -static-libstdc++)
+    endif()
+endforeach()
+
+# ----------------------------------------------------------------------------
 # Hinweis zur C-Vorlage (src/main.c, rcp.c, rcp.h):
 #   Portable MCU32-Vorlage (reines C auf libsomeip). Wird NICHT hier gebaut,
 #   sondern im MCU32-Projekt mit einer lwIP/FreeRTOS-Implementierung der

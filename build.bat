@@ -65,8 +65,9 @@ REM --- alle erzeugten exes nach release\ kopieren ---------------------------
 if not exist "release" mkdir "release"
 set "BINDIR=%BUILD_DIR%"
 if exist "%BUILD_DIR%\Release" set "BINDIR=%BUILD_DIR%\Release"
-copy /Y "%BINDIR%\lan866x-discovery.exe" "release\" >nul 2>nul && echo [build] -^> release\lan866x-discovery.exe
-copy /Y "%BINDIR%\lan866x-i2cscan.exe"   "release\" >nul 2>nul && echo [build] -^> release\lan866x-i2cscan.exe
+for %%T in (discovery i2cscan gpio spi) do (
+    copy /Y "%BINDIR%\lan866x-%%T.exe" "release\" >nul 2>nul && echo [build] -^> release\lan866x-%%T.exe
+)
 
 echo.
 echo [build] OK. Binaries in release\
