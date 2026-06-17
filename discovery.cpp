@@ -1,14 +1,14 @@
 /*
- * discovery.cpp  -  Endpoint-/Service-Discovery (Windows, sofort lauffaehig).
+ * discovery.cpp  -  Endpoint/service discovery (Windows, ready to run).
  *
- * Listet alle ueber den T1S-USB-Adapter erreichbaren LAN866x-Endpoints und gibt
- * pro Endpoint die vollstaendigen Status-Infos aus (wie der Remote Configurator):
- *   - GetStatus       (0x1002): Uptime, Chip, App-/Bootloader-Namen & -Versionen,
- *                               COMO/Service/Keys-Version, Startup-/Reset-Info
- *   - GetNetworkStatus(0x1600): MAC, IPv4/IPv6, Endpoint-/OASPI-Status,
- *                               Arbitration, PLCA Node Id
+ * Lists every LAN866x endpoint reachable via the T1S-USB adapter and prints
+ * the full status of each (like the Remote Configurator):
+ *   - GetStatus       (0x1002): uptime, chip, app/bootloader names & versions,
+ *                               COMO/Service/Keys version, startup/reset info
+ *   - GetNetworkStatus(0x1600): MAC, IPv4/IPv6, endpoint/OASPI status,
+ *                               arbitration, PLCA node id
  *
- * Nutzt den fertigen C++-Stack (libepmicrochip). Discovery laeuft ueber SOME/IP-SD.
+ * Uses the prebuilt C++ stack (libepmicrochip). Discovery runs over SOME/IP-SD.
  */
 #include <cstdio>
 #include <cstring>
@@ -21,7 +21,7 @@ using namespace microchip::rcp;
 
 extern "C" { uint8_t MULTICAST_IP[] = { 224, 0, 0, 1 }; }
 
-/* laengenbehaftetes Byte-Feld -> C-String */
+/* length-prefixed byte field -> C string */
 static const char *S(const uint8_t *buf, uint16_t len)
 {
     static char tmp[65];
@@ -39,13 +39,13 @@ static void printUptime(uint64_t ns)
     printf("%uh %um %u.%03us", h, m, sec, ms);
 }
 
-/* Endpoint-Typ aus dem Chip-Identifier ableiten (z. B. "LAN8661B"). */
+/* Derive endpoint type from the chip identifier (e.g. "LAN8661B"). */
 static const char *epType(const char *chip)
 {
     if (strncmp(chip, "LAN8660", 7) == 0) return "Control Endpoint";
     if (strncmp(chip, "LAN8661", 7) == 0) return "Lighting Endpoint (LED/Display)";
     if (strncmp(chip, "LAN8662", 7) == 0) return "Audio Endpoint";
-    return "unbekannt";
+    return "unknown";
 }
 
 static const char *arbStr(uint8_t a)
@@ -70,16 +70,16 @@ static void printStartup(uint64_t si)
 static void usage(const char *prog)
 {
     printf(
-        "%s - LAN866x Endpoint-/Service-Discovery\n\n"
-        "Listet alle ueber den T1S-USB-Adapter erreichbaren Endpoints und gibt pro\n"
-        "Endpoint Typ, RCP-Service (0xFF10) sowie GetStatus/GetNetworkStatus aus.\n\n"
-        "AUFRUF:\n"
+        "%s - LAN866x endpoint/service discovery\n\n"
+        "Lists all endpoints reachable via the T1S-USB adapter and prints each\n"
+        "endpoint's type, RCP service (0xFF10) and GetStatus/GetNetworkStatus.\n\n"
+        "USAGE:\n"
         "  %s [--help]\n\n"
-        "OPTIONEN:\n"
-        "  -h, --help   diese Hilfe anzeigen\n\n"
-        "Das Tool nimmt keine weiteren Argumente; die Endpoints werden per\n"
-        "SOME/IP Service Discovery (Multicast 224.0.0.1) automatisch gefunden.\n"
-        "Voraussetzung: T1S-USB-Adapter mit IP 192.168.0.x, Firewall frei.\n",
+        "OPTIONS:\n"
+        "  -h, --help   show this help\n\n"
+        "The tool takes no further arguments; endpoints are found automatically\n"
+        "via SOME/IP Service Discovery (multicast 224.0.0.1).\n"
+        "Requirement: T1S-USB adapter with IP 192.168.0.x, firewall allowed.\n",
         prog, prog);
 }
 
@@ -91,7 +91,7 @@ int main(int argc, char **argv)
     uint8_t maj=0,min=0,bug=0;
     LAN866XClientFactory::GetVersion(maj,min,bug);
     printf("libLAN866x %u.%u.%u  -  Endpoint Discovery\n", maj,min,bug);
-    printf("Suche erreichbare Endpoints (5 s) ...\n");
+    printf("Searching for reachable endpoints (5 s) ...\n");
 
     for (int i = 0; i < 50; ++i) {
         (void)LAN866XClientFactory::GetAllClients();
@@ -130,7 +130,7 @@ int main(int argc, char **argv)
             printf("  Keys Version:       %s\n", S(st.KeysVersion, st.KeysVersionLength));
             printf("  StartupInformation:\n"); printStartup(st.StartupInformation);
         } else {
-            printf("  GetStatus fehlgeschlagen\n");
+            printf("  GetStatus failed\n");
         }
 
         /* ---- GetNetworkStatus ---- */
@@ -153,11 +153,11 @@ int main(int argc, char **argv)
             printf("  Arbitration:        %s\n", arbStr(ns.ArbitrationMode));
             printf("  PLCA Node Id:       %u\n", (unsigned)ns.PLCANodeId);
         } else {
-            printf("  GetNetworkStatus fehlgeschlagen\n");
+            printf("  GetNetworkStatus failed\n");
         }
     }
 
     if (clients.empty())
-        printf("\nKeine Endpoints. Pruefe: Treiber, NIC-IP (192.168.0.x), Bus-Termination, Firewall.\n");
+        printf("\nNo endpoints. Check: driver, NIC IP (192.168.0.x), bus termination, firewall.\n");
     return 0;
 }

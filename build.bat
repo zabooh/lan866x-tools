@@ -1,33 +1,33 @@
 @echo off
 REM ============================================================================
-REM  build.bat  -  Baut das Discovery-Tool (lan866x-discovery.exe) unter Windows.
+REM  build.bat  -  Builds the tools (lan866x-*.exe) on Windows.
 REM
-REM  Aufruf:
-REM    build.bat          Compiler automatisch waehlen (MinGW, sonst VS2022)
-REM    build.bat mingw    MinGW-w64 (GCC) erzwingen
-REM    build.bat vs       Visual Studio 2022 (MSVC) erzwingen
-REM    build.bat clean    Build-Ordner loeschen
+REM  Usage:
+REM    build.bat          choose compiler automatically (MinGW, else VS2022)
+REM    build.bat mingw    force MinGW-w64 (GCC)
+REM    build.bat vs       force Visual Studio 2022 (MSVC)
+REM    build.bat clean    delete the build folder
 REM
-REM  Voraussetzungen: siehe README.md, Kapitel "2. Systemvoraussetzungen".
+REM  Requirements: see README.md, chapter "2. System requirements".
 REM ============================================================================
 setlocal
 cd /d "%~dp0"
 set "BUILD_DIR=out"
 
 if /I "%~1"=="clean" (
-    echo [build] Loesche %BUILD_DIR% ...
+    echo [build] Deleting %BUILD_DIR% ...
     if exist "%BUILD_DIR%" rmdir /s /q "%BUILD_DIR%"
-    echo [build] Fertig.
+    echo [build] Done.
     goto :eof
 )
 
 where cmake >nul 2>nul
 if errorlevel 1 (
-    echo [build] FEHLER: 'cmake' nicht im PATH. Siehe README Kapitel 2.
+    echo [build] ERROR: 'cmake' not in PATH. See README chapter 2.
     exit /b 1
 )
 
-REM --- Generatorwahl --------------------------------------------------------
+REM --- generator selection --------------------------------------------------
 if /I "%~1"=="mingw" goto :mingw
 if /I "%~1"=="vs"    goto :vs
 where gcc >nul 2>nul
@@ -37,7 +37,7 @@ if errorlevel 1 (goto :vs) else (goto :mingw)
 echo [build] Generator: MinGW Makefiles ^(GCC^)
 where gcc >nul 2>nul
 if errorlevel 1 (
-    echo [build] FEHLER: 'gcc' nicht im PATH. MinGW-w64 installieren ^(README Kap. 2^).
+    echo [build] ERROR: 'gcc' not in PATH. Install MinGW-w64 ^(README ch. 2^).
     exit /b 1
 )
 cmake -G "MinGW Makefiles" -B "%BUILD_DIR%" || goto :cfgerr
@@ -53,15 +53,15 @@ set "EXE=%BUILD_DIR%\Release\lan866x-discovery.exe"
 goto :ok
 
 :cfgerr
-echo [build] FEHLER bei der CMake-Konfiguration.
+echo [build] ERROR during CMake configuration.
 exit /b 1
 
 :builderr
-echo [build] FEHLER beim Bauen.
+echo [build] ERROR during build.
 exit /b 1
 
 :ok
-REM --- alle erzeugten exes nach release\ kopieren ---------------------------
+REM --- copy all built exes to release\ --------------------------------------
 if not exist "release" mkdir "release"
 set "BINDIR=%BUILD_DIR%"
 if exist "%BUILD_DIR%\Release" set "BINDIR=%BUILD_DIR%\Release"

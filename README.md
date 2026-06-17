@@ -1,89 +1,89 @@
-# LAN866x Tools – SOME/IP-Konsolen-Tools (RCP)
+# LAN866x Tools – SOME/IP console tools (RCP)
 
-Minimaler **C**-Host, der LAN866x **Control-Endpoints** über das **Remote Control Protocol (RCP)** auf Basis des reinen **C-SOME/IP-Stacks (`libsomeip`)** fernsteuert. Zugriff über den **T1S-USB-Adapter** (EVB-LAN8670-USB) als Ethernet-Bridge.
+Minimal **C** host that remote-controls LAN866x **control endpoints** via the **Remote Control Protocol (RCP)** on top of the pure **C SOME/IP stack (`libsomeip`)**. Access is via the **T1S-USB adapter** (EVB-LAN8670-USB) as an Ethernet bridge.
 
-> 📦 **Eigenständiges Paket:** Dieses Verzeichnis enthält **alle** zum Bauen nötigen Quellen. Entpacken → bauen, keine externen Pfade nötig.
+> 📦 **Self-contained package:** This directory contains **all** sources required to build. Unpack → build, no external paths needed.
 
-## Inhaltsverzeichnis
+## Table of contents
 
-1. [Überblick](#1-überblick)
-2. [Systemvoraussetzungen](#2-systemvoraussetzungen)
+1. [Overview](#1-overview)
+2. [System requirements](#2-system-requirements)
 3. [How to compile](#3-how-to-compile)
-4. [Ausführen und Ausgabe](#4-ausführen-und-ausgabe)
-5. [Wie funktioniert die Discovery?](#5-wie-funktioniert-die-discovery)
-6. [Projektstruktur](#6-projektstruktur)
-7. [Beispiel-Pinbelegung (LAN8660)](#7-beispiel-pinbelegung-lan8660)
-8. [RCP-Method-IDs](#8-rcp-method-ids)
-9. [C-Vorlage für MCU32 (Track B)](#9-c-vorlage-für-mcu32-track-b)
+4. [Running and output](#4-running-and-output)
+5. [How does discovery work?](#5-how-does-discovery-work)
+6. [Project structure](#6-project-structure)
+7. [Example pin mapping (LAN8660)](#7-example-pin-mapping-lan8660)
+8. [RCP method IDs](#8-rcp-method-ids)
+9. [C template for MCU32 (Track B)](#9-c-template-for-mcu32-track-b)
 
 ---
 
-## 1. Überblick
+## 1. Overview
 
-**Zweck:** Windows-Prototyp → später 1:1 als Vorlage für ein **32-bit Embedded Device** (MCU32 + lwIP + FreeRTOS). Typischer **Control-Endpoint-Use-Case**: nur **GPIO / I²C / SPI** (+ UART), z. B. mit einem LAN8660.
+**Purpose:** Windows prototype → later used 1:1 as a template for a **32-bit embedded device** (MCU32 + lwIP + FreeRTOS). Typical **control-endpoint use case**: only **GPIO / I2C / SPI** (+ UART), e.g. with a LAN8660.
 
-Das Paket besteht aus zwei Teilen:
+The package consists of two parts:
 
-| Track | Datei(en) | Status | Zweck |
+| Track | File(s) | Status | Purpose |
 |---|---|---|---|
-| **A – Tools (C++)** | `discovery.cpp`, `i2cscan.cpp` | ✅ **baut & läuft** | Sofort nutzbare PC-Tools auf dem fertigen Stack |
-| **B – C-Host-Vorlage** | `src/*.c` | Vorlage | Portierbarer C-Code → MCU32 (lwIP/FreeRTOS), siehe [Kapitel 9](#9-c-vorlage-für-mcu32-track-b) |
+| **A – tools (C++)** | `discovery.cpp`, `i2cscan.cpp`, ... | ✅ **builds & runs** | Ready-to-use PC tools on top of the prebuilt stack |
+| **B – C host template** | `src/*.c` | template | Portable C code → MCU32 (lwIP/FreeRTOS), see [chapter 9](#9-c-template-for-mcu32-track-b) |
 
-**Track-A-Tools** (nutzen `libepmicrochip` über den T1S-USB-Adapter):
-- **`lan866x-discovery`** – listet erreichbare Endpoints + Typ + RCP-Service `0xFF10` + vollständige `GetStatus`/`GetNetworkStatus`-Infos.
-- **`lan866x-i2cscan`** – scannt den I²C-Bus eines Endpoints (à la `i2cdetect`).
-- **`lan866x-gpio`** – GPIO-Pin setzen/lesen.
-- **`lan866x-spi`** – SPI-Transfer (Full-Duplex).
-- **`lan866x-dncpmon`** – passiver **DNCP**-Monitor (eigenständig, nicht SOME/IP).
-- **`lan866x-dncpdisc`** – **aktive** DNCP-Discovery (Registry-Broadcast → Announces sammeln, read-only).
+**Track A tools** (use `libepmicrochip` over the T1S-USB adapter):
+- **`lan866x-discovery`** – lists reachable endpoints + type + RCP service `0xFF10` + full `GetStatus`/`GetNetworkStatus` info.
+- **`lan866x-i2cscan`** – scans the I2C bus of an endpoint (like `i2cdetect`).
+- **`lan866x-gpio`** – set/read a GPIO pin.
+- **`lan866x-spi`** – SPI transfer (full-duplex).
+- **`lan866x-dncpmon`** – passive **DNCP** monitor (standalone, not SOME/IP).
+- **`lan866x-dncpdisc`** – **active** DNCP discovery (Registry broadcast → collect Announces, read-only).
 
 ---
 
-## 2. Systemvoraussetzungen
+## 2. System requirements
 
-Zum **Bauen** muss auf dem Rechner vorhanden sein:
+To **build**, the machine needs:
 
-### 2.1 CMake ≥ 3.10  *(getestet: 4.1)*
-- Download: <https://cmake.org/download/> → „Windows x64 Installer".
-- Bei der Installation **„Add CMake to the system PATH"** wählen.
-- Prüfen: `cmake --version`
+### 2.1 CMake ≥ 3.10  *(tested: 4.1)*
+- Download: <https://cmake.org/download/> → "Windows x64 Installer".
+- During installation choose **"Add CMake to the system PATH"**.
+- Check: `cmake --version`
 
-### 2.2 Ein C/C++-Compiler  *(eine der beiden Varianten)*
+### 2.2 A C/C++ compiler  *(one of the two options)*
 
-**Variante A – MinGW-w64 (GCC)** — empfohlen für die Kommandozeile *(getestet GCC 16.1)*
-- Einfachste Quelle: **WinLibs** <https://winlibs.com/> (UCRT-Variante) – ZIP entpacken, den Ordner `…\mingw64\bin` zum **PATH** hinzufügen.
-- Alternativ **MSYS2** <https://www.msys2.org/>: `pacman -S mingw-w64-ucrt-x86_64-gcc mingw-w64-ucrt-x86_64-cmake`
-- Prüfen: `gcc --version` und `mingw32-make --version`
+**Option A – MinGW-w64 (GCC)** — recommended for the command line *(tested GCC 16.1)*
+- Easiest source: **WinLibs** <https://winlibs.com/> (UCRT variant) – unzip and add the `…\mingw64\bin` folder to **PATH**.
+- Alternatively **MSYS2** <https://www.msys2.org/>: `pacman -S mingw-w64-ucrt-x86_64-gcc mingw-w64-ucrt-x86_64-cmake`
+- Check: `gcc --version` and `mingw32-make --version`
 
-**Variante B – Visual Studio 2022**
-- Installer: <https://visualstudio.microsoft.com/> → Workload **„Desktop development with C++"** (enthält MSVC-Compiler **und** CMake).
+**Option B – Visual Studio 2022**
+- Installer: <https://visualstudio.microsoft.com/> → workload **"Desktop development with C++"** (includes the MSVC compiler **and** CMake).
 
-### 2.3 Hardware & Treiber  *(nur zum Ausführen, nicht zum Bauen)*
-- **EVB-LAN8670-USB** (T1S-USB-Adapter) – erscheint unter Windows als normale **Ethernet-NIC**.
-- **Windows-Treiber** installieren (`EVB-LAN8670-USB_Drv_Setup.exe`, aus dem LAN866x-Remote-Demo-Paket / MicrochipDirect **EV08L38A**).
-- LAN866x-Endpoint(s) am T1S-Bus, **Bus terminiert**, ggf. PoDL-Speisung.
+### 2.3 Hardware & driver  *(only to run, not to build)*
+- **EVB-LAN8670-USB** (T1S-USB adapter) – shows up on Windows as a normal **Ethernet NIC**.
+- Install the **Windows driver** (`EVB-LAN8670-USB_Drv_Setup.exe`, from the LAN866x Remote Demo package / MicrochipDirect **EV08L38A**).
+- LAN866x endpoint(s) on the T1S bus, **bus terminated**, PoDL power if applicable.
 
-### 2.4 Netzwerk  *(nur zum Ausführen)*
-- Dem USB-T1S-NIC eine **statische IP** im Endpoint-Subnetz geben: **`192.168.0.100/24`**. Endpoints = `192.168.0.<NodeID>`.
-- **SOME/IP-SD** nutzt Multicast `224.0.0.1`. Windows-**Firewall** für `lan866x-discovery.exe` freigeben.
+### 2.4 Network  *(only to run)*
+- Give the USB-T1S NIC a **static IP** in the endpoint subnet: **`192.168.0.100/24`**. Endpoints = `192.168.0.<NodeID>`.
+- **SOME/IP-SD** uses multicast `224.0.0.1`. Allow `lan866x-discovery.exe` through the Windows **firewall**.
 
 ---
 
 ## 3. How to compile
 
-### 3.1 Schnellweg – Batch-Skript
-Im Paketverzeichnis liegt **`build.bat`** (wählt den Compiler automatisch: MinGW, sonst VS2022):
+### 3.1 Quick path – batch script
+The package contains **`build.bat`** (chooses the compiler automatically: MinGW, else VS2022):
 
 ```bat
-build.bat            REM bauen (Compiler automatisch)
-build.bat mingw      REM MinGW-w64 (GCC) erzwingen
-build.bat vs         REM Visual Studio 2022 erzwingen
-build.bat clean      REM Build-Ordner loeschen
+build.bat            REM build (compiler chosen automatically)
+build.bat mingw      REM force MinGW-w64 (GCC)
+build.bat vs         REM force Visual Studio 2022
+build.bat clean      REM delete build folder
 ```
-Ergebnis: `out\lan866x-discovery.exe` (MinGW) bzw. `out\Release\lan866x-discovery.exe` (VS).
+Result: `out\lan866x-discovery.exe` (MinGW) or `out\Release\lan866x-discovery.exe` (VS), and all tools copied to `release\`.
 
-### 3.2 Manuell – CMake auf der Kommandozeile
-**Immer den Generator (`-G …`) explizit angeben** – sonst bricht CMake mit „CMAKE_C(XX)_COMPILER not set" ab.
+### 3.2 Manual – CMake on the command line
+**Always specify the generator (`-G …`) explicitly** – otherwise CMake aborts with "CMAKE_C(XX)_COMPILER not set".
 
 **MinGW-w64 (GCC):**
 ```bat
@@ -96,17 +96,17 @@ cmake -G "Visual Studio 17 2022" -A x64 -B out
 cmake --build out --config Release
 ```
 
-Der Ordner `out/` ist reiner Build-Output und kann jederzeit gelöscht werden (vor dem Packen des Pakets entfernen).
+The `out/` folder is pure build output and can be deleted at any time (remove before packaging).
 
 ---
 
-## 4. Ausführen und Ausgabe
+## 4. Running and output
 
 ```bat
 out\lan866x-discovery.exe
 ```
 
-Das Tool gibt pro Endpoint die **vollständigen** Status-Infos aus (wie der Microchip Remote Configurator) — via `GetStatus (0x1002)` + `GetNetworkStatus (0x1600)`. Beispiel (verifiziert am Trainings-Setup):
+Per endpoint the tool prints the **full** status (like the Microchip Remote Configurator) — via `GetStatus (0x1002)` + `GetNetworkStatus (0x1600)`. Example (verified on the training setup):
 ```
 Devices available = 2
 
@@ -136,120 +136,120 @@ Endpoint #0  -  192.168.0.54:6800  (SOME/IP Instance 0x0001, available=1)
   PLCA Node Id:       4
 ```
 
-**Findet das Tool nichts?** Prüfen: Treiber installiert · NIC-IP `192.168.0.x` gesetzt · Bus terminiert · Endpoints versorgt · Firewall freigegeben.
+**Nothing found?** Check: driver installed · NIC IP `192.168.0.x` set · bus terminated · endpoints powered · firewall allowed.
 
-### I²C-Bus-Scanner
+### I2C bus scanner
 ```bat
-out\lan866x-i2cscan.exe                 REM erster Endpoint, SDA=PA08 SCL=PA09, 400 kHz
+out\lan866x-i2cscan.exe                 REM first endpoint, SDA=PA08 SCL=PA09, 400 kHz
 out\lan866x-i2cscan.exe --ip 192.168.0.54
 out\lan866x-i2cscan.exe --ep 1 --sda 8 --scl 9 --speed 1
 ```
-Probt 0x08..0x77 per 1-Byte-Read und zeigt ein `i2cdetect`-Raster. Beispiel (Proximity-3-Click am Demoboard):
+Probes 0x08..0x77 with a 1-byte read and prints an `i2cdetect` grid. Example (Proximity 3 Click on the demo board):
 ```
      0  1  2  3  4  5  6  7  8  9  a  b  c  d  e  f
 50: -- 51 -- -- -- -- -- -- -- -- -- -- -- -- -- --
 
-1 Gerät(e) auf dem I2C-Bus gefunden.
+1 device(s) found on the I2C bus.
 ```
-> Pins müssen zur Board-Konfiguration passen (`--sda`/`--scl`, PA-Nummer 0–15). Das Tool entsperrt SDA/SCL vor `OpenI2C` automatisch (`ReleaseDigitalPins`).
+> Pins must match the board configuration (`--sda`/`--scl`, PA number 0–15). The tool releases SDA/SCL before `OpenI2C` automatically (`ReleaseDigitalPins`).
 
-### GPIO setzen/lesen
+### GPIO set/read
 ```bat
-out\lan866x-gpio.exe --pin 2 --set 1     REM PA02 als Output, High
-out\lan866x-gpio.exe --pin 2 --get       REM PA02 als Input lesen
+out\lan866x-gpio.exe --pin 2 --set 1     REM PA02 as output, high
+out\lan866x-gpio.exe --pin 2 --get       REM PA02 as input, read
 out\lan866x-gpio.exe --ip 192.168.0.54 --pin 6 --set 0
 ```
 
-### SPI-Transfer (Full-Duplex)
+### SPI transfer (full-duplex)
 ```bat
-out\lan866x-spi.exe --tx 9F0000          REM 3 Byte senden, MISO gleichzeitig lesen
+out\lan866x-spi.exe --tx 9F0000          REM send 3 bytes, read MISO at the same time
 out\lan866x-spi.exe --tx AA55 --mode 0 --speed 1000000
 out\lan866x-spi.exe --miso 12 --sck 13 --cs 14 --mosi 15 --tx 0102
 ```
-Ausgabe: `TX: …` / `RX: …`. Default-Pins MISO=PA12 SCK=PA13 CS=PA14 MOSI=PA15. Pins werden vor `OpenSpi` entsperrt.
+Output: `TX: …` / `RX: …`. Default pins MISO=PA12 SCK=PA13 CS=PA14 MOSI=PA15. Pins are released before `OpenSpi`.
 
-### DNCP-Monitor (passiv)
+### DNCP monitor (passive)
 ```bat
-out\lan866x-dncpmon.exe                REM lauscht dauerhaft (Strg+C beendet)
-out\lan866x-dncpmon.exe --timeout 30   REM nach 30 s ohne Pakete beenden
+out\lan866x-dncpmon.exe                REM listen forever (Ctrl+C to stop)
+out\lan866x-dncpmon.exe --timeout 30   REM stop after 30 s without packets
 ```
-Dekodiert **DNCP**-Pakete (Dynamic Node Configuration Protocol) auf **UDP 65526/65527** — Announce/Registry mit MAC, Device-ID, IPv4/IPv6, Zustand (Unconfigured/Configured) und PLCA-IDs. Eigenständig (nur Winsock), **nicht** Teil von SOME/IP/`libLAN866x`.
-> Rein **passiv**: zeigt nur DNCP-Verkehr, der real auf dem Bus läuft. Zum aktiven Triggern siehe `lan866x-dncpdisc`.
+Decodes **DNCP** packets (Dynamic Node Configuration Protocol) on **UDP 65526/65527** — Announce/Registry with MAC, device id, IPv4/IPv6, state (Unconfigured/Configured) and PLCA ids. Standalone (Winsock only), **not** part of SOME/IP/`libLAN866x`.
+> Purely **passive**: only shows DNCP traffic actually present on the bus. To trigger actively, see `lan866x-dncpdisc`.
 
-### DNCP-Discovery (aktiv, read-only)
+### DNCP discovery (active, read-only)
 ```bat
-out\lan866x-dncpdisc.exe                       REM 3 Runden, Channel 11
+out\lan866x-dncpdisc.exe                       REM 3 rounds, channel 11
 out\lan866x-dncpdisc.exe --channel 11 --rounds 5 --timeout 4
 ```
-Agiert als **temporärer DNCP-Server** (gemäß AN1891): broadcastet eine **leere Registry** an `224.0.0.1:65527`; Knoten, die sich darin nicht finden, senden ein **Announce** an `224.0.0.1:65526`. Pro Knoten werden **alle Announce-Felder** dekodiert: MAC, Vendor-Device-ID, **IPv4 + IPv6**, State, Persistency, BurstFramesPerTO, Protokoll-Version und alle PLCA-Node-IDs.
-> **Nur lesend** — weist keine PLCA-IDs/IPs zu, persistiert nichts (kein Assign/StoreSettings/Activate). EnumChannel = Default (11), damit der Enumeration-Channel der Knoten unverändert bleibt. **Nur verwenden, wenn kein anderer DNCP-Server aktiv ist.** Live verifiziert (LAN8662 antwortete).
+Acts as a **temporary DNCP server** (per AN1891): broadcasts an **empty Registry** to `224.0.0.1:65527`; nodes that do not find themselves in it send an **Announce** to `224.0.0.1:65526`. Per node **all Announce fields** are decoded: MAC, vendor device id, **IPv4 + IPv6**, state, persistency, BurstFramesPerTO, protocol version and all PLCA node ids.
+> **Read-only** — assigns no PLCA ids/IPs, persists nothing (no Assign/StoreSettings/Activate). EnumChannel = default (11), so the nodes' enumeration channel stays unchanged. **Use only when no other DNCP server is active.** Verified live (a LAN8662 responded).
 
 ---
 
-## 5. Wie funktioniert die Discovery?
+## 5. How does discovery work?
 
-Die Tools kennen die Endpoint-IPs **nicht vorab** – sie lernen sie zur Laufzeit über **SOME/IP Service Discovery (SD)**:
+The tools do **not** know the endpoint IPs in advance – they learn them at runtime via **SOME/IP Service Discovery (SD)**:
 
-1. **Multicast beitreten:** Das Tool tritt der SD-Gruppe **`224.0.0.1`** bei (die „Joined Multicast group"-Zeilen beim Start – eine je PC-Netzwerk-Interface).
-2. **FindService senden:** Es fragt per SD-**`FindService`** nach dem RCP-Service **`0xFF10`**.
-3. **Endpoints antworten:** Jeder Endpoint, der `0xFF10` anbietet, schickt ein **`OfferService`** zurück – **darin steht seine eigene IP/Port** (z. B. `192.168.0.102:6800`). Endpoints senden Offer auch periodisch von selbst.
-4. **Liste bauen:** `libepmicrochip` sammelt die Offers → `GetAllClients()`. **Die IP kommt also vom Endpoint, nicht vom Tool.**
+1. **Join multicast:** the tool joins the SD group **`224.0.0.1`** (the "Joined Multicast group" lines at startup – one per PC network interface).
+2. **Send FindService:** it queries via SD **`FindService`** for the RCP service **`0xFF10`**.
+3. **Endpoints respond:** every endpoint that offers `0xFF10` sends back an **`OfferService`** – **containing its own IP/port** (e.g. `192.168.0.102:6800`). Endpoints also send Offers periodically on their own.
+4. **Build the list:** `libepmicrochip` collects the offers → `GetAllClients()`. **So the IP comes from the endpoint, not from the tool.**
 
 ```
-PC  --FindService(0xFF10)-->  224.0.0.1  (Multicast)
-EP1 --OfferService: ich bin 192.168.0.101 -->  PC
-EP2 --OfferService: ich bin 192.168.0.102 -->  PC
+PC  --FindService(0xFF10)-->  224.0.0.1  (multicast)
+EP1 --OfferService: I am 192.168.0.101 -->  PC
+EP2 --OfferService: I am 192.168.0.102 -->  PC
 ```
 
-**Ziel-Endpoint:** Default ist `[0]` (erster gefundener). Wahl per `--ip <addr>` oder `--ep <index>`. Neu angesteckte Endpoints erscheinen automatisch.
+**Target endpoint:** default is `[0]` (first found). Select with `--ip <addr>` or `--ep <index>`. Newly attached endpoints appear automatically.
 
-> Mehrere PC-Interfaces: Das Tool joint auf allen; geantwortet wird nur über das **T1S-Interface** (`192.168.0.x`). Deshalb muss dessen NIC eine IP im Endpoint-Subnetz haben (Kapitel 2.4).
+> Multiple PC interfaces: the tool joins on all of them; responses arrive only over the **T1S interface** (`192.168.0.x`). Its NIC must therefore have an IP in the endpoint subnet (chapter 2.4).
 
 ---
 
-## 6. Projektstruktur
+## 6. Project structure
 
 ```
 lan866x-tools/
-├── build.bat            Windows-Build-Skript (Kapitel 3)
-├── CMakeLists.txt       baut die vier Tool-Targets
-├── discovery.cpp        Track A: Endpoint-/Service-Discovery (läuft sofort)
-├── i2cscan.cpp          Track A: I²C-Bus-Scanner
-├── gpio.cpp             Track A: GPIO setzen/lesen
-├── spi.cpp              Track A: SPI-Transfer
-├── dncpmon.cpp          Track A: passiver DNCP-Monitor (eigenständig)
-├── dncpdisc.cpp         Track A: aktive DNCP-Discovery (eigenständig)
-├── include/             öffentliche Header (lan866x_client.hpp, ...)
-├── libepmicrochip/      SOME/IP-Stack (C) + liblan866x + Windows-Plattform-Stub
-├── src/                 Track B: portable C-Vorlage für MCU32
-│   ├── main.c           Demo-Loop (Init → Discovery → GPIO/I²C/SPI)
-│   ├── rcp.h            Method-IDs, Pin-Map, API
-│   └── rcp.c            RCP-Wrapper über libsomeip
+├── build.bat            Windows build script (chapter 3)
+├── CMakeLists.txt       builds the tool targets
+├── discovery.cpp        Track A: endpoint/service discovery (ready to run)
+├── i2cscan.cpp          Track A: I2C bus scanner
+├── gpio.cpp             Track A: GPIO set/read
+├── spi.cpp              Track A: SPI transfer
+├── dncpmon.cpp          Track A: passive DNCP monitor (standalone)
+├── dncpdisc.cpp         Track A: active DNCP discovery (standalone)
+├── include/             public headers (lan866x_client.hpp, ...)
+├── libepmicrochip/      SOME/IP stack (C) + liblan866x + Windows platform stub
+├── src/                 Track B: portable C template for MCU32
+│   ├── main.c           demo loop (init → discovery → GPIO/I2C/SPI)
+│   ├── rcp.h            method IDs, pin map, API
+│   └── rcp.c            RCP wrapper over libsomeip
 ├── README.md
-└── PORTING.md           MCU32-Port (lwIP/FreeRTOS)
+└── PORTING.md           MCU32 port (lwIP/FreeRTOS)
 ```
-Alle zum Bauen nötigen Quellen liegen **innerhalb** dieses Verzeichnisses.
+All sources required to build live **inside** this directory.
 
 ---
 
-## 7. Beispiel-Pinbelegung (LAN8660)
+## 7. Example pin mapping (LAN8660)
 
-*(Beispiel-Konfiguration eines Control-Endpoints mit je 1× UART / I²C / SPI + GPIOs)*
+*(example configuration of a control endpoint with 1× UART / I2C / SPI each + GPIOs)*
 
-| Funktion | SERCOM | Pins |
+| Function | SERCOM | Pins |
 |---|---|---|
 | UART | SER0 | TX = PA00, RX = PA03 |
-| GPIO Out | – | PA02, PA06 |
-| I²C | SER1 | SDA = PA04, SCL = PA05 |
+| GPIO out | – | PA02, PA06 |
+| I2C | SER1 | SDA = PA04, SCL = PA05 |
 | SPI | SER2 | SDI = PA08, SCK = PA09, CS_N = PA10, SDO = PA11 |
 
 ---
 
-## 8. RCP-Method-IDs
+## 8. RCP method IDs
 
-Service `0xFF10`. Aus `lan866x_client.cpp` verifiziert.
+Service `0xFF10`. Verified from `lan866x_client.cpp`.
 
-| Methode | ID | | Methode | ID |
+| Method | ID | | Method | ID |
 |---|---|---|---|---|
 | GetStatus | `0x1002` | | OpenSpi | `0x1500` |
 | OpenGpio | `0x1300` | | WriteAndReadSpi | `0x1508` |
@@ -258,14 +258,14 @@ Service `0xFF10`. Aus `lan866x_client.cpp` verifiziert.
 | OpenI2C | `0x1200` | | ReadUart | `0x1420` |
 | WriteAndReadI2C | `0x1208`* | | WakeupNetwork | `0x1601` |
 
-\* I²C-Read/Write-Varianten liegen im Bereich `0x1203…0x1220` – exakte ID/Payload gegen `lan866x_client.cpp` prüfen.
+\* I2C read/write variants are in the range `0x1203…0x1220` – verify the exact ID/payload against `lan866x_client.cpp`.
 
 ---
 
-## 9. C-Vorlage für MCU32 (Track B)
+## 9. C template for MCU32 (Track B)
 
-`src/main.c`, `rcp.c`, `rcp.h` sind die **portable C-Vorlage** für das Embedded-Ziel (reines C auf `libsomeip`). Sie ist gegen die echte C-API + verifizierte Method-IDs/Strukturen gebaut; offen sind nur die mit `[V3]/[V4]` markierten Parameter-Layouts und die RX-Dispatch-Funktion `on_data_received()` (Vorlage: `LAN866XClientImpl::OnDataReceived`).
+`src/main.c`, `rcp.c`, `rcp.h` are the **portable C template** for the embedded target (pure C on `libsomeip`). It is built against the real C API + verified method IDs/structs; only the parameter layouts marked `[V3]/[V4]` and the RX dispatch function `on_data_received()` (template: `LAN866XClientImpl::OnDataReceived`) remain to be completed.
 
-Track B wird **nicht** von dieser Windows-CMake gebaut, sondern im MCU32-Projekt zusammen mit einer lwIP/FreeRTOS-Implementierung der `SOMEIP_CB_*`-Callbacks (Ersatz für den Windows-Stub).
+Track B is **not** built by this Windows CMake, but in the MCU32 project together with an lwIP/FreeRTOS implementation of the `SOMEIP_CB_*` callbacks (replacing the Windows stub).
 
 ➡️ Details: **[PORTING.md](PORTING.md)**.

@@ -2,17 +2,17 @@ cmake_minimum_required(VERSION 3.10)
 project(lan866x_tools CXX C)
 
 # ============================================================================
-# Eigenständiges Paket: alle nötigen Quellen liegen in diesem Verzeichnis
-#   include/        -> öffentliche Header (lan866x_client.hpp, ...)
-#   libepmicrochip/ -> SOME/IP-Stack + liblan866x + Plattform-Stub (Windows)
+# Self-contained package: all required sources live in this directory
+#   include/        -> public headers (lan866x_client.hpp, ...)
+#   libepmicrochip/ -> SOME/IP stack + liblan866x + platform stub (Windows)
 # ============================================================================
 
-# Statische Lib 'epmicrochip'. Deren CMake nutzt ${CMAKE_SOURCE_DIR}/include,
-# was hier auf lan866x-tools/include zeigt -> passt out of the box.
+# Static lib 'epmicrochip'. Its CMake uses ${CMAKE_SOURCE_DIR}/include,
+# which here points to lan866x-tools/include -> works out of the box.
 add_subdirectory(libepmicrochip)
 
 # ----------------------------------------------------------------------------
-# Track A (läuft sofort): Endpoint-/Service-Discovery, C++ über die Factory
+# Track A (ready to run): endpoint/service discovery, C++ via the factory
 # ----------------------------------------------------------------------------
 add_executable(lan866x-discovery discovery.cpp)
 target_include_directories(lan866x-discovery PRIVATE ${CMAKE_SOURCE_DIR}/include)
@@ -23,14 +23,14 @@ if(WIN32)
     target_link_libraries(lan866x-discovery PRIVATE ws2_32 Iphlpapi)
 endif()
 
-# Statisches Linken bei GCC/MinGW -> eine einzelne, abhängigkeitsfreie .exe
-# (keine libgcc/libstdc++/libwinpthread-DLLs nötig).
+# Static linking with GCC/MinGW -> a single dependency-free .exe
+# (no libgcc/libstdc++/libwinpthread DLLs needed).
 if(CMAKE_CXX_COMPILER_ID STREQUAL "GNU")
     target_link_options(lan866x-discovery PRIVATE -static -static-libgcc -static-libstdc++)
 endif()
 
 # ----------------------------------------------------------------------------
-# Target 2: I2C-Bus-Scanner (i2cdetect über einen Endpoint)
+# Target 2: I2C bus scanner (i2cdetect via an endpoint)
 # ----------------------------------------------------------------------------
 add_executable(lan866x-i2cscan i2cscan.cpp)
 target_include_directories(lan866x-i2cscan PRIVATE ${CMAKE_SOURCE_DIR}/include)
@@ -45,7 +45,7 @@ if(CMAKE_CXX_COMPILER_ID STREQUAL "GNU")
 endif()
 
 # ----------------------------------------------------------------------------
-# Target 3+4: GPIO- und SPI-Tool
+# Targets 3+4: GPIO and SPI tools
 # ----------------------------------------------------------------------------
 foreach(tool gpio spi)
     add_executable(lan866x-${tool} ${tool}.cpp)
@@ -62,7 +62,7 @@ foreach(tool gpio spi)
 endforeach()
 
 # ----------------------------------------------------------------------------
-# Target 5: DNCP-Monitor (eigenständig, nur Winsock - DNCP != SOME/IP)
+# Target 5: DNCP monitor (standalone, Winsock only - DNCP != SOME/IP)
 # ----------------------------------------------------------------------------
 add_executable(lan866x-dncpmon dncpmon.cpp)
 set_target_properties(lan866x-dncpmon PROPERTIES CXX_STANDARD 20)
@@ -75,7 +75,7 @@ if(CMAKE_CXX_COMPILER_ID STREQUAL "GNU")
 endif()
 
 # ----------------------------------------------------------------------------
-# Target 6: aktive DNCP-Discovery (eigenständig; ws2_32 + iphlpapi)
+# Target 6: active DNCP discovery (standalone; ws2_32 + iphlpapi)
 # ----------------------------------------------------------------------------
 add_executable(lan866x-dncpdisc dncpdisc.cpp)
 set_target_properties(lan866x-dncpdisc PROPERTIES CXX_STANDARD 20)
@@ -88,8 +88,8 @@ if(CMAKE_CXX_COMPILER_ID STREQUAL "GNU")
 endif()
 
 # ----------------------------------------------------------------------------
-# Hinweis zur C-Vorlage (src/main.c, rcp.c, rcp.h):
-#   Portable MCU32-Vorlage (reines C auf libsomeip). Wird NICHT hier gebaut,
-#   sondern im MCU32-Projekt mit einer lwIP/FreeRTOS-Implementierung der
-#   SOMEIP_CB_*-Callbacks (Ersatz für den Windows-Stub). Siehe PORTING.md.
+# Note on the C template (src/main.c, rcp.c, rcp.h):
+#   Portable MCU32 template (pure C on libsomeip). NOT built here, but in the
+#   MCU32 project together with an lwIP/FreeRTOS implementation of the
+#   SOMEIP_CB_* callbacks (replacing the Windows stub). See PORTING.md.
 # ----------------------------------------------------------------------------

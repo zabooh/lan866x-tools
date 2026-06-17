@@ -1,25 +1,25 @@
 /*
- * rcp.c  -  RCP-Wrapper ueber den reinen C SOME/IP-Stack (libsomeip).
- *           Portable MCU32-Vorlage. Strukturen/Sequenz gegen someip.h und
- *           LAN866XClientImpl (lan866x_client.cpp) verifiziert.
+ * rcp.c  -  RCP wrapper over the pure-C SOME/IP stack (libsomeip).
+ *           Portable MCU32 template. Structs/sequence verified against
+ *           someip.h and LAN866XClientImpl (lan866x_client.cpp).
  *
- * Aufbau analog zum C++-Wrapper:
+ * Layout analogous to the C++ wrapper:
  *   Init      : SOMEIP_Transmit_Init(&port, on_data_received, ...) +
  *               SOMEIP_Client_AddService(serviceId=0xFF10, ...)
- *   Discovery : Event EV_CLIENT_SERVICE_AVAILABLE liefert pIp->sourceAddr/port
- *               + receivedInstanceId  -> Endpoint-Tabelle
- *   Methode   : CreateHeader -> SOMEIP_Generator_Fill_* -> Transmit (Ziel-IP/Port
- *               vom selektierten Endpoint)
+ *   Discovery : event EV_CLIENT_SERVICE_AVAILABLE provides pIp->sourceAddr/port
+ *               + receivedInstanceId  -> endpoint table
+ *   Method    : CreateHeader -> SOMEIP_Generator_Fill_* -> Transmit (target IP/port
+ *               of the selected endpoint)
  *
- * OFFEN (1 Stelle): on_data_received() muss eingehende SOME/IP-Pakete parsen
- *   und dispatchen -> SOMEIP_Client_DataReceived() (SD/Events) sowie
- *   SOMEIP_Transmit_ReceivedResponse() (Methoden-Antworten, per sessionId).
- *   Referenz-Implementierung: LAN866XClientImpl::OnDataReceived()
- *   in lan866x_client.cpp (~Zeile 3240). 1:1 uebernehmen.
+ * OPEN (1 spot): on_data_received() must parse incoming SOME/IP packets and
+ *   dispatch -> SOMEIP_Client_DataReceived() (SD/events) and
+ *   SOMEIP_Transmit_ReceivedResponse() (method responses, by sessionId).
+ *   Reference implementation: LAN866XClientImpl::OnDataReceived()
+ *   in lan866x_client.cpp (~line 3240). Adopt 1:1.
  *
- * PLATTFORM: Die SOMEIP_CB_*-Callbacks (Socket/Sem/CritSec/SendUdp/Buffer)
- *   liefert auf Windows someip-stub.cpp + windows-udp-handler.c; auf MCU32
- *   durch lwIP/FreeRTOS-Implementierung ersetzen (siehe PORTING.md).
+ * PLATFORM: the SOMEIP_CB_* callbacks (socket/sem/critsec/SendUdp/buffer) are
+ *   provided on Windows by someip-stub.cpp + windows-udp-handler.c; on MCU32
+ *   replace with an lwIP/FreeRTOS implementation (see PORTING.md).
  */
 #include "rcp.h"
 #include "someip.h"
@@ -27,25 +27,25 @@
 
 #define MAXP  SOMEIP_TRANSMIT_MAX_PAYLOAD_LEN
 
-/* Vom Stack erwartete SD-Multicast-Adresse (in main.c / discovery definiert). */
+/* SD multicast address expected by the stack (defined in main.c / discovery). */
 extern uint8_t MULTICAST_IP[];
 
-/* --- Modulzustand ------------------------------------------------------- */
+/* --- module state ------------------------------------------------------- */
 static SOMETR_t *s_tr      = NULL;
 static uint16_t  s_port    = 0u;
 static uint16_t  s_session = 1u;
 
 static rcp_endpoint_t s_eps[RCP_MAX_ENDPOINTS];
 static uint8_t        s_epCount = 0u;
-static uint8_t        s_sel     = 0u;     /* aktiver Ziel-Endpoint */
+static uint8_t        s_sel     = 0u;     /* active target endpoint */
 
-/* letzte (synchron abgewartete) Methodenantwort */
+/* last (synchronously awaited) method response */
 static volatile bool                   s_done = false;
 static volatile enum SOMEIP_ReturnCode s_rc   = SOMEIP_E_TIMEOUT;
 static uint8_t  s_rx[MAXP];
 static uint16_t s_rxLen = 0u;
 
-/* --- Plattform-Pause im Warteloop -------------------------------------- */
+/* --- platform pause in the wait loop ----------------------------------- */
 #ifdef _WIN32
 #  include <windows.h>
 #  define NAP() Sleep(2)
@@ -54,7 +54,7 @@ static uint16_t s_rxLen = 0u;
 #  define NAP() do{ struct timespec t={0,2000000L}; nanosleep(&t,0);}while(0)
 #endif
 
-/* --- Discovery-Event-Callback (Signatur gem. someip.h) ------------------ */
+/* --- discovery event callback (signature per someip.h) ------------------ */
 static void on_event(enum SOMEIP_CB_Event evnt,
                      struct SOMEIP_Server_Client *pSC,
                      struct SOMEIP_IpAddr *pIp,
@@ -66,7 +66,7 @@ static void on_event(enum SOMEIP_CB_Event evnt,
     if (!pSC || !pIp) return;
 
     if (evnt == EV_CLIENT_SERVICE_AVAILABLE) {
-        /* bereits bekannt? */
+        /* already known? */
         for (uint8_t i = 0; i < s_epCount; ++i) {
             if (memcmp(s_eps[i].ip, pIp->sourceAddr, 4) == 0 &&
                 s_eps[i].instanceId == receivedInstanceId) {
@@ -88,21 +88,21 @@ static void on_event(enum SOMEIP_CB_Event evnt,
     }
 }
 
-/* --- RX: UDP-Daten in den Stack einspeisen + Antworten routen ----------- */
+/* --- RX: feed UDP data into the stack + route responses ----------------- */
 static enum SOMEIP_ReturnCode on_data_received(const uint8_t *b, uint16_t bLen,
                                                struct SOMEIP_IpAddr *pIp, void *rxTag)
 {
     (void)rxTag;
-    /* SD- und Event-Pfad: */
+    /* SD and event path: */
     enum SOMEIP_ReturnCode rc = SOMEIP_Client_DataReceived(b, bLen, pIp, NULL);
-    /* >>> OFFEN: Methoden-Antworten parsen und an den wartenden Transmit-
-     * Buffer routen: SOMEIP-Header parsen (someip-pars.h) -> sessionId/retCode
+    /* >>> OPEN: parse method responses and route them to the waiting transmit
+     * buffer: parse the SOME/IP header (someip-pars.h) -> sessionId/retCode
      * -> SOMEIP_Transmit_ReceivedResponse(srcIp, s_tr, sessionId, retCode,
-     *    &payload, payloadLen). Vorlage: lan866x_client.cpp::OnDataReceived. */
+     *    &payload, payloadLen). Template: lan866x_client.cpp::OnDataReceived. */
     return rc;
 }
 
-/* --- Methodenantwort-Callback (vom Transmit-Layer) ---------------------- */
+/* --- method response callback (from the transmit layer) ----------------- */
 static void on_response(struct SOMEIP_Transmit_Buffer *pBuf, bool ok,
                         enum SOMEIP_ReturnCode rc,
                         const uint8_t *pRx, uint16_t rxLen)
@@ -114,7 +114,7 @@ static void on_response(struct SOMEIP_Transmit_Buffer *pBuf, bool ok,
     s_done = true;
 }
 
-/* --- Generischer Methodenaufruf (mirror von SetGpio im C++-Wrapper) ----- */
+/* --- generic method call (mirror of SetGpio in the C++ wrapper) --------- */
 static bool rcp_call(uint16_t methodId, bool fireAndForget,
                      const uint8_t *blob, uint16_t blobLen,
                      uint8_t *outRx, uint16_t *outRxLen)
@@ -123,7 +123,7 @@ static bool rcp_call(uint16_t methodId, bool fireAndForget,
     struct SOMEIP_Transmit_Buffer *tb = SOMEIP_Transmit_GetBuffer(s_tr);
     if (!tb) return false;
 
-    /* Header (Werte wie LAN866XClientImpl::CreateHeader) */
+    /* header (values like LAN866XClientImpl::CreateHeader) */
     uint16_t sid = s_session++; if (s_session == 0u) s_session++;
     struct SOMEIP_Header h;
     memset(&h, 0, sizeof(h));
@@ -145,7 +145,7 @@ static bool rcp_call(uint16_t methodId, bool fireAndForget,
     ok = ok && SOMEIP_Generator_Update_Length(consumed, tb->payload, MAXP);
     if (!ok) { SOMEIP_Transmit_ReleaseBufferOnError(s_tr, tb); return false; }
 
-    /* Transmit-Buffer befuellen (wie TransmitBuffer im C++-Wrapper) */
+    /* fill transmit buffer (like TransmitBuffer in the C++ wrapper) */
     tb->callback        = fireAndForget ? NULL : on_response;
     tb->fireAndForget   = fireAndForget;
     tb->waitForSessionId = sid;
@@ -166,7 +166,7 @@ static bool rcp_call(uint16_t methodId, bool fireAndForget,
     return (s_rc == SOMEIP_E_OK);
 }
 
-/* --- Discovery-API ------------------------------------------------------ */
+/* --- discovery API ------------------------------------------------------ */
 uint8_t rcp_get_endpoints(rcp_endpoint_t *out, uint8_t maxOut)
 {
     uint8_t n = (s_epCount < maxOut) ? s_epCount : maxOut;
@@ -179,11 +179,11 @@ bool rcp_select_endpoint(uint8_t index)
     s_sel = index; return true;
 }
 
-/* --- Lebenszyklus ------------------------------------------------------- */
+/* --- lifecycle ---------------------------------------------------------- */
 bool rcp_init(const uint8_t localIfIP[4])
 {
-    (void)localIfIP; /* Interface-Wahl macht der Plattform-Stub (SOMEIP_CB_GetLocalIpAddr) */
-    s_port = 0u;     /* zufaelligen Port waehlen lassen */
+    (void)localIfIP; /* interface choice is done by the platform stub (SOMEIP_CB_GetLocalIpAddr) */
+    s_port = 0u;     /* let the stack pick a random port */
     s_tr = SOMEIP_Transmit_Init(&s_port, on_data_received, NULL);
     if (!s_tr) return false;
 
@@ -197,9 +197,9 @@ bool rcp_init(const uint8_t localIfIP[4])
     svc.ttl = 5u;
     svc.clientId = 0xaffeu;
     svc.eventGroupId = 0u;
-    svc.eventHandlingEnabled = false;   /* Methoden, kein Event */
+    svc.eventHandlingEnabled = false;   /* methods, not events */
     svc.ipAddr.port = s_port;
-    /* lokale IP setzt der Stub; Subnetz-Match via MULTICAST_IP/Stub */
+    /* local IP is set by the stub; subnet match via MULTICAST_IP/stub */
     return SOMEIP_Client_AddService(&svc, /*requested*/ true, /*subscribe*/ false);
 }
 
@@ -211,16 +211,16 @@ void rcp_poll(void)
 
 bool rcp_is_ready(void) { return s_epCount > 0u; }
 
-/* --- GPIO / I2C / SPI (Method-IDs verifiziert; Param-Layout [V3] pruefen) */
+/* --- GPIO / I2C / SPI (method IDs verified; check param layout [V3]) ---- */
 bool rcp_open_gpio(const uint8_t *pinIds, uint8_t count)
 { return rcp_call(RCP_M_OPEN_GPIO, false, pinIds, count, NULL, NULL); }
 
 bool rcp_set_gpio(const uint8_t *gpioValues, uint8_t len)
-{ return rcp_call(RCP_M_SET_GPIO, false, gpioValues, len, NULL, NULL); }   /* BLOB(0): verifiziert */
+{ return rcp_call(RCP_M_SET_GPIO, false, gpioValues, len, NULL, NULL); }   /* BLOB(0): verified */
 
 bool rcp_get_gpio(uint8_t *outValues, uint8_t *outLen)
 { uint16_t n = outLen ? *outLen : 0; bool r = rcp_call(RCP_M_GET_GPIO, false, NULL, 0, outValues, &n);
-  if (outLen) *outLen = (uint8_t)n; return r; }                            /* [V4] Response parsen */
+  if (outLen) *outLen = (uint8_t)n; return r; }                            /* [V4] parse response */
 
 bool rcp_open_i2c(uint8_t pinSda, uint8_t pinScl, uint32_t clockHz)
 { uint8_t a[6]; a[0]=pinSda; a[1]=pinScl; memcpy(&a[2],&clockHz,4);

@@ -1,19 +1,19 @@
 /*
- * dncpmon.cpp  -  Passiver DNCP-Monitor (Dynamic Node Configuration Protocol).
+ * dncpmon.cpp  -  Passive DNCP monitor (Dynamic Node Configuration Protocol).
  *
- * Lauscht auf UDP 65526/65527 und dekodiert DNCP-Pakete (Announce/Registry/…)
- * wie der Wireshark-Dissector. Zeigt Knoten, die sich per DNCP melden:
- * MAC, Device-ID, IPv4/IPv6, Zustand (Unconfigured/Configured), PLCA-IDs.
+ * Listens on UDP 65526/65527 and decodes DNCP packets (Announce/Registry/...)
+ * like the Wireshark dissector. Shows nodes that announce via DNCP:
+ * MAC, device id, IPv4/IPv6, state (Unconfigured/Configured), PLCA ids.
  *
- * Eigenständig (nur Winsock) - DNCP ist NICHT Teil von libLAN866x/SOME/IP.
- * Hinweis: rein PASSIV. Es werden nur DNCP-Pakete angezeigt, die tatsächlich
- * auf dem Bus laufen (DNCP muss aktiv sein; Knoten senden Announce periodisch
- * bzw. bei Ereignissen). Aktives Enumerieren (Registry-Request senden) ist
- * hier bewusst nicht implementiert (DNCP-Lib/Spec nötig).
+ * Standalone (Winsock only) - DNCP is NOT part of libLAN866x/SOME/IP.
+ * Note: purely PASSIVE. Only shows DNCP packets actually present on the bus
+ * (DNCP must be active; nodes send Announce periodically or on events).
+ * Active enumeration (sending a Registry request) is intentionally not
+ * implemented here -- see lan866x-dncpdisc.
  *
- * Aufruf:
- *   lan866x-dncpmon                 lauscht dauerhaft (Strg+C beendet)
- *   lan866x-dncpmon --timeout 30    nach 30 s ohne Pakete beenden
+ * Usage:
+ *   lan866x-dncpmon                 listen forever (Ctrl+C to stop)
+ *   lan866x-dncpmon --timeout 30    stop after 30 s without packets
  */
 #include <cstdio>
 #include <cstring>
@@ -48,16 +48,16 @@ static void decode(const uint8_t *b, int len, const char *src)
     uint16_t id   = be16(b+12);
     uint16_t cnt  = be16(b+14);
     printf("\n[%s] %s / %s  (proto v%u, cnt %u, %d B)\n", src, idStr(id), typeStr(type), ver, cnt, len);
-    printf("  Header-MAC: "); mac(b+4); printf("\n");
+    printf("  Header MAC: "); mac(b+4); printf("\n");
 
     if (id == 0x200 && len >= 56) {                 /* Announce */
-        printf("  Node-MAC:   "); mac(b+18); printf("\n");
+        printf("  Node MAC:   "); mac(b+18); printf("\n");
         printf("  Device-ID:  0x%016llX\n", (unsigned long long)be64(b+24));
         printf("  IPv4:       %u.%u.%u.%u\n", b[48],b[49],b[50],b[51]);
         printf("  Persistency:%s\n", b[52]?"Persistent":"Non-Persistent");
         printf("  State:      %s\n", stateStr(b[53]));
         uint8_t slots = b[55];
-        printf("  PLCA-Slots: %u  IDs:", slots);
+        printf("  PLCA slots: %u  IDs:", slots);
         for (int j=0;j<slots && 56+j<len;j++) printf(" %u", b[56+j]);
         printf("\n");
     } else if (id == 0x100 && len >= 19) {          /* Registry */
@@ -80,10 +80,10 @@ int main(int argc, char **argv)
     int timeoutS = 0;
     for (int i=1;i<argc;i++){
         if (!strcmp(argv[i],"--help")||!strcmp(argv[i],"-h")){
-            printf("lan866x-dncpmon - passiver DNCP-Monitor (UDP 65526/65527)\n\n"
-                   "AUFRUF:\n  lan866x-dncpmon [--timeout <sek>]\n\n"
-                   "Dekodiert DNCP-Pakete (Announce/Registry/...) auf dem Bus.\n"
-                   "Rein passiv; DNCP muss aktiv sein. Strg+C beendet.\n");
+            printf("lan866x-dncpmon - passive DNCP monitor (UDP 65526/65527)\n\n"
+                   "USAGE:\n  lan866x-dncpmon [--timeout <sec>]\n\n"
+                   "Decodes DNCP packets (Announce/Registry/...) on the bus.\n"
+                   "Passive only; DNCP must be active. Ctrl+C to stop.\n");
             return 0;
         } else if (!strcmp(argv[i],"--timeout") && i+1<argc) timeoutS = atoi(argv[++i]);
     }
@@ -98,19 +98,19 @@ int main(int argc, char **argv)
         setsockopt(s[i],SOL_SOCKET,SO_BROADCAST,(char*)&on,sizeof(on));
         sockaddr_in a{}; a.sin_family=AF_INET; a.sin_addr.s_addr=INADDR_ANY; a.sin_port=htons(ports[i]);
         if (bind(s[i],(sockaddr*)&a,sizeof(a))==SOCKET_ERROR){
-            printf("bind %u fehlgeschlagen (Port belegt?). Fehler %d\n", ports[i], WSAGetLastError());
+            printf("bind %u failed (port in use?). Error %d\n", ports[i], WSAGetLastError());
         }
         FD_SET(s[i],&base);
     }
-    printf("DNCP-Monitor laeuft - lausche auf UDP 65526/65527 ");
-    if (timeoutS) printf("(Timeout %ds)\n", timeoutS); else printf("(Strg+C beendet)\n");
+    printf("DNCP monitor running - listening on UDP 65526/65527 ");
+    if (timeoutS) printf("(timeout %ds)\n", timeoutS); else printf("(Ctrl+C to stop)\n");
 
     uint8_t buf[2048];
     for (;;){
         fd_set rd = base;
         timeval tv{ timeoutS?timeoutS:5, 0 };
         int r = select(0,&rd,nullptr,nullptr, timeoutS?&tv:nullptr);
-        if (r==0){ if(timeoutS){ printf("\nTimeout - keine weiteren DNCP-Pakete.\n"); break;} continue; }
+        if (r==0){ if(timeoutS){ printf("\nTimeout - no further DNCP packets.\n"); break;} continue; }
         for (int i=0;i<2;i++) if (FD_ISSET(s[i],&rd)){
             sockaddr_in from{}; int fl=sizeof(from);
             int n = recvfrom(s[i],(char*)buf,sizeof(buf),0,(sockaddr*)&from,&fl);

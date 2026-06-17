@@ -1,4 +1,4 @@
-# Build-Output
+# Build output
 out/
 build/
 *.o
@@ -21,6 +21,6 @@ Makefile
 .vscode/
 *.user
 
-# Ausnahme: ausgelieferte Release-Binary wird getrackt (statisch gelinkt)
+# Exception: shipped release binaries are tracked (statically linked)
 !release/
 !release/*.exe

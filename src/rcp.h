@@ -1,18 +1,18 @@
 /*
- * rcp.h  -  Minimaler C-Wrapper fuer das LAN866x Remote Control Protocol (RCP)
- *           ueber den reinen C SOME/IP-Stack (libsomeip).
+ * rcp.h  -  Minimal C wrapper for the LAN866x Remote Control Protocol (RCP)
+ *           over the pure-C SOME/IP stack (libsomeip).
  *
- * Zielsetzung: Windows-Prototyp -> spaeter 1:1 nach MCU32 (lwIP + FreeRTOS).
- * Nur die GPIO/I2C/SPI-Methoden fuer den Control-Endpoint-Use-Case.
+ * Goal: Windows prototype -> later ported 1:1 to a 32-bit MCU (lwIP + FreeRTOS).
+ * Only the GPIO/I2C/SPI methods for the control-endpoint use case.
  *
- * Service: LAN866x Endpoint Service, Service-ID 0xFF10.
- * Method-IDs sind aus liblan866x/lan866x_client.cpp verifiziert (CreateHeader-Aufrufe).
+ * Service: LAN866x Endpoint Service, service ID 0xFF10.
+ * Method IDs verified from liblan866x/lan866x_client.cpp (CreateHeader calls).
  *
  * ============================================================================
- * STATUS: SCAFFOLD. Die mit  >>> VERIFY  markierten Stellen gegen
- *   libsomeip/inc/someip.h (struct SOMEIP_Header) und die jeweilige
- *   LAN866XClientImpl::<Methode> in lan866x_client.cpp gegenpruefen
- *   (exakte Parameter-DataIds / Reihenfolge).
+ * STATUS: SCAFFOLD. Verify the spots marked  >>> VERIFY  against
+ *   libsomeip/inc/someip.h (struct SOMEIP_Header) and the respective
+ *   LAN866XClientImpl::<method> in lan866x_client.cpp
+ *   (exact parameter DataIds / order).
  * ============================================================================
  */
 #ifndef RCP_H
@@ -21,13 +21,13 @@
 #include <stdint.h>
 #include <stdbool.h>
 
-/* --- Service-ID des LAN866x Endpoint Service --- */
+/* --- Service ID of the LAN866x Endpoint Service --- */
 #define RCP_SERVICE_ID            0xFF10u
 
-/* --- Verifizierte Method-IDs (Quelle: lan866x_client.cpp) --------------- */
-/* Allgemein / System */
+/* --- Verified method IDs (source: lan866x_client.cpp) ------------------- */
+/* General / system */
 #define RCP_M_GET_STATUS          0x1002u
-#define RCP_M_REBOOT              0x1008u  /* >>> VERIFY (Reboot/Shutdown-Bereich 0x1000/8/9) */
+#define RCP_M_REBOOT              0x1008u  /* >>> VERIFY (Reboot/Shutdown range 0x1000/8/9) */
 #define RCP_M_SHUTDOWN            0x1009u
 #define RCP_M_WAKEUP_NETWORK      0x1601u
 #define RCP_M_CONFIG_DIGITAL_PIN  0x1100u
@@ -41,63 +41,63 @@
 /* I2C */
 #define RCP_M_OPEN_I2C            0x1200u
 #define RCP_M_CLOSE_I2C           0x1202u
-#define RCP_M_WRITE_AND_READ_I2C  0x1208u  /* >>> VERIFY (I2C-Bereich 0x1203..0x1220) */
+#define RCP_M_WRITE_AND_READ_I2C  0x1208u  /* >>> VERIFY (I2C range 0x1203..0x1220) */
 /* SPI */
 #define RCP_M_OPEN_SPI            0x1500u
 #define RCP_M_CLOSE_SPI           0x1502u
 #define RCP_M_WRITE_AND_READ_SPI  0x1508u
-/* UART (vom Kunden ebenfalls gewuenscht) */
+/* UART */
 #define RCP_M_OPEN_UART           0x1400u
 #define RCP_M_WRITE_UART          0x1404u
 #define RCP_M_READ_UART           0x1420u
 
-/* --- Beispiel-Pinbelegung LAN8660 ---------- */
-/* Pin-IDs PA00..PA15 = 0..15 (Reihenfolge laut Configurable Digital I/O Pins). */
+/* --- Example pin mapping LAN8660 ---------- */
+/* Pin IDs PA00..PA15 = 0..15 (order per Configurable Digital I/O Pins). */
 #define PIN_PA00  0u
 #define PIN_PA01  1u
-#define PIN_PA02  2u   /* GPIO Out */
+#define PIN_PA02  2u   /* GPIO out */
 #define PIN_PA03  3u   /* UART RX (SER0) */
 #define PIN_PA04  4u   /* I2C SDA (SER1) */
 #define PIN_PA05  5u   /* I2C SCL (SER1) */
-#define PIN_PA06  6u   /* GPIO Out */
+#define PIN_PA06  6u   /* GPIO out */
 #define PIN_PA07  7u
 #define PIN_PA08  8u   /* SPI SDI/POCI (SER2) */
 #define PIN_PA09  9u   /* SPI SCK  (SER2) */
 #define PIN_PA10 10u   /* SPI CS_N (SER2) */
 #define PIN_PA11 11u   /* SPI SDO/PICO (SER2) */
 
-/* --- Endpoint-Discovery -------------------------------------------------- */
-/* Pro erreichbarem Endpoint ein Eintrag (aus EV_CLIENT_SERVICE_AVAILABLE). */
+/* --- Endpoint discovery -------------------------------------------------- */
+/* One entry per reachable endpoint (from EV_CLIENT_SERVICE_AVAILABLE). */
 #define RCP_MAX_ENDPOINTS  16u
 typedef struct {
-    uint8_t  ip[4];        /* Quell-IP des Endpoints (pIp->sourceAddr) */
-    uint16_t port;         /* SOME/IP-Port (pIp->port)                 */
-    uint16_t serviceId;    /* angebotener Service (0xFF10 = RCP)       */
-    uint16_t instanceId;   /* receivedInstanceId                       */
-    bool     available;    /* aktuell verfuegbar?                      */
+    uint8_t  ip[4];        /* endpoint source IP (pIp->sourceAddr) */
+    uint16_t port;         /* SOME/IP port (pIp->port)             */
+    uint16_t serviceId;    /* offered service (0xFF10 = RCP)       */
+    uint16_t instanceId;   /* receivedInstanceId                   */
+    bool     available;    /* currently available?                 */
 } rcp_endpoint_t;
 
-/* Liefert die aktuell entdeckten Endpoints; Rueckgabe = Anzahl. */
+/* Returns the currently discovered endpoints; return value = count. */
 uint8_t rcp_get_endpoints(rcp_endpoint_t *out, uint8_t maxOut);
 
-/* Aktiver Ziel-Endpoint fuer die Methodenaufrufe (Index in der Liste). */
+/* Active target endpoint for method calls (index in the list). */
 bool rcp_select_endpoint(uint8_t index);
 
-/* --- Lebenszyklus ------------------------------------------------------- */
-/* Initialisiert SOME/IP-Stack + UDP-Transport und abonniert Service 0xFF10.
- * localIfIP: IP des T1S-USB-Interfaces (z.B. {192,168,0,100}).            */
+/* --- Lifecycle ---------------------------------------------------------- */
+/* Initializes the SOME/IP stack + UDP transport and subscribes to service 0xFF10.
+ * localIfIP: IP of the T1S-USB interface (e.g. {192,168,0,100}).          */
 bool rcp_init(const uint8_t localIfIP[4]);
 
-/* Muss zyklisch aufgerufen werden: RX verarbeiten + Timer ticken.
- * (Windows: aus main-Loop; MCU32: aus SOME/IP-Task.)                      */
+/* Must be called periodically: process RX + tick timers.
+ * (Windows: from main loop; MCU32: from the SOME/IP task.)                */
 void rcp_poll(void);
 
-/* true, sobald mindestens ein Endpoint-Service entdeckt wurde.            */
+/* true once at least one endpoint service has been discovered.            */
 bool rcp_is_ready(void);
 
 /* --- GPIO --------------------------------------------------------------- */
 bool rcp_open_gpio(const uint8_t *pinIds, uint8_t count);
-bool rcp_set_gpio(const uint8_t *gpioValues, uint8_t len);  /* Bitmaske/Werte je Pin */
+bool rcp_set_gpio(const uint8_t *gpioValues, uint8_t len);  /* bitmask/values per pin */
 bool rcp_get_gpio(uint8_t *outValues, uint8_t *outLen);
 
 /* --- I2C ---------------------------------------------------------------- */

@@ -1,58 +1,58 @@
-# Portierung auf MCU32 (lwIP + FreeRTOS)
+# Porting to MCU32 (lwIP + FreeRTOS)
 
-Der Prototyp ist so geschnitten, dass für den Embedded-Port **nur die Plattformschicht** getauscht wird. App-Logik (`main.c`), RCP-Wrapper (`rcp.c/.h`) und der SOME/IP-Kern (`libsomeip/src/*.c`) bleiben **unverändert**.
+The prototype is structured so that for the embedded port **only the platform layer** is swapped. App logic (`main.c`), the RCP wrapper (`rcp.c/.h`) and the SOME/IP core (`libsomeip/src/*.c`) stay **unchanged**.
 
-## Was bleibt / was getauscht wird
+## What stays / what is swapped
 
-| Schicht | Windows-Prototyp | MCU32 |
+| Layer | Windows prototype | MCU32 |
 |---|---|---|
-| App + RCP-Encoding (`main.c`, `rcp.c`) | C | **gleich** |
-| SOME/IP-Kern (`someip-client/-gen/-pars/-transmit/-timer.c`) | C | **gleich** |
-| UDP-Transport | `stub/windows-udp-handler.c` (Winsock) | **lwIP-Handler (neu)** |
-| Zeitbasis (`someip-timer`) | Systemuhr | **`xTaskGetTickCount()`** |
-| Konfig (`stub/someip-cfg.h`) | PC-Größen | **kleiner tunen** |
-| T1S-Anbindung | USB-Ethernet-Bridge | **LAN8650/51 MAC-PHY via OA-SPI** (oder LAN8670 PHY via RMII) + lwIP |
+| App + RCP encoding (`main.c`, `rcp.c`) | C | **same** |
+| SOME/IP core (`someip-client/-gen/-pars/-transmit/-timer.c`) | C | **same** |
+| UDP transport | `stub/windows-udp-handler.c` (Winsock) | **lwIP handler (new)** |
+| Time base (`someip-timer`) | system clock | **`xTaskGetTickCount()`** |
+| Config (`stub/someip-cfg.h`) | PC sizes | **tune smaller** |
+| T1S connection | USB-Ethernet bridge | **LAN8650/51 MAC-PHY via OA-SPI** (or LAN8670 PHY via RMII) + lwIP |
 
-## Die echte Portier-Grenze: die `SOMEIP_CB_*`-Callbacks
+## The real porting boundary: the `SOMEIP_CB_*` callbacks
 
-Der libsomeip-Kern ruft eine feste Menge **Plattform-Callbacks** auf. Unter Windows liefert sie `libsomeip/stub/someip-stub.cpp` (+ `windows-udp-handler.c`, Win32-Threads). **Genau diese Funktionen** implementierst du für MCU32 neu (lwIP + FreeRTOS) — der Rest bleibt:
+The libsomeip core calls a fixed set of **platform callbacks**. On Windows these are provided by `libsomeip/stub/someip-stub.cpp` (+ `windows-udp-handler.c`, Win32 threads). **You reimplement exactly these functions** for MCU32 (lwIP + FreeRTOS) — the rest stays:
 
-| Callback | Aufgabe | MCU32-Umsetzung |
+| Callback | Task | MCU32 implementation |
 |---|---|---|
-| `SOMEIP_CB_OpenSocket` | UDP-Socket öffnen, RX-Callback registrieren | lwIP `udp_new`/`udp_bind`/`udp_recv` |
-| `SOMEIP_CB_SendUdp` | UDP senden (inkl. Multicast-Join bei `224.0.0.1`) | `udp_sendto` + `igmp_joingroup` |
-| `SOMEIP_CB_GetLocalIpAddr` | lokale IP zum Ziel-Subnetz | aus `netif` |
-| `SOMEIP_CB_EnterCriticialSection` / `Leave` | Gegenseitiger Ausschluss | FreeRTOS Mutex / `taskENTER_CRITICAL` |
-| `SOMEIP_CB_SemInit/Wait/Post/Destroy` | Semaphore | FreeRTOS `xSemaphore*` |
-| `SOMEIP_CB_ProvideBuffer` | Speicher für TX | statischer Pool / `pbuf` |
-| `SOMEIP_CB_NeedService` | „bald CheckTimers nötig" | Task notifizieren |
-| `SOMEIP_CB_Log` | Logging | UART/ITM |
-| RX-Dispatch (`on_data_received`) | Parsen + `SOMEIP_Client_DataReceived` / `SOMEIP_Transmit_ReceivedResponse` | aus `LAN866XClientImpl::OnDataReceived` übernehmen |
+| `SOMEIP_CB_OpenSocket` | open UDP socket, register RX callback | lwIP `udp_new`/`udp_bind`/`udp_recv` |
+| `SOMEIP_CB_SendUdp` | send UDP (incl. multicast join for `224.0.0.1`) | `udp_sendto` + `igmp_joingroup` |
+| `SOMEIP_CB_GetLocalIpAddr` | local IP for the target subnet | from `netif` |
+| `SOMEIP_CB_EnterCriticialSection` / `Leave` | mutual exclusion | FreeRTOS mutex / `taskENTER_CRITICAL` |
+| `SOMEIP_CB_SemInit/Wait/Post/Destroy` | semaphores | FreeRTOS `xSemaphore*` |
+| `SOMEIP_CB_ProvideBuffer` | memory for TX | static pool / `pbuf` |
+| `SOMEIP_CB_NeedService` | "CheckTimers needed soon" | notify task |
+| `SOMEIP_CB_Log` | logging | UART/ITM |
+| RX dispatch (`on_data_received`) | parse + `SOMEIP_Client_DataReceived` / `SOMEIP_Transmit_ReceivedResponse` | adopt from `LAN866XClientImpl::OnDataReceived` |
 
-> Damit ist der MCU32-Port im Kern: **diese Tabelle umsetzen** + `MULTICAST_IP[]={224,0,0,1}` definieren. App (`main.c`) und RCP-Wrapper (`rcp.c`) bleiben unverändert.
+> So the MCU32 port is essentially: **implement this table** + define `MULTICAST_IP[]={224,0,0,1}`. App (`main.c`) and RCP wrapper (`rcp.c`) stay unchanged.
 
-## Konkrete Schritte
+## Concrete steps
 
-1. **UDP-Handler ersetzen:** `windows-udp-handler.c` durch eine lwIP-Variante. Implementiere die vom Kern erwarteten Plattform-Funktionen (`SomeIPSocket_Init`, Senden, RX → `SOMEIP_Client_DataReceived(...)`). lwIP **RAW-API** bevorzugen (`LWIP_SOCKET=0`, weniger RAM).
-2. **Zeit:** `someip_get_time_ms()` auf FreeRTOS-Tick mappen:
+1. **Replace the UDP handler:** `windows-udp-handler.c` with an lwIP variant. Implement the platform functions the core expects (`SomeIPSocket_Init`, send, RX → `SOMEIP_Client_DataReceived(...)`). Prefer the lwIP **RAW API** (`LWIP_SOCKET=0`, less RAM).
+2. **Time:** map `someip_get_time_ms()` to the FreeRTOS tick:
    ```c
    uint32_t someip_get_time_ms(void){ return xTaskGetTickCount()*portTICK_PERIOD_MS; }
    ```
-   Keine `HAL_Delay()` / blockierenden Delays im SOME/IP-Task.
-3. **Task-Modell:**
+   No `HAL_Delay()` / blocking delays in the SOME/IP task.
+3. **Task model:**
    ```
-   Ethernet-IRQ → lwIP (tcpip_thread) → Queue → SOME/IP-Task → App-Task(s)
+   Ethernet IRQ → lwIP (tcpip_thread) → queue → SOME/IP task → app task(s)
    ```
-   Prioritäten: lwIP **hoch**, SOME/IP **mittel**, App **mittel/niedrig**.
-4. **Startup-Reihenfolge:** PHY → lwIP netif UP → SOME/IP-Init → Service Discovery → App.
-   *Typischer Fehler:* SOME/IP startet vor gültiger IP → Discovery schlägt fehl.
-5. **Speicher:** kein `malloc` im Hot-Path; FreeRTOS `heap_4`/`heap_5`; statische Queues/Buffer; lwIP `MEM_LIBC_MALLOC=0`.
+   Priorities: lwIP **high**, SOME/IP **medium**, app **medium/low**.
+4. **Startup order:** PHY → lwIP netif UP → SOME/IP init → service discovery → app.
+   *Common mistake:* SOME/IP starts before a valid IP → discovery fails.
+5. **Memory:** no `malloc` in the hot path; FreeRTOS `heap_4`/`heap_5`; static queues/buffers; lwIP `MEM_LIBC_MALLOC=0`.
 
-## Footprint (laut Roadmap-Übersicht)
-SOME/IP-Kern **ROM ≈ 28 kB, RAM ≈ 300 B** → passt auf MCU32 inkl. FreeRTOS.
+## Footprint (per the roadmap overview)
+SOME/IP core **ROM ≈ 28 kB, RAM ≈ 300 B** → fits on an MCU32 incl. FreeRTOS.
 
-## Hinweis zum C++-Wrapper
-`liblan866x` (C++ `LAN866XClient`) ist **nicht** für Embedded vorgesehen. Für MCU32 wird – wie hier – direkt auf `libsomeip` (C) aufgesetzt. Falls Microchip eine **reine C-Client-API-Variante** von libLAN866x bereitstellt (Übersicht nennt „C … MCUs"), wäre das die ideale Basis – erfragen.
+## Note on the C++ wrapper
+`liblan866x` (C++ `LAN866XClient`) is **not** intended for embedded. For MCU32 you build directly on `libsomeip` (C) – as done here. If Microchip provides a **pure C client API variant** of libLAN866x (the overview mentions "C … MCUs"), that would be the ideal base – worth asking for.
 
-## Referenz
-Architektur (RTOS/lwIP), Pin-Belegung & Wake/Sleep: **LAN866x Endpoint User's Guide** (§4 Functional Description, §6 SOME/IP-Methoden) sowie die Datenblätter LAN8660/8661/8662.
+## Reference
+Architecture (RTOS/lwIP), pin mapping & wake/sleep: **LAN866x Endpoint User's Guide** (§4 Functional Description, §6 SOME/IP methods) and the LAN8660/8661/8662 datasheets.
