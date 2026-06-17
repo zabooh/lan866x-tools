@@ -14,20 +14,20 @@ Minimaler **C**-Host, der LAN866x **Control-Endpoints** über das **Remote Contr
 6. [Projektstruktur](#6-projektstruktur)
 7. [Beispiel-Pinbelegung (LAN8660)](#7-beispiel-pinbelegung-lan8660)
 8. [RCP-Method-IDs](#8-rcp-method-ids)
-9. [C-Vorlage für STM32 (Track B)](#9-c-vorlage-für-stm32-track-b)
+9. [C-Vorlage für MCU32 (Track B)](#9-c-vorlage-für-mcu32-track-b)
 
 ---
 
 ## 1. Überblick
 
-**Zweck:** Windows-Prototyp → später 1:1 als Vorlage für ein **32-bit Embedded Device** (STM32 + lwIP + FreeRTOS). Typischer **Control-Endpoint-Use-Case**: nur **GPIO / I²C / SPI** (+ UART), z. B. mit einem LAN8660.
+**Zweck:** Windows-Prototyp → später 1:1 als Vorlage für ein **32-bit Embedded Device** (MCU32 + lwIP + FreeRTOS). Typischer **Control-Endpoint-Use-Case**: nur **GPIO / I²C / SPI** (+ UART), z. B. mit einem LAN8660.
 
 Das Paket besteht aus zwei Teilen:
 
 | Track | Datei(en) | Status | Zweck |
 |---|---|---|---|
 | **A – Tools (C++)** | `discovery.cpp`, `i2cscan.cpp` | ✅ **baut & läuft** | Sofort nutzbare PC-Tools auf dem fertigen Stack |
-| **B – C-Host-Vorlage** | `src/*.c` | Vorlage | Portierbarer C-Code → STM32 (lwIP/FreeRTOS), siehe [Kapitel 9](#9-c-vorlage-für-stm32-track-b) |
+| **B – C-Host-Vorlage** | `src/*.c` | Vorlage | Portierbarer C-Code → MCU32 (lwIP/FreeRTOS), siehe [Kapitel 9](#9-c-vorlage-für-mcu32-track-b) |
 
 **Track-A-Tools** (nutzen `libepmicrochip` über den T1S-USB-Adapter):
 - **`lan866x-discovery`** – listet erreichbare Endpoints + Typ + RCP-Service `0xFF10` + vollständige `GetStatus`/`GetNetworkStatus`-Infos.
@@ -182,12 +182,12 @@ lan866x-tools/
 ├── i2cscan.cpp          Track A: I²C-Bus-Scanner
 ├── include/             öffentliche Header (lan866x_client.hpp, ...)
 ├── libepmicrochip/      SOME/IP-Stack (C) + liblan866x + Windows-Plattform-Stub
-├── src/                 Track B: portable C-Vorlage für STM32
+├── src/                 Track B: portable C-Vorlage für MCU32
 │   ├── main.c           Demo-Loop (Init → Discovery → GPIO/I²C/SPI)
 │   ├── rcp.h            Method-IDs, Pin-Map, API
 │   └── rcp.c            RCP-Wrapper über libsomeip
 ├── README.md
-└── PORTING.md           STM32-Port (lwIP/FreeRTOS)
+└── PORTING.md           MCU32-Port (lwIP/FreeRTOS)
 ```
 Alle zum Bauen nötigen Quellen liegen **innerhalb** dieses Verzeichnisses.
 
@@ -223,10 +223,10 @@ Service `0xFF10`. Aus `lan866x_client.cpp` verifiziert.
 
 ---
 
-## 9. C-Vorlage für STM32 (Track B)
+## 9. C-Vorlage für MCU32 (Track B)
 
 `src/main.c`, `rcp.c`, `rcp.h` sind die **portable C-Vorlage** für das Embedded-Ziel (reines C auf `libsomeip`). Sie ist gegen die echte C-API + verifizierte Method-IDs/Strukturen gebaut; offen sind nur die mit `[V3]/[V4]` markierten Parameter-Layouts und die RX-Dispatch-Funktion `on_data_received()` (Vorlage: `LAN866XClientImpl::OnDataReceived`).
 
-Track B wird **nicht** von dieser Windows-CMake gebaut, sondern im STM32-Projekt zusammen mit einer lwIP/FreeRTOS-Implementierung der `SOMEIP_CB_*`-Callbacks (Ersatz für den Windows-Stub).
+Track B wird **nicht** von dieser Windows-CMake gebaut, sondern im MCU32-Projekt zusammen mit einer lwIP/FreeRTOS-Implementierung der `SOMEIP_CB_*`-Callbacks (Ersatz für den Windows-Stub).
 
 ➡️ Details: **[PORTING.md](PORTING.md)**.

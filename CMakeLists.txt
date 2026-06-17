@@ -46,7 +46,7 @@ endif()
 
 # ----------------------------------------------------------------------------
 # Hinweis zur C-Vorlage (src/main.c, rcp.c, rcp.h):
-#   Portable STM32-Vorlage (reines C auf libsomeip). Wird NICHT hier gebaut,
-#   sondern im STM32-Projekt mit einer lwIP/FreeRTOS-Implementierung der
+#   Portable MCU32-Vorlage (reines C auf libsomeip). Wird NICHT hier gebaut,
+#   sondern im MCU32-Projekt mit einer lwIP/FreeRTOS-Implementierung der
 #   SOMEIP_CB_*-Callbacks (Ersatz für den Windows-Stub). Siehe PORTING.md.
 # ----------------------------------------------------------------------------

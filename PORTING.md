@@ -1,10 +1,10 @@
-# Portierung auf STM32 (lwIP + FreeRTOS)
+# Portierung auf MCU32 (lwIP + FreeRTOS)
 
 Der Prototyp ist so geschnitten, dass für den Embedded-Port **nur die Plattformschicht** getauscht wird. App-Logik (`main.c`), RCP-Wrapper (`rcp.c/.h`) und der SOME/IP-Kern (`libsomeip/src/*.c`) bleiben **unverändert**.
 
 ## Was bleibt / was getauscht wird
 
-| Schicht | Windows-Prototyp | STM32 |
+| Schicht | Windows-Prototyp | MCU32 |
 |---|---|---|
 | App + RCP-Encoding (`main.c`, `rcp.c`) | C | **gleich** |
 | SOME/IP-Kern (`someip-client/-gen/-pars/-transmit/-timer.c`) | C | **gleich** |
@@ -15,9 +15,9 @@ Der Prototyp ist so geschnitten, dass für den Embedded-Port **nur die Plattform
 
 ## Die echte Portier-Grenze: die `SOMEIP_CB_*`-Callbacks
 
-Der libsomeip-Kern ruft eine feste Menge **Plattform-Callbacks** auf. Unter Windows liefert sie `libsomeip/stub/someip-stub.cpp` (+ `windows-udp-handler.c`, Win32-Threads). **Genau diese Funktionen** implementierst du für STM32 neu (lwIP + FreeRTOS) — der Rest bleibt:
+Der libsomeip-Kern ruft eine feste Menge **Plattform-Callbacks** auf. Unter Windows liefert sie `libsomeip/stub/someip-stub.cpp` (+ `windows-udp-handler.c`, Win32-Threads). **Genau diese Funktionen** implementierst du für MCU32 neu (lwIP + FreeRTOS) — der Rest bleibt:
 
-| Callback | Aufgabe | STM32-Umsetzung |
+| Callback | Aufgabe | MCU32-Umsetzung |
 |---|---|---|
 | `SOMEIP_CB_OpenSocket` | UDP-Socket öffnen, RX-Callback registrieren | lwIP `udp_new`/`udp_bind`/`udp_recv` |
 | `SOMEIP_CB_SendUdp` | UDP senden (inkl. Multicast-Join bei `224.0.0.1`) | `udp_sendto` + `igmp_joingroup` |
@@ -29,7 +29,7 @@ Der libsomeip-Kern ruft eine feste Menge **Plattform-Callbacks** auf. Unter Wind
 | `SOMEIP_CB_Log` | Logging | UART/ITM |
 | RX-Dispatch (`on_data_received`) | Parsen + `SOMEIP_Client_DataReceived` / `SOMEIP_Transmit_ReceivedResponse` | aus `LAN866XClientImpl::OnDataReceived` übernehmen |
 
-> Damit ist der STM32-Port im Kern: **diese Tabelle umsetzen** + `MULTICAST_IP[]={224,0,0,1}` definieren. App (`main.c`) und RCP-Wrapper (`rcp.c`) bleiben unverändert.
+> Damit ist der MCU32-Port im Kern: **diese Tabelle umsetzen** + `MULTICAST_IP[]={224,0,0,1}` definieren. App (`main.c`) und RCP-Wrapper (`rcp.c`) bleiben unverändert.
 
 ## Konkrete Schritte
 
@@ -49,10 +49,10 @@ Der libsomeip-Kern ruft eine feste Menge **Plattform-Callbacks** auf. Unter Wind
 5. **Speicher:** kein `malloc` im Hot-Path; FreeRTOS `heap_4`/`heap_5`; statische Queues/Buffer; lwIP `MEM_LIBC_MALLOC=0`.
 
 ## Footprint (laut Roadmap-Übersicht)
-SOME/IP-Kern **ROM ≈ 28 kB, RAM ≈ 300 B** → passt auf STM32 inkl. FreeRTOS.
+SOME/IP-Kern **ROM ≈ 28 kB, RAM ≈ 300 B** → passt auf MCU32 inkl. FreeRTOS.
 
 ## Hinweis zum C++-Wrapper
-`liblan866x` (C++ `LAN866XClient`) ist **nicht** für Embedded vorgesehen. Für STM32 wird – wie hier – direkt auf `libsomeip` (C) aufgesetzt. Falls Microchip eine **reine C-Client-API-Variante** von libLAN866x bereitstellt (Übersicht nennt „C … MCUs"), wäre das die ideale Basis – erfragen.
+`liblan866x` (C++ `LAN866XClient`) ist **nicht** für Embedded vorgesehen. Für MCU32 wird – wie hier – direkt auf `libsomeip` (C) aufgesetzt. Falls Microchip eine **reine C-Client-API-Variante** von libLAN866x bereitstellt (Übersicht nennt „C … MCUs"), wäre das die ideale Basis – erfragen.
 
 ## Referenz
 Architektur (RTOS/lwIP), Pin-Belegung & Wake/Sleep: **LAN866x Endpoint User's Guide** (§4 Functional Description, §6 SOME/IP-Methoden) sowie die Datenblätter LAN8660/8661/8662.

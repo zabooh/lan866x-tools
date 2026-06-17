@@ -2,7 +2,7 @@
  * rcp.h  -  Minimaler C-Wrapper fuer das LAN866x Remote Control Protocol (RCP)
  *           ueber den reinen C SOME/IP-Stack (libsomeip).
  *
- * Zielsetzung: Windows-Prototyp -> spaeter 1:1 nach STM32 (lwIP + FreeRTOS).
+ * Zielsetzung: Windows-Prototyp -> spaeter 1:1 nach MCU32 (lwIP + FreeRTOS).
  * Nur die GPIO/I2C/SPI-Methoden fuer den Control-Endpoint-Use-Case.
  *
  * Service: LAN866x Endpoint Service, Service-ID 0xFF10.
@@ -89,7 +89,7 @@ bool rcp_select_endpoint(uint8_t index);
 bool rcp_init(const uint8_t localIfIP[4]);
 
 /* Muss zyklisch aufgerufen werden: RX verarbeiten + Timer ticken.
- * (Windows: aus main-Loop; STM32: aus SOME/IP-Task.)                      */
+ * (Windows: aus main-Loop; MCU32: aus SOME/IP-Task.)                      */
 void rcp_poll(void);
 
 /* true, sobald mindestens ein Endpoint-Service entdeckt wurde.            */

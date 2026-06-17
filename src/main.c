@@ -1,7 +1,7 @@
 /*
  * main.c  -  Minimaler SOME/IP-Host (C) fuer LAN866x Control-Endpoints.
  *
- * Windows-Konsolen-Prototyp -> Vorlage fuer 32-bit Embedded (STM32 + lwIP + FreeRTOS).
+ * Windows-Konsolen-Prototyp -> Vorlage fuer 32-bit Embedded (MCU32 + lwIP + FreeRTOS).
  * Use-Case: nur GPIO / I2C / SPI ueber einen LAN8660 Control-EP,
  * angebunden ueber den T1S-USB-Adapter (EVB-LAN8670-USB) als Ethernet-Bridge.
  *
@@ -11,7 +11,7 @@
  *   3. Peripherie oeffnen (OpenGpio/OpenI2C/OpenSpi)
  *   4. Demo-Loop: GPIO toggeln, I2C lesen, SPI-Transfer
  *
- * Plattform-Trennung (fuer den STM32-Port):
+ * Plattform-Trennung (fuer den MCU32-Port):
  *   - main()-Loop  -> wird zur SOME/IP-Task (FreeRTOS)
  *   - rcp_poll()   -> bleibt gleich
  *   - UDP/Timer    -> in libsomeip/stub austauschen (siehe PORTING.md)

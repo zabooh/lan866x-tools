@@ -1,6 +1,6 @@
 /*
  * rcp.c  -  RCP-Wrapper ueber den reinen C SOME/IP-Stack (libsomeip).
- *           Portable STM32-Vorlage. Strukturen/Sequenz gegen someip.h und
+ *           Portable MCU32-Vorlage. Strukturen/Sequenz gegen someip.h und
  *           LAN866XClientImpl (lan866x_client.cpp) verifiziert.
  *
  * Aufbau analog zum C++-Wrapper:
@@ -18,7 +18,7 @@
  *   in lan866x_client.cpp (~Zeile 3240). 1:1 uebernehmen.
  *
  * PLATTFORM: Die SOMEIP_CB_*-Callbacks (Socket/Sem/CritSec/SendUdp/Buffer)
- *   liefert auf Windows someip-stub.cpp + windows-udp-handler.c; auf STM32
+ *   liefert auf Windows someip-stub.cpp + windows-udp-handler.c; auf MCU32
  *   durch lwIP/FreeRTOS-Implementierung ersetzen (siehe PORTING.md).
  */
 #include "rcp.h"
