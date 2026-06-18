@@ -218,8 +218,7 @@ static uint8_t scale(uint32_t v, uint32_t vmax, uint32_t out)
  * whose row tracks distance, mapping raw [2 .. full] over the full height:
  * raw 2 = bottom row, raw=full = top row. raw 0 (no/invalid reading) leaves the
  * bar where it was (no change). */
-#define BAR_BLUE 24u            /* dim */
-static void prox_bar(uint16_t raw, int full)
+static void prox_bar(uint16_t raw, int full, int blue)
 {
     static int row = Y_RES - 1;       /* persists across calls; raw==0 keeps it */
     const int lo = 2;
@@ -233,7 +232,7 @@ static void prox_bar(uint16_t raw, int full)
     for (y = 0; y < Y_RES; ++y)
         for (x = 10; x < X_RES; ++x) {
             s_fb[y][x][0] = 0; s_fb[y][x][1] = 0;
-            s_fb[y][x][2] = (y == row) ? BAR_BLUE : 0u;
+            s_fb[y][x][2] = (y == row) ? (uint8_t)blue : 0u;
         }
 }
 
@@ -272,7 +271,7 @@ static void on_prox(void *ctx, ReturnCode_t rc, const uint8_t *rx, uint16_t rxLe
 int main(int argc, char **argv)
 {
     const char *wantIp = NULL;
-    int wantEp = 0, i, fps = 50, sel, bright = 128, proxMax = 400;
+    int wantEp = 0, i, fps = 50, sel, bright = 128, proxMax = 400, barBlue = 64;
     rcp_endpoint_t eps[RCP_MAX_ENDPOINTS];
     WSADATA wsa;
 
@@ -282,17 +281,20 @@ int main(int argc, char **argv)
                    "  lan866x-clickdemo [--ip <addr>|--ep <i>] [--fps N] [--bright 0..255] [--prox-div N]\n\n"
                    "  Left display  (slot 1) follows the Thumbstick (slot 4, SPI).\n"
                    "  Right display (slot 2) shows a 1-px blue Proximity bar (slot 3, I2C): raw 2=bottom..max=top.\n"
-                   "  --prox-max: proximity raw value that puts the bar at the top (default 400).\n");
+                   "  --prox-max: proximity raw value that puts the bar at the top (default 400).\n"
+                   "  --bar: blue brightness of the proximity bar, 0..255 (default 64).\n");
             return 0;
         } else if (!strcmp(argv[i], "--ip")       && i+1<argc) wantIp = argv[++i];
         else if (!strcmp(argv[i], "--ep")       && i+1<argc) wantEp = atoi(argv[++i]);
         else if (!strcmp(argv[i], "--fps")      && i+1<argc) fps = atoi(argv[++i]);
         else if (!strcmp(argv[i], "--bright")   && i+1<argc) bright = atoi(argv[++i]);
         else if (!strcmp(argv[i], "--prox-max") && i+1<argc) proxMax = atoi(argv[++i]);
+        else if (!strcmp(argv[i], "--bar")      && i+1<argc) barBlue = atoi(argv[++i]);
     }
     if (fps < 1) fps = 1; if (fps > 200) fps = 200;
     if (bright < 1) bright = 1; if (bright > 255) bright = 255;
     if (proxMax < 1) proxMax = 1;
+    if (barBlue < 0) barBlue = 0; if (barBlue > 255) barBlue = 255;
 
     sel = tool_select(wantIp, wantEp, 5, "LAN866x Click demo (Thumbstick + Proximity -> RGB)");
     if (sel < 0) return 2;
@@ -363,7 +365,7 @@ int main(int argc, char **argv)
         fill_half(0, r, g, b);
         /* 4) proximity -> display 2 (right half): a 1-px blue bar that tracks
          *    distance (raw 2 = bottom .. proxMax = top; raw 0 = no change). */
-        prox_bar(s_prox, proxMax);
+        prox_bar(s_prox, proxMax, barBlue);
 
         /* 5-8) the firmware renders ONE 20x10 video onto BOTH displays (left
          *      half = display 1, right half = display 2), so send a single full
