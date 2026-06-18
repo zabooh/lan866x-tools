@@ -39,6 +39,22 @@ foreach(tool discovery i2cscan gpio spi adc pwm boot flashimg)
     endif()
 endforeach()
 
+# --- package flasher: needs a ZIP reader (bundled minizip/inflate fork) -----
+file(GLOB MINIZIP_SRC ${CMAKE_CURRENT_SOURCE_DIR}/third-party/minizip/*.c)
+add_library(lan866x_minizip STATIC ${MINIZIP_SRC})
+target_include_directories(lan866x_minizip PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/third-party/minizip)
+set_target_properties(lan866x_minizip PROPERTIES C_STANDARD 11)
+
+add_executable(lan866x-flashpkg flashpkg.c)
+target_link_libraries(lan866x-flashpkg PRIVATE rcpcore lan866x_minizip)
+set_target_properties(lan866x-flashpkg PROPERTIES C_STANDARD 11)
+if(WIN32)
+    target_link_libraries(lan866x-flashpkg PRIVATE ws2_32 Iphlpapi)
+endif()
+if(CMAKE_C_COMPILER_ID STREQUAL "GNU")
+    target_link_options(lan866x-flashpkg PRIVATE -static -static-libgcc)
+endif()
+
 # --- standalone DNCP tools (Winsock only, not SOME/IP) ----------------------
 foreach(tool dncpmon dncpdisc)
     add_executable(lan866x-${tool} ${tool}.c)
