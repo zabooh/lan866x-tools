@@ -57,6 +57,14 @@ void rcp_set_retries(uint8_t n);
 ReturnCode_t rcp_get_status(GetStatusReply_t *out);
 ReturnCode_t rcp_get_network_status(GetNetworkStatusReply_t *out);
 
+/* --- Bootloader / reboot ------------------------------------------------ *
+ * Reboot the endpoint into the named image. The name is sent BOM-prefixed
+ * (UTF-8 BOM + name + NUL), exactly like the official flasher. The node then
+ * leaves and re-joins the bus (re-discovery via the SD event callback).     */
+#define RCP_IMAGE_BOOTLOADER  "bootloader/app.bin"
+#define RCP_IMAGE_MAIN        "main/app.bin"
+ReturnCode_t rcp_reboot(const char *imageName);
+
 /* Digital pins */
 ReturnCode_t rcp_release_digital_pins(const ReleaseDigitalPinsVar_t *in);
 

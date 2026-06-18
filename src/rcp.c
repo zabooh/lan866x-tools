@@ -245,6 +245,17 @@ ReturnCode_t rcp_get_network_status(GetNetworkStatusReply_t *out)
     return ok ? RT_OK : RT_MALFORMED_MESSAGE;
 }
 
+ReturnCode_t rcp_reboot(const char *name)
+{
+    uint8_t img[32]; uint16_t pl = 0u; size_t L = strlen(name);
+    if (L + 4u > sizeof(img)) return RT_PARAMETER_NOT_VALID;
+    img[0] = 0xEFu; img[1] = 0xBBu; img[2] = 0xBFu;        /* UTF-8 BOM */
+    memcpy(&img[3], name, L); img[3 + L] = 0u;             /* name + NUL */
+    if (!SOMEIP_Generator_Fill_BLOB(0, img, (uint16_t)(L + 4u), s_scratch, MAXP, &pl))
+        return RT_PARAMETER_NOT_VALID;
+    return rcp_xfer(0x1000u, s_scratch, pl);
+}
+
 ReturnCode_t rcp_release_digital_pins(const ReleaseDigitalPinsVar_t *in)
 {
     uint16_t pl = 0u;
