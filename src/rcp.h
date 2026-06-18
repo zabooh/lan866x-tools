@@ -42,9 +42,12 @@ bool rcp_init(const uint8_t localIfIP[4]);
 void rcp_poll(void);
 /* true once at least one endpoint has offered the service. */
 bool rcp_is_ready(void);
-/* Per-request response timeout in ms (default 2000). Lower it for fast bus
+/* Per-request response timeout in ms (default 1500). Lower it for fast bus
  * probing (e.g. I2C address scan, where absent devices never reply). */
 void rcp_set_timeout_ms(uint32_t ms);
+/* Extra attempts on RT_TIMEOUT (default 3). Set 0 for fast probing where a
+ * non-answer is the expected/normal result (e.g. I2C address scan). */
+void rcp_set_retries(uint8_t n);
 
 /* --- Methods (signatures mirror the C++ LAN866XClient) ------------------- *
  * All return ReturnCode_t (RT_OK on success; RT_NOT_REACHABLE = peripheral

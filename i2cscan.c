@@ -42,8 +42,9 @@ int main(int argc, char **argv)
     ov.PinIdSda = sda; ov.PinIdScl = scl; ov.ClockSpeed = speed;
     if (rcp_open_i2c(&ov, &orep) != RT_OK) { printf("OpenI2C failed. Check pins/speed.\n"); return 3; }
 
-    /* absent addresses never reply -> use a short per-probe timeout */
+    /* absent addresses never reply -> short per-probe timeout, no retries */
     rcp_set_timeout_ms(150);
+    rcp_set_retries(0);
     printf("\nScanning (SDA=PA%02u SCL=PA%02u) ...\n", sda, scl);
     printf("     0  1  2  3  4  5  6  7  8  9  a  b  c  d  e  f\n");
     for (i = 0; i < 0x80; ++i) {
