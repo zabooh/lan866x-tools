@@ -59,6 +59,9 @@ void rcp_set_chunk(uint16_t n);
 /* System / diagnostics */
 ReturnCode_t rcp_get_status(GetStatusReply_t *out);
 ReturnCode_t rcp_get_network_status(GetNetworkStatusReply_t *out);
+/* PHY/T1S diagnosis data (SQI, fault/short detection, ...): 4 raw 16-byte
+ * channel blobs straight from the endpoint. Method 0x1003. */
+ReturnCode_t rcp_read_diagnosis_data(ReadDiagnosisDataReply_t *out);
 
 /* --- Bootloader / reboot ------------------------------------------------ *
  * Reboot the endpoint into the named image. The name is sent BOM-prefixed

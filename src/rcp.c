@@ -244,6 +244,22 @@ ReturnCode_t rcp_get_status(GetStatusReply_t *out)
     return ok ? RT_OK : RT_MALFORMED_MESSAGE;
 }
 
+ReturnCode_t rcp_read_diagnosis_data(ReadDiagnosisDataReply_t *out)
+{
+    uint16_t p = 0u, tag = 0u;
+    ReturnCode_t rc = rcp_xfer(0x1003u, NULL, 0);
+    if (rc != RT_OK) return rc;
+    out->Channel0Length = sizeof(out->Channel0);
+    out->Channel1Length = sizeof(out->Channel1);
+    out->Channel2Length = sizeof(out->Channel2);
+    out->Channel3Length = sizeof(out->Channel3);
+    return (SOMEIP_Parser_Read_BLOB(&s_rx[p], s_rxLen - p, &tag, out->Channel0, &out->Channel0Length, &p) &&
+            SOMEIP_Parser_Read_BLOB(&s_rx[p], s_rxLen - p, &tag, out->Channel1, &out->Channel1Length, &p) &&
+            SOMEIP_Parser_Read_BLOB(&s_rx[p], s_rxLen - p, &tag, out->Channel2, &out->Channel2Length, &p) &&
+            SOMEIP_Parser_Read_BLOB(&s_rx[p], s_rxLen - p, &tag, out->Channel3, &out->Channel3Length, &p))
+           ? RT_OK : RT_MALFORMED_MESSAGE;
+}
+
 ReturnCode_t rcp_get_network_status(GetNetworkStatusReply_t *out)
 {
     uint16_t p = 0u, tag = 0u; const uint8_t *b; uint16_t n;
