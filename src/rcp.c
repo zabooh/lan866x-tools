@@ -423,6 +423,17 @@ ReturnCode_t rcp_write_and_read_i2c(const WriteAndReadI2CVar_t *in, ReadI2CReply
             SOMEIP_Parser_Read_BLOB(&s_rx[p], s_rxLen - p, &tag, out->ReadData, &out->ReadDataLength, &p)) ? RT_OK : RT_MALFORMED_MESSAGE;
 }
 
+ReturnCode_t rcp_write_i2c(const WriteI2CVar_t *in)
+{
+    uint16_t pl = 0u;
+    if (!(SOMEIP_Generator_Fill_UINT16(0, in->HandleI2C, &s_scratch[pl], (uint16_t)(MAXP - pl), &pl) &&
+          SOMEIP_Generator_Fill_UINT16(1, in->DeviceAddress, &s_scratch[pl], (uint16_t)(MAXP - pl), &pl) &&
+          SOMEIP_Generator_Fill_UINT32(2, in->WriteId, &s_scratch[pl], (uint16_t)(MAXP - pl), &pl) &&
+          SOMEIP_Generator_Fill_BLOB(3, in->WriteData, in->WriteDataLength, &s_scratch[pl], (uint16_t)(MAXP - pl), &pl)))
+        return RT_PARAMETER_NOT_VALID;
+    return rcp_xfer(0x1204u, s_scratch, pl);
+}
+
 ReturnCode_t rcp_close_i2c(const CloseI2CVar_t *in)
 {
     uint16_t pl = 0u;

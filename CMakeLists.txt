@@ -27,7 +27,7 @@ endif()
 
 # --- RCP tools (SOME/IP): link the C core ----------------------------------
 #   Each tool .c defines its own  uint8_t MULTICAST_IP[] = {224,0,0,1};
-foreach(tool discovery i2cscan gpio spi adc pwm boot flashimg)
+foreach(tool discovery i2cscan gpio spi adc pwm boot flashimg clickdemo)
     add_executable(lan866x-${tool} ${tool}.c)
     target_link_libraries(lan866x-${tool} PRIVATE rcpcore)
     set_target_properties(lan866x-${tool} PROPERTIES C_STANDARD 11)
