@@ -104,6 +104,13 @@ ReturnCode_t rcp_close_i2c(const CloseI2CVar_t *in);
 /* SPI */
 ReturnCode_t rcp_open_spi(const OpenSpiVar_t *in, OpenSpiReply_t *out);
 ReturnCode_t rcp_write_and_read_spi(const WriteAndReadSpiVar_t *in, WriteAndReadSpiReply_t *out);
+/* Compound transfer: two SPI elements in ONE round-trip (method 0x1509,
+ * config >= V1.3.2). Halves latency for paired reads like a 2-axis ADC.
+ * rd*Len are in/out (capacity in, bytes read out). Returns RT_UNKNOWN_METHOD
+ * if the endpoint's config is too old. */
+ReturnCode_t rcp_write_and_read_spi2(uint16_t handle, uint32_t writeId,
+                                     const uint8_t *cmd0, uint16_t cmd0Len, uint8_t *rd0, uint16_t *rd0Len,
+                                     const uint8_t *cmd1, uint16_t cmd1Len, uint8_t *rd1, uint16_t *rd1Len);
 ReturnCode_t rcp_close_spi(const CloseSpiVar_t *in);
 
 /* ADC */

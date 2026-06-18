@@ -474,6 +474,26 @@ ReturnCode_t rcp_write_and_read_spi(const WriteAndReadSpiVar_t *in, WriteAndRead
             SOMEIP_Parser_Read_BLOB(&s_rx[p], s_rxLen - p, &tag, out->ReadData, &out->ReadDataLength, &p)) ? RT_OK : RT_MALFORMED_MESSAGE;
 }
 
+ReturnCode_t rcp_write_and_read_spi2(uint16_t handle, uint32_t writeId,
+                                     const uint8_t *cmd0, uint16_t cmd0Len, uint8_t *rd0, uint16_t *rd0Len,
+                                     const uint8_t *cmd1, uint16_t cmd1Len, uint8_t *rd1, uint16_t *rd1Len)
+{
+    uint16_t pl = 0u, p = 0u, tag = 0u;
+    ReturnCode_t rc; uint32_t readId;
+    if (!(SOMEIP_Generator_Fill_UINT16(0, handle, &s_scratch[pl], (uint16_t)(MAXP - pl), &pl) &&
+          SOMEIP_Generator_Fill_UINT32(1, writeId, &s_scratch[pl], (uint16_t)(MAXP - pl), &pl) &&
+          SOMEIP_Generator_Fill_UINT16(2, *rd0Len, &s_scratch[pl], (uint16_t)(MAXP - pl), &pl) &&
+          SOMEIP_Generator_Fill_BLOB(3, cmd0, cmd0Len, &s_scratch[pl], (uint16_t)(MAXP - pl), &pl) &&
+          SOMEIP_Generator_Fill_UINT16(4, *rd1Len, &s_scratch[pl], (uint16_t)(MAXP - pl), &pl) &&
+          SOMEIP_Generator_Fill_BLOB(5, cmd1, cmd1Len, &s_scratch[pl], (uint16_t)(MAXP - pl), &pl)))
+        return RT_PARAMETER_NOT_VALID;
+    rc = rcp_xfer(0x1509u, s_scratch, pl);
+    if (rc != RT_OK) return rc;
+    return (SOMEIP_Parser_Read_UINT32(&s_rx[p], s_rxLen - p, &tag, &readId, &p) &&
+            SOMEIP_Parser_Read_BLOB(&s_rx[p], s_rxLen - p, &tag, rd0, rd0Len, &p) &&
+            SOMEIP_Parser_Read_BLOB(&s_rx[p], s_rxLen - p, &tag, rd1, rd1Len, &p)) ? RT_OK : RT_MALFORMED_MESSAGE;
+}
+
 ReturnCode_t rcp_close_spi(const CloseSpiVar_t *in)
 {
     uint16_t pl = 0u;

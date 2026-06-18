@@ -29,6 +29,7 @@
 #include <signal.h>
 #include "rcp.h"
 #include "tool_common.h"
+#include <mmsystem.h>     /* timeBeginPeriod: 1 ms scheduler tick for snappy I/O */
 
 uint8_t MULTICAST_IP[] = { 224, 0, 0, 1 };
 
@@ -128,6 +129,7 @@ static void fill_half(int x0, uint8_t r, uint8_t g, uint8_t b)
 /* --- Thumbstick (MCP3204 over SPI) -------------------------------------- */
 static uint16_t s_spi = UINT16_MAX;
 static uint32_t s_spiWid = 0;
+static int      s_compound = 1;   /* read both axes in one round-trip (V1.3.2+) */
 
 static int spi_setup(void)
 {
@@ -138,7 +140,8 @@ static int spi_setup(void)
     rel.PinIdList[p++] = SPI_CS;   rel.PinIdList[p++] = SPI_MOSI;
     rel.PinIdListLength = p; rcp_release_digital_pins(&rel);
     ov.PinIdMiso = SPI_MISO; ov.PinIdSck = SPI_SCK; ov.PinIdCs = SPI_CS;
-    ov.PinIdMosi = SPI_MOSI; ov.Mode = 1; ov.ClockSpeed = 1923000u;
+    ov.PinIdMosi = SPI_MOSI; ov.Mode = 1;
+    ov.ClockSpeed = s_compound ? 8330000u : 1923000u;
     s_spiWid = 0;
     if (rcp_open_spi(&ov, &orep) != RT_OK) { s_spi = UINT16_MAX; return 0; }
     s_spi = orep.HandleSpi;
@@ -157,10 +160,22 @@ static int spi_read_channel(uint8_t ch, uint16_t *val)
     return 1;
 }
 
-/* y = channel 0, x = channel 1 (as in the official demo) */
+/* y = channel 0, x = channel 1 (as in the official demo). Uses the compound
+ * transfer (both axes, one round-trip) when supported, else two single reads. */
 static int thumbstick_read(uint16_t *x, uint16_t *y)
 {
     if (s_spi == UINT16_MAX && !spi_setup()) return 0;
+    if (s_compound) {
+        uint8_t c0[3] = { 0x06, 0x00, 0xFF }, c1[3] = { 0x06, 0x40, 0xFF };
+        uint8_t r0[3] = { 0 }, r1[3] = { 0 };
+        uint16_t l0 = 3, l1 = 3;
+        ReturnCode_t rc = rcp_write_and_read_spi2(s_spi, s_spiWid++, c0, 3, r0, &l0, c1, 3, r1, &l1);
+        if (rc == RT_UNKNOWN_METHOD) { s_compound = 0; s_spi = UINT16_MAX; return 0; } /* old config: fall back */
+        if (rc != RT_OK || l0 < 3 || l1 < 3) { s_spi = UINT16_MAX; return 0; }
+        *y = (uint16_t)(((r0[1] << 8) | r0[2]) & 0x0FFF);
+        *x = (uint16_t)(((r1[1] << 8) | r1[2]) & 0x0FFF);
+        return 1;
+    }
     if (!spi_read_channel(0, y)) { s_spi = UINT16_MAX; return 0; }
     if (!spi_read_channel(1, x)) { s_spi = UINT16_MAX; return 0; }
     return 1;
@@ -238,7 +253,7 @@ static uint8_t scale(uint32_t v, uint32_t vmax, uint32_t out)
 int main(int argc, char **argv)
 {
     const char *wantIp = NULL;
-    int wantEp = 0, i, fps = 30, sel, bright = 128, proxDiv = 16;
+    int wantEp = 0, i, fps = 40, sel, bright = 128, proxDiv = 16;
     rcp_endpoint_t eps[RCP_MAX_ENDPOINTS];
     WSADATA wsa;
     uint16_t tx = ADC_MAX / 2, ty = ADC_MAX / 2, prox = 0;
@@ -273,20 +288,29 @@ int main(int argc, char **argv)
     if (s_rtp == INVALID_SOCKET) { printf("socket failed\n"); return 3; }
     s_ssrc = (uint32_t)GetTickCount();
     signal(SIGINT, on_sigint);
+    /* 1 ms scheduler tick so Sleep() and the poll-wait are not quantised to the
+     * ~15.6 ms default tick. */
+    timeBeginPeriod(1);
 
-    /* fast sensor I/O: don't stall the animation if a frame is lost */
-    rcp_set_timeout_ms(250);
-    rcp_set_retries(2);
+    /* The peripheral RCP path over T1S can be lossy. A successful round-trip is
+     * ~40 ms; a lost one must recover fast and not hide behind a long timeout.
+     * Short timeout + a few retries => reads keep succeeding (the display stays
+     * live) but a drop costs tens of ms, not the old 250 ms x 2 = slow. */
+    rcp_set_timeout_ms(70);
+    rcp_set_retries(3);
 
+    {
+    uint32_t frame = 0;
+    int okT = 0, okP = 0;
     while (s_run) {
         uint16_t nx, ny, np;
         uint8_t r, g, b;
-        int okT, okP;
 
         okT = thumbstick_read(&nx, &ny);
         if (okT) { tx = nx; ty = ny; }
-        okP = proximity_read(&np);
-        if (okP) prox = np;
+        /* proximity changes slowly and costs an extra round-trip: poll it
+         * every 4th frame so the thumbstick stays snappy. */
+        if ((frame++ & 3u) == 0u) { okP = proximity_read(&np); if (okP) prox = np; }
 
         /* Left display: X -> red, Y -> green (invert to match stick motion) */
         r = scale((uint32_t)(ADC_MAX - tx), ADC_MAX, (uint32_t)bright);
@@ -308,6 +332,7 @@ int main(int argc, char **argv)
         fflush(stdout);
         Sleep((DWORD)(1000 / fps));
     }
+    }
 
     /* clear both displays and release the peripherals */
     printf("\nStopping - clearing displays ...\n");
@@ -315,6 +340,7 @@ int main(int argc, char **argv)
     rtp_send(); Sleep(30); rtp_send();
     if (s_spi != UINT16_MAX) { CloseSpiVar_t c; c.HandleSpi = s_spi; rcp_close_spi(&c); }
     if (s_i2c != UINT16_MAX) { CloseI2CVar_t c; c.HandleI2C = s_i2c; rcp_close_i2c(&c); }
+    timeEndPeriod(1);
     closesocket(s_rtp); WSACleanup();
     return 0;
 }
