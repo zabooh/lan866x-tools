@@ -294,15 +294,13 @@ int main(int argc, char **argv)
     printf("  setup: thumbstick(SPI)=%s  proximity(I2C/VCNL4200)=%s\n",
            s_spi != UINT16_MAX ? "OK" : "FAILED", s_proxInit ? "OK" : "FAILED");
 
-    /* Fixed per-cycle scheme (no decoupling): fire both sensor reads, wait for
-     * both to complete, render, then send each display in turn.
-     *   1) query thumbstick + proximity      5) send display 1
-     *   2) wait for both callbacks            6) (sent)
-     *   3) proximity -> display 1 data        7) send display 2
-     *   4) thumbstick -> display 2 data       8) (sent)
-     *   9) repeat
-     * Reads run concurrently (both in flight) so a cycle costs ~max(RTT), not the
-     * sum. The per-request deadline bounds the wait if a reply is lost. */
+    /* Fixed per-cycle scheme: fire both sensor reads, wait for both, render each
+     * display's half, then send the frame.
+     *   1) query thumbstick + proximity (async, both in flight)
+     *   2) wait until both callbacks delivered (deadline-bounded)
+     *   3) thumbstick -> display 1 (left half)   4) proximity -> display 2 (right half)
+     *   5-8) send the 20x10 frame (both displays in one RTP frame)   9) repeat
+     * Reads run concurrently so a cycle costs ~max(RTT), not the sum. */
     rcp_set_async_timeout_ms(120);
     while (s_run) {
         uint8_t r, g, b, params[64];
@@ -329,20 +327,22 @@ int main(int argc, char **argv)
             Sleep(1);
         }
 
-        /* 3) proximity -> display 1 (left): near = warm (blue far -> red near) */
-        {
-            uint8_t inten = scale((uint32_t)s_prox / (uint32_t)proxDiv, (uint32_t)bright, (uint32_t)bright);
-            fill_half(0, inten, 0, (uint8_t)(bright - inten));
-        }
-        /* 4) thumbstick -> display 2 (right): X -> red, Y -> green */
+        /* 3) thumbstick -> display 1 (left half, cols 0-9): X -> red, Y -> green */
         r = scale((uint32_t)(ADC_MAX - s_tx), ADC_MAX, (uint32_t)bright);
         g = scale((uint32_t)(ADC_MAX - s_ty), ADC_MAX, (uint32_t)bright);
         b = (uint8_t)(bright / 6);
-        fill_half(10, r, g, b);
+        fill_half(0, r, g, b);
+        /* 4) proximity -> display 2 (right half, cols 10-19): near = warm (far blue -> near red) */
+        {
+            uint8_t inten = scale((uint32_t)s_prox / (uint32_t)proxDiv, (uint32_t)bright, (uint32_t)bright);
+            fill_half(10, inten, 0, (uint8_t)(bright - inten));
+        }
 
-        /* 5/6) send display 1 (left 10 cols) ; 7/8) send display 2 (right 10 cols) */
-        rtp_send_region(0, 10);
-        rtp_send_region(10, 10);
+        /* 5-8) the firmware renders ONE 20x10 video onto BOTH displays (left
+         *      half = display 1, right half = display 2), so send a single full
+         *      frame. Two separate per-display packets are reassembled wrong
+         *      (each display ends up split top/bottom). */
+        rtp_send();
 
         printf("\r  Thumbstick x=%4u y=%4u %s | Proximity raw=%5u %s   ",
                s_tx, s_ty, s_thumbOk ? "  " : "..", s_prox, s_proxOk ? "  " : "..");
