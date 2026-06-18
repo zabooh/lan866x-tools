@@ -193,10 +193,13 @@ static int vcnl4200_init(void)
     /* PS_CONF1/2: fast response. IT 2T + duty 1/160 (highest) raise the
      * measurement rate a lot vs the demo's IT 9T + 1/320 (which favours range
      * but updates only a few times/s). AF enable kept as in the demo. */
-    b[0] = VCNL4200_PS_CONF1; b[1] = 0x04 | 0x00; b[2] = 0x08;  /* IT_2T | DUTY_1_160 */
+    /* Fastest practical PS: duty 1/160 (highest = fastest response per the
+     * datasheet), 1 multi-pulse (default, fastest), IT 1.5T (short = fast),
+     * 16-bit output. Active-force stays OFF (continuous measurement). */
+    b[0] = VCNL4200_PS_CONF1; b[1] = 0x02 | 0x00; b[2] = 0x08;  /* IT_1.5T | DUTY_1_160 ; PS_HD 16-bit */
     Sleep(25); if (!i2c_write(b, 3)) return 0;
-    /* PS_CONF3/MS: sunlight cancel enable ; LED 100 mA (more IR to offset short IT) */
-    b[0] = VCNL4200_PS_CONF3; b[1] = 0x01; b[2] = 0x02;  /* LED_I_100mA */
+    /* PS_CONF3/MS: sunlight cancel enable ; LED 200 mA (max IR, keeps signal up at short IT) */
+    b[0] = VCNL4200_PS_CONF3; b[1] = 0x01; b[2] = 0x07;  /* LED_I_200mA */
     Sleep(25); if (!i2c_write(b, 3)) return 0;
     /* ALS_CONF: enabled */
     b[0] = VCNL4200_ALS_CONF; b[1] = 0x00; b[2] = 0x00;
@@ -246,7 +249,7 @@ static void on_prox(void *ctx, ReturnCode_t rc, const uint8_t *rx, uint16_t rxLe
 int main(int argc, char **argv)
 {
     const char *wantIp = NULL;
-    int wantEp = 0, i, fps = 40, sel, bright = 128, proxDiv = 16;
+    int wantEp = 0, i, fps = 50, sel, bright = 128, proxDiv = 16;
     rcp_endpoint_t eps[RCP_MAX_ENDPOINTS];
     WSADATA wsa;
 
@@ -264,7 +267,7 @@ int main(int argc, char **argv)
         else if (!strcmp(argv[i], "--bright")   && i+1<argc) bright = atoi(argv[++i]);
         else if (!strcmp(argv[i], "--prox-div") && i+1<argc) proxDiv = atoi(argv[++i]);
     }
-    if (fps < 1) fps = 1; if (fps > 100) fps = 100;
+    if (fps < 1) fps = 1; if (fps > 200) fps = 200;
     if (bright < 1) bright = 1; if (bright > 255) bright = 255;
     if (proxDiv < 1) proxDiv = 1;
 
@@ -320,6 +323,7 @@ int main(int argc, char **argv)
             t0 = (uint32_t)GetTickCount();
             while (s_thumbPending && ((uint32_t)GetTickCount() - t0) < 200u) { rcp_async_poll(); Sleep(1); }
         }
+        Sleep(12);   /* space the two reads so their replies don't arrive back-to-back (host drops one) */
         if (s_proxInit) {
             uint8_t reg = VCNL4200_PS_DATA;
             uint16_t pl = rcp_enc_i2c_read(params, sizeof(params), s_i2c, VCNL4200_ADDR, s_i2cWid++, &reg, 1, 2);
