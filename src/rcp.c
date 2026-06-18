@@ -196,12 +196,14 @@ static void on_async_response(struct SOMEIP_Transmit_Buffer *pBuf, bool ok,
 {
     int i; rcp_async_cb cb = NULL; void *ctx = NULL;
     if (!pBuf) return;
-    SOMEIP_CB_EnterCriticialSection();
+    /* The transmit layer invokes this WHILE holding SOMEIP_CB critsec (a
+     * NON-reentrant semaphore - someip-transmit.c ReceivedResponse/CheckTimers).
+     * We must NOT take it again here (that self-deadlocks the rx thread). The
+     * slot table is already serialized by the caller's held lock. */
     for (i = 0; i < RCP_ASYNC_MAX; ++i)
         if (s_async[i].sid != 0u && s_async[i].sid == pBuf->waitForSessionId) {
             cb = s_async[i].cb; ctx = s_async[i].ctx; s_async[i].sid = 0u; break;
         }
-    SOMEIP_CB_LeaveCriticialSection();
     if (cb) cb(ctx, ok ? (ReturnCode_t)rc : RT_TIMEOUT, ok ? pRx : NULL, ok ? rxLen : 0u);
 }
 
@@ -261,8 +263,11 @@ void rcp_async_poll(void)
         SOMEIP_CB_EnterCriticialSection();
         if (s_async[i].sid != 0u && (now - s_async[i].sentMs) >= s_asyncTimeoutMs) {
             cb = s_async[i].cb; ctx = s_async[i].ctx;
-            if (s_async[i].tb) { s_async[i].tb->callback = NULL; s_async[i].tb->ipV4Addr[0] = 0u; }
-            s_async[i].sid = 0u;
+            s_async[i].sid = 0u;   /* free the slot; the transmit buffer is reclaimed
+                                    * by the transmit layer's own timeout or a late
+                                    * reply (which finds no slot and is ignored). Do
+                                    * NOT poke the buffer here - that can race the
+                                    * transmit layer and wedge the poll. */
         }
         SOMEIP_CB_LeaveCriticialSection();
         if (cb) cb(ctx, RT_TIMEOUT, NULL, 0u);
