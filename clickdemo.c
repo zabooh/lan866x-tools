@@ -115,16 +115,6 @@ static void rtp_send_region(int x0, int w)
 }
 static void rtp_send(void) { rtp_send_region(0, X_RES); }   /* full frame (clear on exit) */
 
-/* fill one display half [x0 .. x0+9] with a solid RGB colour */
-static void fill_half(int x0, uint8_t r, uint8_t g, uint8_t b)
-{
-    int x, y;
-    for (y = 0; y < Y_RES; ++y)
-        for (x = x0; x < x0 + 10 && x < X_RES; ++x) {
-            s_fb[y][x][0] = r; s_fb[y][x][1] = g; s_fb[y][x][2] = b;
-        }
-}
-
 /* --- Thumbstick (MCP3204 over SPI) -------------------------------------- */
 static uint16_t s_spi = UINT16_MAX;
 static uint32_t s_spiWid = 0;
@@ -208,16 +198,30 @@ static int vcnl4200_init(void)
 }
 
 /* ------------------------------------------------------------------------ */
-static uint8_t scale(uint32_t v, uint32_t vmax, uint32_t out)
-{
-    if (v > vmax) v = vmax;
-    return (uint8_t)(vmax ? (v * out / vmax) : 0u);
-}
-
 /* Proximity as a 1-pixel-high dim-blue bar on the right display (cols 10-19)
  * whose row tracks distance, mapping raw [2 .. full] over the full height:
  * raw 2 = bottom row, raw=full = top row. raw 0 (no/invalid reading) leaves the
  * bar where it was (no change). */
+/* Thumbstick as an orange "flashlight" spot on the left display (cols 0-9):
+ * centred at rest, reaching the edge at full deflection, dark background. The
+ * glow is a soft parabolic falloff around the mapped centre (no libm needed). */
+static void thumb_spot(uint16_t xr, uint16_t yr, int bright)
+{
+    int x, y;
+    double cx = (double)xr * 9.0 / (double)ADC_MAX;   /* 0..9, centre (~2048) -> ~4.5 */
+    double cy = (double)yr * 9.0 / (double)ADC_MAX;
+    const double r2 = 6.25;                            /* spot radius^2 (~2.5 px) */
+    for (y = 0; y < Y_RES; ++y)
+        for (x = 0; x < 10; ++x) {
+            double dx = (double)x - cx, dy = (double)y - cy;
+            double in = 1.0 - (dx * dx + dy * dy) / r2;
+            if (in < 0.0) in = 0.0;
+            s_fb[y][x][0] = (uint8_t)((double)bright * in);          /* orange: R   */
+            s_fb[y][x][1] = (uint8_t)((double)bright * in * 0.55);   /* orange: G   */
+            s_fb[y][x][2] = 0;
+        }
+}
+
 static void prox_bar(uint16_t raw, int full, int blue)
 {
     static int row = Y_RES - 1;       /* persists across calls; raw==0 keeps it */
@@ -279,7 +283,7 @@ int main(int argc, char **argv)
         if (!strcmp(argv[i], "-h") || !strcmp(argv[i], "--help")) {
             printf("lan866x-clickdemo - drive two RGB Click displays from Thumbstick + Proximity\n\n"
                    "  lan866x-clickdemo [--ip <addr>|--ep <i>] [--fps N] [--bright 0..255] [--prox-div N]\n\n"
-                   "  Left display  (slot 1) follows the Thumbstick (slot 4, SPI).\n"
+                   "  Left display  (slot 1): orange spot steered by the Thumbstick (slot 4, SPI).\n"
                    "  Right display (slot 2) shows a 1-px blue Proximity bar (slot 3, I2C): raw 2=bottom..max=top.\n"
                    "  --prox-max: proximity raw value that puts the bar at the top (default 400).\n"
                    "  --bar: blue brightness of the proximity bar, 0..255 (default 64).\n");
@@ -333,7 +337,7 @@ int main(int argc, char **argv)
      * Reads run concurrently so a cycle costs ~max(RTT), not the sum. */
     rcp_set_async_timeout_ms(120);
     while (s_run) {
-        uint8_t r, g, b, params[64];
+        uint8_t params[64];
         uint32_t t0;
 
         /* 1+2) query each sensor and wait for its reply, ONE AT A TIME. Firing
@@ -358,11 +362,9 @@ int main(int argc, char **argv)
             while (s_proxPending && ((uint32_t)GetTickCount() - t0) < 200u) { rcp_async_poll(); Sleep(1); }
         }
 
-        /* 3) thumbstick -> display 1 (left half, cols 0-9): X -> red, Y -> green */
-        r = scale((uint32_t)(ADC_MAX - s_tx), ADC_MAX, (uint32_t)bright);
-        g = scale((uint32_t)(ADC_MAX - s_ty), ADC_MAX, (uint32_t)bright);
-        b = (uint8_t)(bright / 6);
-        fill_half(0, r, g, b);
+        /* 3) thumbstick -> display 1 (left): orange flashlight spot, centred at
+         *    rest, reaching the edges at full deflection; dark background. */
+        thumb_spot(s_tx, s_ty, bright);
         /* 4) proximity -> display 2 (right half): a 1-px blue bar that tracks
          *    distance (raw 2 = bottom .. proxMax = top; raw 0 = no change). */
         prox_bar(s_prox, proxMax, barBlue);
