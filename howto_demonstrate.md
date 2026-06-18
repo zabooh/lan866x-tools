@@ -316,6 +316,45 @@ Start the interactive demo against the endpoint:
 out\lan866x-clickdemo.exe --ip 192.168.0.54
 ```
 
+**How the demo works**
+
+```mermaid
+flowchart LR
+    subgraph PC["PC — lan866x-clickdemo (pure C)"]
+        LOOP["render loop:<br/>read sensors → build 20×10 frame → stream"]
+    end
+
+    subgraph ADP["EVB-LAN8670-USB-PSE<br/>USB ↔ T1S adapter + PoDL source"]
+        BR["LAN9500A → LAN8670"]
+    end
+
+    subgraph EP["EVB-LAN8680-LAN866x endpoint"]
+        FE["LAN8680<br/>T1S front-end"]
+        MCU["LAN8661 MCU<br/>Lighting firmware<br/>(SOME/IP RCP + RTP video)"]
+        TH["Thumbstick Click<br/>(MCP3204, SPI)"]
+        PX["Proximity 3 Click<br/>(VCNL4200, I²C)"]
+        D1["RGB 10×10 #1<br/>left display"]
+        D2["RGB 10×10 #2<br/>right display"]
+    end
+
+    LOOP -- "USB" --> BR
+    BR == "T1S single pair + 12 V PoDL" ==> FE
+    FE <--> MCU
+
+    LOOP -. "RCP: read SPI (stick)" .-> MCU
+    LOOP -. "RCP: read I²C (proximity)" .-> MCU
+    LOOP == "RTP/RFC4175 video (UDP 5001)" ==> MCU
+
+    MCU -- "SPI" --> TH
+    MCU -- "I²C" --> PX
+    MCU -- "WS2812 (left cols 0–9)" --> D1
+    MCU -- "WS2812 (right cols 10–19)" --> D2
+```
+
+The PC reads the two sensors over the **SOME/IP RCP service** (SPI for the Thumbstick,
+I²C for the Proximity) and streams a single **20×10 RTP/RFC4175 video frame** back; the
+firmware paints the left 10 columns onto display 1 and the right 10 onto display 2.
+
 **What it shows / how to present it**
 
 - The **left RGB panel** (Click 1) shows an **orange “flashlight” spot** that you steer
