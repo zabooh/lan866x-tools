@@ -3,13 +3,10 @@
 **▶️ Watch the demo in action** — the Click demo running on the board (Thumbstick →
 orange spot, Proximity → blue bar):
 
-<video src="docs/img/clickdemo.mp4" controls width="640" muted playsinline>
-  Your viewer can't play the embedded video —
-  <a href="docs/img/clickdemo.mp4">download clickdemo.mp4</a>.
-</video>
+![LAN866x Click demo](docs/img/clickdemo.gif)
 
-> If the player doesn't render inline (e.g. on some Git web UIs), open
-> [`docs/img/clickdemo.mp4`](docs/img/clickdemo.mp4) directly.
+> ▶️ Full video with sound: **[`docs/img/clickdemo.mp4`](docs/img/clickdemo.mp4)**
+> (the looping GIF above is a silent, reduced-rate preview that plays inline on GitHub).
 
 A step-by-step guide to building the demo from scratch and showing it live: the
 hardware you need, how to wire it, how to configure the PC, find the endpoint, flash
