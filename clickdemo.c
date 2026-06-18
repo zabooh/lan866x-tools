@@ -214,6 +214,27 @@ static uint8_t scale(uint32_t v, uint32_t vmax, uint32_t out)
     return (uint8_t)(vmax ? (v * out / vmax) : 0u);
 }
 
+/* Proximity as a 2-row bar on the right display (cols 10-19) whose vertical
+ * position tracks distance: near (raw -> full) = top, far (raw ~0) = bottom. */
+static void prox_bar(uint16_t raw, int bright, int full)
+{
+    int x, y, top;
+    uint32_t v = raw;
+    if (full < 1) full = 1;
+    if ((int)v > full) v = (uint32_t)full;
+    top = (Y_RES - 1) - (int)(v * (uint32_t)(Y_RES - 1) / (uint32_t)full);
+    if (top < 0) top = 0;
+    if (top > Y_RES - 2) top = Y_RES - 2;             /* keep the 2-row band on screen */
+    for (y = 0; y < Y_RES; ++y) {
+        int on = (y == top) || (y == top + 1);
+        for (x = 10; x < X_RES; ++x) {
+            s_fb[y][x][0] = 0;
+            s_fb[y][x][1] = on ? (uint8_t)bright : 0;
+            s_fb[y][x][2] = on ? (uint8_t)(bright / 4) : 0;
+        }
+    }
+}
+
 /* --- async sensor state (written by callbacks, read by the render loop) -- */
 static volatile uint16_t s_tx = ADC_MAX / 2, s_ty = ADC_MAX / 2, s_prox = 0;
 static volatile int s_thumbPending = 0, s_proxPending = 0;
@@ -249,7 +270,7 @@ static void on_prox(void *ctx, ReturnCode_t rc, const uint8_t *rx, uint16_t rxLe
 int main(int argc, char **argv)
 {
     const char *wantIp = NULL;
-    int wantEp = 0, i, fps = 50, sel, bright = 128, proxDiv = 16;
+    int wantEp = 0, i, fps = 50, sel, bright = 128, proxMax = 512;
     rcp_endpoint_t eps[RCP_MAX_ENDPOINTS];
     WSADATA wsa;
 
@@ -258,18 +279,18 @@ int main(int argc, char **argv)
             printf("lan866x-clickdemo - drive two RGB Click displays from Thumbstick + Proximity\n\n"
                    "  lan866x-clickdemo [--ip <addr>|--ep <i>] [--fps N] [--bright 0..255] [--prox-div N]\n\n"
                    "  Left display  (slot 1) follows the Thumbstick (slot 4, SPI).\n"
-                   "  Right display (slot 2) follows the Proximity 3 (slot 3, I2C).\n"
-                   "  --prox-div: larger = less sensitive proximity (default 16).\n");
+                   "  Right display (slot 2) shows a Proximity bar (slot 3, I2C): near=top, far=bottom.\n"
+                   "  --prox-max: proximity raw value that puts the bar at the top (default 512).\n");
             return 0;
         } else if (!strcmp(argv[i], "--ip")       && i+1<argc) wantIp = argv[++i];
         else if (!strcmp(argv[i], "--ep")       && i+1<argc) wantEp = atoi(argv[++i]);
         else if (!strcmp(argv[i], "--fps")      && i+1<argc) fps = atoi(argv[++i]);
         else if (!strcmp(argv[i], "--bright")   && i+1<argc) bright = atoi(argv[++i]);
-        else if (!strcmp(argv[i], "--prox-div") && i+1<argc) proxDiv = atoi(argv[++i]);
+        else if (!strcmp(argv[i], "--prox-max") && i+1<argc) proxMax = atoi(argv[++i]);
     }
     if (fps < 1) fps = 1; if (fps > 200) fps = 200;
     if (bright < 1) bright = 1; if (bright > 255) bright = 255;
-    if (proxDiv < 1) proxDiv = 1;
+    if (proxMax < 1) proxMax = 1;
 
     sel = tool_select(wantIp, wantEp, 5, "LAN866x Click demo (Thumbstick + Proximity -> RGB)");
     if (sel < 0) return 2;
@@ -338,11 +359,9 @@ int main(int argc, char **argv)
         g = scale((uint32_t)(ADC_MAX - s_ty), ADC_MAX, (uint32_t)bright);
         b = (uint8_t)(bright / 6);
         fill_half(0, r, g, b);
-        /* 4) proximity -> display 2 (right half, cols 10-19): near = warm (far blue -> near red) */
-        {
-            uint8_t inten = scale((uint32_t)s_prox / (uint32_t)proxDiv, (uint32_t)bright, (uint32_t)bright);
-            fill_half(10, inten, 0, (uint8_t)(bright - inten));
-        }
+        /* 4) proximity -> display 2 (right half): a 2-row bar that moves with
+         *    distance (near = top, far = bottom). */
+        prox_bar(s_prox, bright, proxMax);
 
         /* 5-8) the firmware renders ONE 20x10 video onto BOTH displays (left
          *      half = display 1, right half = display 2), so send a single full
