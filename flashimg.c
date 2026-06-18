@@ -92,7 +92,7 @@ int main(int argc, char **argv)
 {
     const char *wantIp = NULL, *image = "main/config.bin";
     const char *fData = NULL, *fIv = NULL, *fSig = NULL;
-    int wantEp = 0, i, waitS = 25, chunk = 256, retries = 20;
+    int wantEp = 0, i, waitS = 25, chunk = 1200, retries = 15;
     uint8_t *data = NULL, *iv = NULL, *sig = NULL;
     uint32_t dataLen = 0, ivLen = 0, sigLen = 0;
     ReturnCode_t rc;

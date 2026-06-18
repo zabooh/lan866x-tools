@@ -48,7 +48,8 @@ void rcp_set_timeout_ms(uint32_t ms);
 /* Extra attempts on RT_TIMEOUT (default 3). Set 0 for fast probing where a
  * non-answer is the expected/normal result (e.g. I2C address scan). */
 void rcp_set_retries(uint8_t n);
-/* WriteImage chunk size in bytes (default 1024, max 1200). */
+/* WriteImage chunk size in bytes (default 1200 = max). Large frames see more
+ * loss on a marginal T1S link, but the WriteId-idempotent retries cover it. */
 void rcp_set_chunk(uint16_t n);
 
 /* --- Methods (signatures mirror the C++ LAN866XClient) ------------------- *

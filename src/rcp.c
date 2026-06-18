@@ -30,7 +30,7 @@ static uint8_t        s_epCount = 0u;
 static uint8_t        s_sel     = 0u;
 static uint32_t       s_timeoutMs = 1500u;   /* per-attempt response timeout */
 static uint8_t        s_retries   = 3u;      /* extra attempts on RT_TIMEOUT  */
-static uint16_t       s_chunk     = 1024u;   /* WriteImage chunk size (<=1200) */
+static uint16_t       s_chunk     = 1200u;   /* WriteImage chunk size (<=1200) */
 
 static volatile bool                   s_done = false;
 static volatile enum SOMEIP_ReturnCode s_rc   = SOMEIP_E_TIMEOUT;
