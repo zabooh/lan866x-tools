@@ -208,8 +208,8 @@ static int vcnl4200_init(void)
 static void thumb_spot(uint16_t xr, uint16_t yr, int bright)
 {
     int x, y;
-    double cx = (double)(ADC_MAX - xr) * 9.0 / (double)ADC_MAX;  /* X inverted (stick was mirrored) */
-    double cy = (double)yr * 9.0 / (double)ADC_MAX;              /* 0..9, centre (~2048) -> ~4.5 */
+    double cx = (double)(ADC_MAX - xr) * 9.0 / (double)ADC_MAX;  /* both axes inverted to match the */
+    double cy = (double)(ADC_MAX - yr) * 9.0 / (double)ADC_MAX;  /* stick; centre (~2048) -> ~4.5    */
     const double r2 = 6.25;                            /* spot radius^2 (~2.5 px) */
     for (y = 0; y < Y_RES; ++y)
         for (x = 0; x < 10; ++x) {
