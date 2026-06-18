@@ -27,7 +27,7 @@ endif()
 
 # --- RCP tools (SOME/IP): link the C core ----------------------------------
 #   Each tool .c defines its own  uint8_t MULTICAST_IP[] = {224,0,0,1};
-foreach(tool discovery i2cscan gpio spi adc pwm boot flashimg clickdemo diag)
+foreach(tool discovery i2cscan gpio spi adc pwm boot flashimg clickdemo diag video)
     add_executable(lan866x-${tool} ${tool}.c)
     target_link_libraries(lan866x-${tool} PRIVATE rcpcore)
     set_target_properties(lan866x-${tool} PROPERTIES C_STANDARD 11)
@@ -42,6 +42,7 @@ endforeach()
 if(WIN32)
     target_link_libraries(lan866x-clickdemo PRIVATE winmm)
     target_link_libraries(lan866x-diag PRIVATE winmm)
+    target_link_libraries(lan866x-video PRIVATE winmm)
 endif()
 
 # --- package flasher: needs a ZIP reader (bundled minizip/inflate fork) -----
