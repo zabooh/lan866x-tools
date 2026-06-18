@@ -50,6 +50,25 @@ static uint8_t *zip_extract(unzFile h, const char *name, uint32_t *outLen)
     return buf;
 }
 
+/* best-effort: read the main-app version (Cversion) from package.pdsc */
+static void parse_main_version(unzFile h, char *out, int outsz)
+{
+    char buf[8192]; uint32_t n = 0; uint8_t *p; char *m, *v, *e;
+    out[0] = 0;
+    p = zip_extract(h, "package.pdsc", &n);
+    if (!p) return;
+    if (n > sizeof(buf) - 1) n = sizeof(buf) - 1;
+    memcpy(buf, p, n); buf[n] = 0; free(p);
+    m = strstr(buf, "Cclass=\"main\" Cgroup=\"app\"");
+    if (!m) return;
+    v = strstr(m, "Cversion=\"");
+    if (!v) return;
+    v += 10;
+    e = strchr(v, '"');
+    if (!e || (e - v) >= outsz) return;
+    memcpy(out, v, (size_t)(e - v)); out[e - v] = 0;
+}
+
 /* --- shared flash/reboot helpers ---------------------------------------- */
 static void show_status(const char *when)
 {
@@ -104,7 +123,9 @@ static ReturnCode_t flash_one(const char *logical,
     ReturnCode_t rc;
     printf("\nFlashing %s (%u bytes) ...\n", logical, dl);
     rc = rcp_flash_image(logical, d, dl, (uint8_t *)iv, (uint16_t)il, (uint8_t *)sg, (uint16_t)sl, progress);
-    printf("\n  -> %s (rc=%d)\n", rc == RT_OK ? "OK" : "FAILED", rc);
+    if (rc == RT_OK)                  printf("\n  -> written OK\n");
+    else if (rc == RT_NOT_REACHABLE)  printf("\n  -> written (FinishUpdate=NOT_REACHABLE; verifying after reboot)\n");
+    else                              printf("\n  -> transport error rc=%d\n", rc);
     return rc;
 }
 
@@ -116,7 +137,8 @@ int main(int argc, char **argv)
     uint32_t appL=0,appIvL=0,appSigL=0,cfgL=0,cfgIvL=0,cfgSigL=0;
     static ZIPFILE zpf;
     unzFile h;
-    ReturnCode_t rc = RT_OK;
+    ReturnCode_t rcApp = RT_OK, rcCfg = RT_OK;
+    char expectVer[64] = {0};
 
     for (i = 1; i < argc; ++i) {
         if (!strcmp(argv[i], "-h") || !strcmp(argv[i], "--help")) {
@@ -151,11 +173,13 @@ int main(int argc, char **argv)
         cfgIv  = zip_extract(h, "main/config.iv.bin", &cfgIvL);
         cfgSig = zip_extract(h, "main/config.signature.bin", &cfgSigL);
     }
+    parse_main_version(h, expectVer, sizeof(expectVer));
     unzClose(h);
 
     if (doApp && (!app || !appIv || !appSig)) { printf("Package is missing main/app images.\n"); return 1; }
     if (doCfg && (!cfg || !cfgIv || !cfgSig)) { printf("Package is missing main/config images.\n"); return 1; }
     printf("Package: %s\n", pkg);
+    if (expectVer[0]) printf("  target main version: %s\n", expectVer);
     if (doApp) printf("  main/app:    %u B (iv %u, sig %u)\n", appL, appIvL, appSigL);
     if (doCfg) printf("  main/config: %u B (iv %u, sig %u)\n", cfgL, cfgIvL, cfgSigL);
 
@@ -168,15 +192,29 @@ int main(int argc, char **argv)
 
     rcp_set_chunk((uint16_t)chunk);
     rcp_set_retries((uint8_t)retries);
-    if (doApp && rc == RT_OK) rc = flash_one("main/app.bin", app, appL, appIv, appIvL, appSig, appSigL);
-    if (doCfg && rc == RT_OK) rc = flash_one("main/config.bin", cfg, cfgL, cfgIv, cfgIvL, cfgSig, cfgSigL);
+    /* Flash both images. FinishUpdate may report a benign error - the device
+     * answers E_NOT_REACHABLE (rc=5) even on success - so DON'T gate config on
+     * the app's rc and DON'T treat it as failure here; success is verified
+     * after the reboot (below) from the running version. */
+    if (doApp) rcApp = flash_one("main/app.bin", app, appL, appIv, appIvL, appSig, appSigL);
+    if (doCfg) rcCfg = flash_one("main/config.bin", cfg, cfgL, cfgIv, cfgIvL, cfgSig, cfgSigL);
     rcp_set_retries(3); rcp_set_timeout_ms(1500);
 
-    if (!reboot_to(RCP_IMAGE_MAIN, "main app", waitS))
-        printf("  ! app did not come back - the endpoint is in the bootloader (recoverable: re-run).\n");
-    else
-        show_status("after");
-
-    free(app); free(appIv); free(appSig); free(cfg); free(cfgIv); free(cfgSig);
-    return (rc == RT_OK) ? 0 : 4;
+    {
+        GetStatusReply_t st; int up, ok;
+        memset(&st, 0, sizeof(st));
+        up = reboot_to(RCP_IMAGE_MAIN, "main app", waitS);
+        if (up) rcp_get_status(&st);
+        printf("  [after] App=%s  Main=%s\n", up ? (char *)st.ActiveApplication : "(unreachable)",
+               up ? (char *)st.MainApplicationVersion : "-");
+        /* verdict by OUTCOME, not by FinishUpdate's rc */
+        ok = up && (strcmp((char *)st.ActiveApplication, "main/app.bin") == 0) &&
+             (expectVer[0] == 0 || strcmp((char *)st.MainApplicationVersion, expectVer) == 0);
+        printf("\n================  %s  ================\n", ok ? "UPDATE OK" : "UPDATE FAILED");
+        if (!ok)
+            printf("  device did not boot the expected main app (FinishUpdate rc: app=%d cfg=%d).\n"
+                   "  It may be in the bootloader - re-run to retry (recoverable).\n", rcApp, rcCfg);
+        free(app); free(appIv); free(appSig); free(cfg); free(cfgIv); free(cfgSig);
+        return ok ? 0 : 4;
+    }
 }

@@ -33,6 +33,7 @@ static uint8_t        s_retries   = 3u;      /* extra attempts on RT_TIMEOUT  */
 static uint16_t       s_chunk     = 1200u;   /* WriteImage chunk size (<=1200) */
 
 static volatile bool                   s_done = false;
+static volatile uint16_t               s_waitSid = 0u;  /* session currently awaited */
 static volatile enum SOMEIP_ReturnCode s_rc   = SOMEIP_E_TIMEOUT;
 static uint8_t  s_rx[MAXP];
 static uint16_t s_rxLen = 0u;
@@ -99,7 +100,11 @@ static enum SOMEIP_ReturnCode on_data_received(const uint8_t *b, uint16_t bLen,
 static void on_response(struct SOMEIP_Transmit_Buffer *pBuf, bool ok,
                         enum SOMEIP_ReturnCode rc, const uint8_t *pRx, uint16_t rxLen)
 {
-    (void)pBuf;
+    /* Only the response/timeout of the request we are CURRENTLY waiting for may
+     * complete the wait. The transmit layer shares this callback across all
+     * pooled buffers, so a late response or 1 s timeout of an abandoned (retried)
+     * buffer must not disturb the current request. */
+    if (!pBuf || pBuf->waitForSessionId != s_waitSid) return;
     s_rc    = ok ? rc : SOMEIP_E_TIMEOUT;
     s_rxLen = (rxLen > MAXP) ? MAXP : rxLen;
     if (pRx && s_rxLen) memcpy(s_rx, pRx, s_rxLen);
@@ -137,12 +142,23 @@ static ReturnCode_t rcp_attempt(uint16_t methodId, const uint8_t *params, uint16
     tb->udpPort = s_eps[s_sel].port;
     memcpy(tb->ipV4Addr, s_eps[s_sel].ip, 4);
     s_done = false;
+    s_waitSid = sid;
     if (!SOMEIP_Transmit_Send(s_tr, tb)) {
         SOMEIP_Transmit_ReleaseBufferOnError(s_tr, tb); return RT_SEND_ERROR;
     }
     start = SOMEIP_CB_GetTimeMS();
     while (!s_done && (SOMEIP_CB_GetTimeMS() - start) < s_timeoutMs) { rcp_poll(); NAP(); }
-    if (!s_done) return RT_TIMEOUT;
+    if (!s_done) {
+        /* Give up on this buffer: free its slot (ipV4Addr=0) and detach its
+         * callback so a late response or the transmit layer's own timeout
+         * cannot complete a later request's wait. */
+        SOMEIP_CB_EnterCriticialSection();
+        s_waitSid = 0u;
+        tb->callback = NULL;
+        tb->ipV4Addr[0] = 0u;
+        SOMEIP_CB_LeaveCriticialSection();
+        return RT_TIMEOUT;
+    }
     return (ReturnCode_t)s_rc;   /* SOMEIP_E_OK == 0 == RT_OK */
 }
 
@@ -315,10 +331,10 @@ ReturnCode_t rcp_flash_image(const char *name, const uint8_t *data, uint32_t dat
     rc = rcp_start_update(&sv);
     if (rc != RT_OK) return rc;
 
-    /* WriteImage acks fast; on a lossy link a short timeout makes a dropped
-     * chunk retry quickly (instead of stalling). FinishUpdate verifies the
-     * whole image and needs longer - bumped below. */
-    rcp_set_timeout_ms(600);
+    /* WriteImage acks in a few ms; on a lossy link a short timeout makes a
+     * dropped chunk retry quickly (the buffer is abandoned cleanly). FinishUpdate
+     * verifies the whole image and needs longer - bumped below. */
+    rcp_set_timeout_ms(400);
 
     while (pos < dataLen) {
         WriteImageVar_t wv; WriteImageReply_t wr;
@@ -336,7 +352,7 @@ ReturnCode_t rcp_flash_image(const char *name, const uint8_t *data, uint32_t dat
     memset(&fv, 0, sizeof(fv));
     memcpy(fv.ImageName, nm, nmLen); fv.ImageNameLength = nmLen;
     memcpy(fv.Signature, sig, sigLen); fv.SignatureLength = sigLen;
-    rcp_set_timeout_ms(8000);   /* signature verification over the whole image */
+    rcp_set_timeout_ms(3000);   /* signature verification over the whole image */
     return rcp_finish_update(&fv);
 }
 
