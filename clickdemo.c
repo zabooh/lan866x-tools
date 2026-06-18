@@ -190,11 +190,13 @@ static int vcnl4200_init(void)
     uint16_t id = 0;
     uint8_t b[3];
     if (!i2c_read_reg(VCNL4200_ID_REG, &id) || id != VCNL4200_ID_VALUE) return 0;
-    /* PS_CONF1/2: IT 9T | duty 1/320 ; AF enable */
-    b[0] = VCNL4200_PS_CONF1; b[1] = 0x0A | 0x40; b[2] = 0x08;
+    /* PS_CONF1/2: fast response. IT 2T + duty 1/160 (highest) raise the
+     * measurement rate a lot vs the demo's IT 9T + 1/320 (which favours range
+     * but updates only a few times/s). AF enable kept as in the demo. */
+    b[0] = VCNL4200_PS_CONF1; b[1] = 0x04 | 0x00; b[2] = 0x08;  /* IT_2T | DUTY_1_160 */
     Sleep(25); if (!i2c_write(b, 3)) return 0;
-    /* PS_CONF3/MS: sunlight cancel enable ; LED 50 mA */
-    b[0] = VCNL4200_PS_CONF3; b[1] = 0x01; b[2] = 0x00;
+    /* PS_CONF3/MS: sunlight cancel enable ; LED 100 mA (more IR to offset short IT) */
+    b[0] = VCNL4200_PS_CONF3; b[1] = 0x01; b[2] = 0x02;  /* LED_I_100mA */
     Sleep(25); if (!i2c_write(b, 3)) return 0;
     /* ALS_CONF: enabled */
     b[0] = VCNL4200_ALS_CONF; b[1] = 0x00; b[2] = 0x00;
@@ -306,25 +308,25 @@ int main(int argc, char **argv)
         uint8_t r, g, b, params[64];
         uint32_t t0;
 
-        /* 1) query both sensors (both requests in flight at once) */
+        /* 1+2) query each sensor and wait for its reply, ONE AT A TIME. Firing
+         *      both at once lets the host drop one of two back-to-back replies
+         *      (~half the proximity reads were lost that way); sequential reads
+         *      arrive solo and land every cycle. Each is still async+callback. */
         if (s_spi != UINT16_MAX) {
             uint8_t c0[3] = { 0x06, 0x00, 0xFF }, c1[3] = { 0x06, 0x40, 0xFF };
             uint16_t pl = rcp_enc_spi2(params, sizeof(params), s_spi, s_spiWid++, c0, 3, c1, 3, 3, 3);
             s_thumbPending = 1;
             if (!(pl && rcp_async_request(0x1509u, params, pl, on_thumb, NULL) == RT_OK)) s_thumbPending = 0;
+            t0 = (uint32_t)GetTickCount();
+            while (s_thumbPending && ((uint32_t)GetTickCount() - t0) < 200u) { rcp_async_poll(); Sleep(1); }
         }
         if (s_proxInit) {
             uint8_t reg = VCNL4200_PS_DATA;
             uint16_t pl = rcp_enc_i2c_read(params, sizeof(params), s_i2c, VCNL4200_ADDR, s_i2cWid++, &reg, 1, 2);
             s_proxPending = 1;
             if (!(pl && rcp_async_request(0x1208u, params, pl, on_prox, NULL) == RT_OK)) s_proxPending = 0;
-        }
-
-        /* 2) wait until both callbacks have delivered (or the deadline frees them) */
-        t0 = (uint32_t)GetTickCount();
-        while ((s_thumbPending || s_proxPending) && ((uint32_t)GetTickCount() - t0) < 500u) {
-            rcp_async_poll();
-            Sleep(1);
+            t0 = (uint32_t)GetTickCount();
+            while (s_proxPending && ((uint32_t)GetTickCount() - t0) < 200u) { rcp_async_poll(); Sleep(1); }
         }
 
         /* 3) thumbstick -> display 1 (left half, cols 0-9): X -> red, Y -> green */
