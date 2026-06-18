@@ -48,6 +48,8 @@ void rcp_set_timeout_ms(uint32_t ms);
 /* Extra attempts on RT_TIMEOUT (default 3). Set 0 for fast probing where a
  * non-answer is the expected/normal result (e.g. I2C address scan). */
 void rcp_set_retries(uint8_t n);
+/* WriteImage chunk size in bytes (default 1024, max 1200). */
+void rcp_set_chunk(uint16_t n);
 
 /* --- Methods (signatures mirror the C++ LAN866XClient) ------------------- *
  * All return ReturnCode_t (RT_OK on success; RT_NOT_REACHABLE = peripheral
@@ -64,6 +66,25 @@ ReturnCode_t rcp_get_network_status(GetNetworkStatusReply_t *out);
 #define RCP_IMAGE_BOOTLOADER  "bootloader/app.bin"
 #define RCP_IMAGE_MAIN        "main/app.bin"
 ReturnCode_t rcp_reboot(const char *imageName);
+
+/* --- Firmware/config update (run while the endpoint is in the bootloader) -
+ * Each image (e.g. "main/config.bin", "main/app.bin") is written as:
+ *   StartUpdate(name, IV) -> WriteImage(name, writeId++, chunk)... -> FinishUpdate(name, signature)
+ * The blobs are the pre-built, signed/encrypted parts from an MCHPKG; the host
+ * only transports them - the bootloader verifies the signature. WriteId makes
+ * a resent chunk idempotent (a lost ack is harmless).                        */
+ReturnCode_t rcp_start_update(const StartUpdateVar_t *in);
+ReturnCode_t rcp_write_image(const WriteImageVar_t *in, WriteImageReply_t *out);
+ReturnCode_t rcp_finish_update(const FinishUpdateVar_t *in);
+
+typedef void (*rcp_progress_cb)(uint32_t done, uint32_t total);
+/* High-level: flash one image. imageName is the logical name (BOM added
+ * internally), e.g. "main/config.bin". */
+ReturnCode_t rcp_flash_image(const char *imageName,
+                             const uint8_t *data, uint32_t dataLen,
+                             const uint8_t *iv,   uint16_t ivLen,
+                             const uint8_t *sig,  uint16_t sigLen,
+                             rcp_progress_cb cb);
 
 /* Digital pins */
 ReturnCode_t rcp_release_digital_pins(const ReleaseDigitalPinsVar_t *in);

@@ -30,6 +30,7 @@ static uint8_t        s_epCount = 0u;
 static uint8_t        s_sel     = 0u;
 static uint32_t       s_timeoutMs = 1500u;   /* per-attempt response timeout */
 static uint8_t        s_retries   = 3u;      /* extra attempts on RT_TIMEOUT  */
+static uint16_t       s_chunk     = 1024u;   /* WriteImage chunk size (<=1200) */
 
 static volatile bool                   s_done = false;
 static volatile enum SOMEIP_ReturnCode s_rc   = SOMEIP_E_TIMEOUT;
@@ -193,6 +194,7 @@ void rcp_poll(void) { SOMEIP_Transmit_CheckTimers(); }
 bool rcp_is_ready(void) { return s_epCount > 0u; }
 void rcp_set_timeout_ms(uint32_t ms) { s_timeoutMs = ms ? ms : 1u; }
 void rcp_set_retries(uint8_t n) { s_retries = n; }
+void rcp_set_chunk(uint16_t n) { s_chunk = (n && n <= 1200u) ? n : 1200u; }
 
 /* ======================== methods (1:1 with C++) ======================== */
 
@@ -245,21 +247,103 @@ ReturnCode_t rcp_get_network_status(GetNetworkStatusReply_t *out)
     return ok ? RT_OK : RT_MALFORMED_MESSAGE;
 }
 
+/* Build a BOM-prefixed image name (UTF-8 BOM + name + NUL) into out[32].
+ * Returns the length, or 0 if it does not fit. */
+static uint16_t make_image_name(const char *name, uint8_t out[32])
+{
+    size_t L = strlen(name);
+    if (L + 4u > 32u) return 0u;
+    out[0] = 0xEFu; out[1] = 0xBBu; out[2] = 0xBFu;
+    memcpy(&out[3], name, L); out[3 + L] = 0u;
+    return (uint16_t)(L + 4u);
+}
+
 ReturnCode_t rcp_reboot(const char *name)
 {
-    uint8_t img[32]; uint16_t pl = 0u; size_t L = strlen(name);
-    if (L + 4u > sizeof(img)) return RT_PARAMETER_NOT_VALID;
-    img[0] = 0xEFu; img[1] = 0xBBu; img[2] = 0xBFu;        /* UTF-8 BOM */
-    memcpy(&img[3], name, L); img[3 + L] = 0u;             /* name + NUL */
-    if (!SOMEIP_Generator_Fill_BLOB(0, img, (uint16_t)(L + 4u), s_scratch, MAXP, &pl))
+    uint8_t img[32]; uint16_t pl = 0u, n = make_image_name(name, img);
+    if (!n) return RT_PARAMETER_NOT_VALID;
+    if (!SOMEIP_Generator_Fill_BLOB(0, img, n, &s_scratch[pl], (uint16_t)(MAXP - pl), &pl))
         return RT_PARAMETER_NOT_VALID;
     return rcp_xfer(0x1000u, s_scratch, pl);
+}
+
+ReturnCode_t rcp_start_update(const StartUpdateVar_t *in)
+{
+    uint16_t pl = 0u;
+    if (!(SOMEIP_Generator_Fill_BLOB(0, in->ImageName, in->ImageNameLength, &s_scratch[pl], (uint16_t)(MAXP - pl), &pl) &&
+          SOMEIP_Generator_Fill_BLOB(1, in->InitVector, in->InitVectorLength, &s_scratch[pl], (uint16_t)(MAXP - pl), &pl)))
+        return RT_PARAMETER_NOT_VALID;
+    return rcp_xfer(0x1004u, s_scratch, pl);
+}
+
+ReturnCode_t rcp_write_image(const WriteImageVar_t *in, WriteImageReply_t *out)
+{
+    uint16_t pl = 0u, p = 0u, tag = 0u;
+    ReturnCode_t rc;
+    if (!(SOMEIP_Generator_Fill_BLOB(0, in->ImageName, in->ImageNameLength, &s_scratch[pl], (uint16_t)(MAXP - pl), &pl) &&
+          SOMEIP_Generator_Fill_UINT32(1, in->WriteId, &s_scratch[pl], (uint16_t)(MAXP - pl), &pl) &&
+          SOMEIP_Generator_Fill_BLOB(2, in->WriteData, in->WriteDataLength, &s_scratch[pl], (uint16_t)(MAXP - pl), &pl)))
+        return RT_PARAMETER_NOT_VALID;
+    rc = rcp_xfer(0x1005u, s_scratch, pl);
+    if (rc != RT_OK) return rc;
+    if (out) return SOMEIP_Parser_Read_UINT32(&s_rx[p], s_rxLen - p, &tag, &out->WriteId, &p) ? RT_OK : RT_MALFORMED_MESSAGE;
+    return RT_OK;
+}
+
+ReturnCode_t rcp_finish_update(const FinishUpdateVar_t *in)
+{
+    uint16_t pl = 0u;
+    if (!(SOMEIP_Generator_Fill_BLOB(0, in->ImageName, in->ImageNameLength, &s_scratch[pl], (uint16_t)(MAXP - pl), &pl) &&
+          SOMEIP_Generator_Fill_BLOB(1, in->Signature, in->SignatureLength, &s_scratch[pl], (uint16_t)(MAXP - pl), &pl)))
+        return RT_PARAMETER_NOT_VALID;
+    return rcp_xfer(0x1006u, s_scratch, pl);
+}
+
+ReturnCode_t rcp_flash_image(const char *name, const uint8_t *data, uint32_t dataLen,
+                             const uint8_t *iv, uint16_t ivLen,
+                             const uint8_t *sig, uint16_t sigLen, rcp_progress_cb cb)
+{
+    uint8_t nm[32]; uint16_t nmLen = make_image_name(name, nm);
+    StartUpdateVar_t sv; FinishUpdateVar_t fv;
+    ReturnCode_t rc; uint32_t pos = 0u, wid = 0u;
+    if (!nmLen || ivLen > sizeof(sv.InitVector) || sigLen > sizeof(fv.Signature))
+        return RT_PARAMETER_NOT_VALID;
+
+    memset(&sv, 0, sizeof(sv));
+    memcpy(sv.ImageName, nm, nmLen); sv.ImageNameLength = nmLen;
+    memcpy(sv.InitVector, iv, ivLen); sv.InitVectorLength = ivLen;
+    rc = rcp_start_update(&sv);
+    if (rc != RT_OK) return rc;
+
+    /* WriteImage acks fast; on a lossy link a short timeout makes a dropped
+     * chunk retry quickly (instead of stalling). FinishUpdate verifies the
+     * whole image and needs longer - bumped below. */
+    rcp_set_timeout_ms(600);
+
+    while (pos < dataLen) {
+        WriteImageVar_t wv; WriteImageReply_t wr;
+        uint16_t n = (uint16_t)((dataLen - pos > s_chunk) ? s_chunk : (dataLen - pos));
+        memset(&wv, 0, sizeof(wv));
+        memcpy(wv.ImageName, nm, nmLen); wv.ImageNameLength = nmLen;
+        wv.WriteId = wid; wv.WriteDataLength = n; memcpy(wv.WriteData, data + pos, n);
+        memset(&wr, 0, sizeof(wr));
+        rc = rcp_write_image(&wv, &wr);
+        if (rc != RT_OK) return rc;
+        pos += n; wid++;
+        if (cb) cb(pos, dataLen);
+    }
+
+    memset(&fv, 0, sizeof(fv));
+    memcpy(fv.ImageName, nm, nmLen); fv.ImageNameLength = nmLen;
+    memcpy(fv.Signature, sig, sigLen); fv.SignatureLength = sigLen;
+    rcp_set_timeout_ms(8000);   /* signature verification over the whole image */
+    return rcp_finish_update(&fv);
 }
 
 ReturnCode_t rcp_release_digital_pins(const ReleaseDigitalPinsVar_t *in)
 {
     uint16_t pl = 0u;
-    if (!SOMEIP_Generator_Fill_BLOB(0, in->PinIdList, in->PinIdListLength, s_scratch, MAXP, &pl))
+    if (!SOMEIP_Generator_Fill_BLOB(0, in->PinIdList, in->PinIdListLength, &s_scratch[pl], (uint16_t)(MAXP - pl), &pl))
         return RT_PARAMETER_NOT_VALID;
     return rcp_xfer(0x1105u, s_scratch, pl);
 }
@@ -268,8 +352,8 @@ ReturnCode_t rcp_open_gpio(const OpenGpioVar_t *in, OpenGpioReply_t *out)
 {
     uint16_t pl = 0u, p = 0u, tag = 0u;
     ReturnCode_t rc;
-    if (!(SOMEIP_Generator_Fill_UINT8(0, in->PinIdGpio, s_scratch, MAXP, &pl) &&
-          SOMEIP_Generator_Fill_UINT8(1, in->Direction, s_scratch, MAXP, &pl)))
+    if (!(SOMEIP_Generator_Fill_UINT8(0, in->PinIdGpio, &s_scratch[pl], (uint16_t)(MAXP - pl), &pl) &&
+          SOMEIP_Generator_Fill_UINT8(1, in->Direction, &s_scratch[pl], (uint16_t)(MAXP - pl), &pl)))
         return RT_PARAMETER_NOT_VALID;
     rc = rcp_xfer(0x1300u, s_scratch, pl);
     if (rc != RT_OK) return rc;
@@ -279,7 +363,7 @@ ReturnCode_t rcp_open_gpio(const OpenGpioVar_t *in, OpenGpioReply_t *out)
 ReturnCode_t rcp_set_gpio(const SetGpioVar_t *in)
 {
     uint16_t pl = 0u;
-    if (!SOMEIP_Generator_Fill_BLOB(0, in->GpioValues, in->GpioValuesLength, s_scratch, MAXP, &pl))
+    if (!SOMEIP_Generator_Fill_BLOB(0, in->GpioValues, in->GpioValuesLength, &s_scratch[pl], (uint16_t)(MAXP - pl), &pl))
         return RT_PARAMETER_NOT_VALID;
     return rcp_xfer(0x1330u, s_scratch, pl);
 }
@@ -297,9 +381,9 @@ ReturnCode_t rcp_open_i2c(const OpenI2CVar_t *in, OpenI2CReply_t *out)
 {
     uint16_t pl = 0u, p = 0u, tag = 0u;
     ReturnCode_t rc;
-    if (!(SOMEIP_Generator_Fill_UINT8(0, in->PinIdSda, s_scratch, MAXP, &pl) &&
-          SOMEIP_Generator_Fill_UINT8(1, in->PinIdScl, s_scratch, MAXP, &pl) &&
-          SOMEIP_Generator_Fill_UINT8(2, in->ClockSpeed, s_scratch, MAXP, &pl)))
+    if (!(SOMEIP_Generator_Fill_UINT8(0, in->PinIdSda, &s_scratch[pl], (uint16_t)(MAXP - pl), &pl) &&
+          SOMEIP_Generator_Fill_UINT8(1, in->PinIdScl, &s_scratch[pl], (uint16_t)(MAXP - pl), &pl) &&
+          SOMEIP_Generator_Fill_UINT8(2, in->ClockSpeed, &s_scratch[pl], (uint16_t)(MAXP - pl), &pl)))
         return RT_PARAMETER_NOT_VALID;
     rc = rcp_xfer(0x1200u, s_scratch, pl);
     if (rc != RT_OK) return rc;
@@ -310,11 +394,11 @@ ReturnCode_t rcp_write_and_read_i2c(const WriteAndReadI2CVar_t *in, ReadI2CReply
 {
     uint16_t pl = 0u, p = 0u, tag = 0u;
     ReturnCode_t rc;
-    if (!(SOMEIP_Generator_Fill_UINT16(0, in->HandleI2C, s_scratch, MAXP, &pl) &&
-          SOMEIP_Generator_Fill_UINT16(1, in->DeviceAddress, s_scratch, MAXP, &pl) &&
-          SOMEIP_Generator_Fill_UINT16(2, in->ReadDataLength, s_scratch, MAXP, &pl) &&
-          SOMEIP_Generator_Fill_UINT32(3, in->WriteId, s_scratch, MAXP, &pl) &&
-          SOMEIP_Generator_Fill_BLOB(4, in->WriteData, in->WriteDataLength, s_scratch, MAXP, &pl)))
+    if (!(SOMEIP_Generator_Fill_UINT16(0, in->HandleI2C, &s_scratch[pl], (uint16_t)(MAXP - pl), &pl) &&
+          SOMEIP_Generator_Fill_UINT16(1, in->DeviceAddress, &s_scratch[pl], (uint16_t)(MAXP - pl), &pl) &&
+          SOMEIP_Generator_Fill_UINT16(2, in->ReadDataLength, &s_scratch[pl], (uint16_t)(MAXP - pl), &pl) &&
+          SOMEIP_Generator_Fill_UINT32(3, in->WriteId, &s_scratch[pl], (uint16_t)(MAXP - pl), &pl) &&
+          SOMEIP_Generator_Fill_BLOB(4, in->WriteData, in->WriteDataLength, &s_scratch[pl], (uint16_t)(MAXP - pl), &pl)))
         return RT_PARAMETER_NOT_VALID;
     rc = rcp_xfer(0x1208u, s_scratch, pl);
     if (rc != RT_OK) return rc;
@@ -326,7 +410,7 @@ ReturnCode_t rcp_write_and_read_i2c(const WriteAndReadI2CVar_t *in, ReadI2CReply
 ReturnCode_t rcp_close_i2c(const CloseI2CVar_t *in)
 {
     uint16_t pl = 0u;
-    if (!SOMEIP_Generator_Fill_UINT16(0, in->HandleI2C, s_scratch, MAXP, &pl))
+    if (!SOMEIP_Generator_Fill_UINT16(0, in->HandleI2C, &s_scratch[pl], (uint16_t)(MAXP - pl), &pl))
         return RT_PARAMETER_NOT_VALID;
     return rcp_xfer(0x1202u, s_scratch, pl);
 }
@@ -335,12 +419,12 @@ ReturnCode_t rcp_open_spi(const OpenSpiVar_t *in, OpenSpiReply_t *out)
 {
     uint16_t pl = 0u, p = 0u, tag = 0u;
     ReturnCode_t rc;
-    if (!(SOMEIP_Generator_Fill_UINT8(0, in->PinIdMiso, s_scratch, MAXP, &pl) &&
-          SOMEIP_Generator_Fill_UINT8(1, in->PinIdSck, s_scratch, MAXP, &pl) &&
-          SOMEIP_Generator_Fill_UINT8(2, in->PinIdCs, s_scratch, MAXP, &pl) &&
-          SOMEIP_Generator_Fill_UINT8(3, in->PinIdMosi, s_scratch, MAXP, &pl) &&
-          SOMEIP_Generator_Fill_UINT8(4, in->Mode, s_scratch, MAXP, &pl) &&
-          SOMEIP_Generator_Fill_UINT32(5, in->ClockSpeed, s_scratch, MAXP, &pl)))
+    if (!(SOMEIP_Generator_Fill_UINT8(0, in->PinIdMiso, &s_scratch[pl], (uint16_t)(MAXP - pl), &pl) &&
+          SOMEIP_Generator_Fill_UINT8(1, in->PinIdSck, &s_scratch[pl], (uint16_t)(MAXP - pl), &pl) &&
+          SOMEIP_Generator_Fill_UINT8(2, in->PinIdCs, &s_scratch[pl], (uint16_t)(MAXP - pl), &pl) &&
+          SOMEIP_Generator_Fill_UINT8(3, in->PinIdMosi, &s_scratch[pl], (uint16_t)(MAXP - pl), &pl) &&
+          SOMEIP_Generator_Fill_UINT8(4, in->Mode, &s_scratch[pl], (uint16_t)(MAXP - pl), &pl) &&
+          SOMEIP_Generator_Fill_UINT32(5, in->ClockSpeed, &s_scratch[pl], (uint16_t)(MAXP - pl), &pl)))
         return RT_PARAMETER_NOT_VALID;
     rc = rcp_xfer(0x1500u, s_scratch, pl);
     if (rc != RT_OK) return rc;
@@ -351,10 +435,10 @@ ReturnCode_t rcp_write_and_read_spi(const WriteAndReadSpiVar_t *in, WriteAndRead
 {
     uint16_t pl = 0u, p = 0u, tag = 0u;
     ReturnCode_t rc;
-    if (!(SOMEIP_Generator_Fill_UINT16(0, in->HandleSpi, s_scratch, MAXP, &pl) &&
-          SOMEIP_Generator_Fill_UINT16(1, in->ReadDataLength, s_scratch, MAXP, &pl) &&
-          SOMEIP_Generator_Fill_UINT32(2, in->WriteId, s_scratch, MAXP, &pl) &&
-          SOMEIP_Generator_Fill_BLOB(3, in->WriteData, in->WriteDataLength, s_scratch, MAXP, &pl)))
+    if (!(SOMEIP_Generator_Fill_UINT16(0, in->HandleSpi, &s_scratch[pl], (uint16_t)(MAXP - pl), &pl) &&
+          SOMEIP_Generator_Fill_UINT16(1, in->ReadDataLength, &s_scratch[pl], (uint16_t)(MAXP - pl), &pl) &&
+          SOMEIP_Generator_Fill_UINT32(2, in->WriteId, &s_scratch[pl], (uint16_t)(MAXP - pl), &pl) &&
+          SOMEIP_Generator_Fill_BLOB(3, in->WriteData, in->WriteDataLength, &s_scratch[pl], (uint16_t)(MAXP - pl), &pl)))
         return RT_PARAMETER_NOT_VALID;
     rc = rcp_xfer(0x1508u, s_scratch, pl);
     if (rc != RT_OK) return rc;
@@ -366,7 +450,7 @@ ReturnCode_t rcp_write_and_read_spi(const WriteAndReadSpiVar_t *in, WriteAndRead
 ReturnCode_t rcp_close_spi(const CloseSpiVar_t *in)
 {
     uint16_t pl = 0u;
-    if (!SOMEIP_Generator_Fill_UINT16(0, in->HandleSpi, s_scratch, MAXP, &pl))
+    if (!SOMEIP_Generator_Fill_UINT16(0, in->HandleSpi, &s_scratch[pl], (uint16_t)(MAXP - pl), &pl))
         return RT_PARAMETER_NOT_VALID;
     return rcp_xfer(0x1502u, s_scratch, pl);
 }
@@ -375,7 +459,7 @@ ReturnCode_t rcp_open_adc(const OpenAdcVar_t *in, OpenAdcReply_t *out)
 {
     uint16_t pl = 0u, p = 0u, tag = 0u;
     ReturnCode_t rc;
-    if (!SOMEIP_Generator_Fill_UINT8(0, in->PinId, s_scratch, MAXP, &pl))
+    if (!SOMEIP_Generator_Fill_UINT8(0, in->PinId, &s_scratch[pl], (uint16_t)(MAXP - pl), &pl))
         return RT_PARAMETER_NOT_VALID;
     rc = rcp_xfer(0x1700u, s_scratch, pl);
     if (rc != RT_OK) return rc;
@@ -386,9 +470,9 @@ ReturnCode_t rcp_read_adc(const ReadAdcVar_t *in, ReadAdcReply_t *out)
 {
     uint16_t pl = 0u, p = 0u, tag = 0u;
     ReturnCode_t rc;
-    if (!(SOMEIP_Generator_Fill_UINT16(0, in->HandleAdc, s_scratch, MAXP, &pl) &&
-          SOMEIP_Generator_Fill_UINT8(1, in->ChannelSelecct, s_scratch, MAXP, &pl) &&
-          SOMEIP_Generator_Fill_UINT8(2, in->VoltageReference, s_scratch, MAXP, &pl)))
+    if (!(SOMEIP_Generator_Fill_UINT16(0, in->HandleAdc, &s_scratch[pl], (uint16_t)(MAXP - pl), &pl) &&
+          SOMEIP_Generator_Fill_UINT8(1, in->ChannelSelecct, &s_scratch[pl], (uint16_t)(MAXP - pl), &pl) &&
+          SOMEIP_Generator_Fill_UINT8(2, in->VoltageReference, &s_scratch[pl], (uint16_t)(MAXP - pl), &pl)))
         return RT_PARAMETER_NOT_VALID;
     rc = rcp_xfer(0x1720u, s_scratch, pl);
     if (rc != RT_OK) return rc;
@@ -399,7 +483,7 @@ ReturnCode_t rcp_read_adc(const ReadAdcVar_t *in, ReadAdcReply_t *out)
 ReturnCode_t rcp_close_adc(const CloseAdcVar_t *in)
 {
     uint16_t pl = 0u;
-    if (!SOMEIP_Generator_Fill_UINT16(0, in->HandleAdc, s_scratch, MAXP, &pl))
+    if (!SOMEIP_Generator_Fill_UINT16(0, in->HandleAdc, &s_scratch[pl], (uint16_t)(MAXP - pl), &pl))
         return RT_PARAMETER_NOT_VALID;
     return rcp_xfer(0x1702u, s_scratch, pl);
 }
@@ -408,9 +492,9 @@ ReturnCode_t rcp_open_pwm(const OpenPwmVar_t *in, OpenPwmReply_t *out)
 {
     uint16_t pl = 0u, p = 0u, tag = 0u;
     ReturnCode_t rc;
-    if (!(SOMEIP_Generator_Fill_UINT8(0, in->PinId, s_scratch, MAXP, &pl) &&
-          SOMEIP_Generator_Fill_UINT32(1, in->IntervalTime, s_scratch, MAXP, &pl) &&
-          SOMEIP_Generator_Fill_UINT32(2, in->DutyCycle, s_scratch, MAXP, &pl)))
+    if (!(SOMEIP_Generator_Fill_UINT8(0, in->PinId, &s_scratch[pl], (uint16_t)(MAXP - pl), &pl) &&
+          SOMEIP_Generator_Fill_UINT32(1, in->IntervalTime, &s_scratch[pl], (uint16_t)(MAXP - pl), &pl) &&
+          SOMEIP_Generator_Fill_UINT32(2, in->DutyCycle, &s_scratch[pl], (uint16_t)(MAXP - pl), &pl)))
         return RT_PARAMETER_NOT_VALID;
     rc = rcp_xfer(0x1800u, s_scratch, pl);
     if (rc != RT_OK) return rc;
@@ -420,7 +504,7 @@ ReturnCode_t rcp_open_pwm(const OpenPwmVar_t *in, OpenPwmReply_t *out)
 ReturnCode_t rcp_close_pwm(const ClosePwmVar_t *in)
 {
     uint16_t pl = 0u;
-    if (!SOMEIP_Generator_Fill_UINT16(0, in->HandlePwm, s_scratch, MAXP, &pl))
+    if (!SOMEIP_Generator_Fill_UINT16(0, in->HandlePwm, &s_scratch[pl], (uint16_t)(MAXP - pl), &pl))
         return RT_PARAMETER_NOT_VALID;
     return rcp_xfer(0x1802u, s_scratch, pl);
 }
