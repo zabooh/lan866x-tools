@@ -38,9 +38,10 @@ foreach(tool discovery i2cscan gpio spi adc pwm boot flashimg clickdemo diag)
         target_link_options(lan866x-${tool} PRIVATE -static -static-libgcc)
     endif()
 endforeach()
-# clickdemo additionally needs winmm for timeBeginPeriod (1 ms scheduler tick)
+# clickdemo + diag additionally need winmm for timeBeginPeriod (1 ms scheduler tick)
 if(WIN32)
     target_link_libraries(lan866x-clickdemo PRIVATE winmm)
+    target_link_libraries(lan866x-diag PRIVATE winmm)
 endif()
 
 # --- package flasher: needs a ZIP reader (bundled minizip/inflate fork) -----

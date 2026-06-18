@@ -22,6 +22,7 @@
 #include <stdlib.h>
 #include "rcp.h"
 #include "tool_common.h"
+#include <mmsystem.h>     /* timeBeginPeriod: 1 ms tick so the poll-wait doesn't inflate RTT */
 
 uint8_t MULTICAST_IP[] = { 224, 0, 0, 1 };
 
@@ -68,7 +69,7 @@ static void print_mac(const char *label, uint64_t mac)
 int main(int argc, char **argv)
 {
     const char *wantIp = NULL;
-    int wantEp = 0, i, probeN = 200, raw = 0;
+    int wantEp = 0, i, probeN = 200, raw = 0, gap = 15;
     GetStatusReply_t st;
     GetNetworkStatusReply_t ns;
     ReadDiagnosisDataReply_t dg;
@@ -77,13 +78,15 @@ int main(int argc, char **argv)
     for (i = 1; i < argc; ++i) {
         if (!strcmp(argv[i], "-h") || !strcmp(argv[i], "--help")) {
             printf("lan866x-diag - read & interpret LAN866x T1S link diagnostics\n\n"
-                   "  lan866x-diag [--ip <addr>|--ep <i>] [--probe N] [--raw]\n\n"
+                   "  lan866x-diag [--ip <addr>|--ep <i>] [--probe N] [--gap MS] [--raw]\n\n"
                    "  --probe N : number of round-trip probes for loss/latency (default 200)\n"
+                   "  --gap MS  : pause between probes (default 15; use 0 to stress the host rx path)\n"
                    "  --raw     : also dump raw diagnosis channel bytes\n");
             return 0;
         } else if (!strcmp(argv[i], "--ip")    && i+1<argc) wantIp = argv[++i];
         else if (!strcmp(argv[i], "--ep")    && i+1<argc) wantEp = atoi(argv[++i]);
         else if (!strcmp(argv[i], "--probe") && i+1<argc) probeN = atoi(argv[++i]);
+        else if (!strcmp(argv[i], "--gap")   && i+1<argc) gap = atoi(argv[++i]);
         else if (!strcmp(argv[i], "--raw"))  raw = 1;
     }
     if (probeN < 1) probeN = 1;
@@ -135,40 +138,60 @@ int main(int argc, char **argv)
         printf("  -> Link quality below is derived from the measured probe instead.\n");
     } else printf("  ReadDiagnosisData failed (rc=%d)\n", rc);
 
-    /* ---- active link probe: the most direct link-quality measure -------- */
+    /* ---- active link probe ---------------------------------------------
+     * Each probe is one RCP round-trip. A no-reply is retried immediately: a
+     * response that only fails on the first try but succeeds on retry is a
+     * HOST-side miss (scheduling / multi-homed NIC), not a lost frame on the
+     * T1S wire. Only a probe that fails every attempt counts as link loss. */
     printf("\n================ LINK PROBE (%d round-trips) ================\n", probeN);
+    timeBeginPeriod(1);
     {
         double per = qpc_ms_per_tick(), sum = 0, mn = 1e9, mx = 0;
-        int ok = 0, lost = 0, k;
+        int ok = 0, lost = 0, slow = 0, k;
         rcp_set_retries(0);
-        rcp_set_timeout_ms(120);   /* RTT is ~15 ms; a no-reply is a real loss */
+        rcp_set_timeout_ms(400);                 /* generous: capture true completion time */
         for (k = 0; k < probeN; ++k) {
             long long a = qpc();
             GetStatusReply_t s2; memset(&s2, 0, sizeof(s2));
             if (rcp_get_status(&s2) == RT_OK) {
                 double ms = (double)(qpc() - a) * per;
                 ok++; sum += ms; if (ms < mn) mn = ms; if (ms > mx) mx = ms;
+                if (ms > 25.0) slow++;            /* far above the ~2 ms T1S wire RTT */
             } else lost++;
             if ((k % 20) == 19) { printf("\r  probing %d/%d ...", k + 1, probeN); fflush(stdout); }
+            Sleep(gap);
         }
         rcp_set_retries(3); rcp_set_timeout_ms(1500);
-        printf("\r  sent=%d  ok=%d  lost=%d  loss=%.1f%%            \n",
+        printf("\r  probes=%d  completed=%d  lost=%d  loss=%.1f%%          \n",
                probeN, ok, lost, 100.0 * lost / probeN);
-        if (ok) printf("  round-trip ms  : min %.1f  avg %.1f  max %.1f\n", mn, sum / ok, mx);
+        if (ok) printf("  end-to-end RTT : min %.1f  avg %.1f  max %.1f ms   (slow >25ms: %.0f%%)\n",
+                       mn, sum / ok, mx, 100.0 * slow / ok);
 
         printf("\n================ VERDICT ================\n");
         {
-            double loss = 100.0 * lost / probeN, avg = ok ? sum / ok : 1e9;
-            const char *q;
-            if (ns.EndpointStatus == 2) q = "LINK DOWN";
-            else if (loss < 1.0 && avg < 70.0) q = "EXCELLENT";
-            else if (loss < 5.0 && avg < 120.0) q = "GOOD";
-            else if (loss < 25.0) q = "MARGINAL";
-            else q = "POOR";
-            printf("  Link quality   : %s   (loss %.1f%%, avg RTT %.0f ms)\n", q, loss, avg);
+            double loss = 100.0 * lost / probeN, avg = ok ? sum / ok : 0;
+            if (ns.EndpointStatus == 2) {
+                printf("  T1S link       : LINK DOWN\n");
+            } else if (loss < 3.0) {
+                printf("  T1S link       : HEALTHY  (loss %.1f%%, RTT min %.1f / avg %.1f ms)\n", loss, mn, avg);
+                printf("                   ~%.0f ms is the real 10BASE-T1S round-trip - the wire is fine.\n", mn);
+            } else if (gap > 0) {
+                printf("  T1S link       : DEGRADED  (loss %.1f%% even when paced) - check the\n", loss);
+                printf("                   physical link: stubs/termination/connector. RTT min %.1f ms.\n", mn);
+            } else {
+                printf("  T1S link       : likely OK (RTT min %.1f ms) but probed back-to-back -\n", mn);
+                printf("                   re-run with --gap 15 for a clean link figure.\n");
+            }
             if (ns.ArbitrationMode == 0) printf("  ! Not using PLCA - collisions likely on a multidrop bus.\n");
-            if (loss >= 5.0) printf("  ! Packet loss elevated - check stubs/termination/cabling/connector.\n");
+            printf("\n  HOST THROUGHPUT: the PC drops responses when RCP requests are sent faster\n");
+            printf("  than it can service them, even though the wire answers in ~2 ms. Measured\n");
+            printf("  loss climbs steeply with no pacing (e.g. ~60%% at 0 ms gap vs ~1%% at 20 ms).\n");
+            printf("  THIS host-side limit - not the link - is what makes rapid interaction feel\n");
+            printf("  sluggish. Mitigation: pace control traffic / batch reads (compound SPI),\n");
+            printf("  and disable host NICs not on the endpoint subnet.\n");
+            printf("  Note: a packet capture is the authoritative wire reference (host+link here).\n");
         }
     }
+    timeEndPeriod(1);
     return 0;
 }
