@@ -128,6 +128,7 @@ ReturnCode_t rcp_get_gpio(GetGpioReply_t *out);
 /* I2C */
 ReturnCode_t rcp_open_i2c(const OpenI2CVar_t *in, OpenI2CReply_t *out);
 ReturnCode_t rcp_write_i2c(const WriteI2CVar_t *in);
+ReturnCode_t rcp_read_i2c(const ReadI2CVar_t *in, ReadI2CReply_t *out);  /* pure read, method 0x1220 */
 ReturnCode_t rcp_write_and_read_i2c(const WriteAndReadI2CVar_t *in, ReadI2CReply_t *out);
 ReturnCode_t rcp_close_i2c(const CloseI2CVar_t *in);
 

@@ -1,5 +1,13 @@
 # LAN866x Tools – SOME/IP console tools (RCP), pure C
 
+> 🚀 **New here? Start with [howto_demonstrate.md](howto_demonstrate.md)** — a complete,
+> illustrated walkthrough to set up and show the demo end-to-end (boards, wiring P↔P/N↔N,
+> static IP, bus scan, flashing, Click demo).
+>
+> ✅ **No build required to run:** all tools are **already built** under
+> [`release/`](release/) (statically linked `.exe`, plus the demo firmware package). Just
+> run them from there. Building (below) is optional — only needed if you change the source.
+
 A **pure-C** host that remote-controls LAN866x endpoints via the **Remote Control Protocol (RCP)** on top of the **C SOME/IP stack (`libsomeip`)**. Access is via the **T1S-USB adapter** (EVB-LAN8670-USB) as an Ethernet bridge.
 
 > 🟦 **100 % C — no C++.** Every tool, the RCP wrapper and the platform layer are C; they link **without `libstdc++`**. The same code base ports to a 32-bit MCU (lwIP/FreeRTOS) by swapping a single file — see [chapter 9](#9-porting-to-mcu32).
@@ -10,13 +18,32 @@ A **pure-C** host that remote-controls LAN866x endpoints via the **Remote Contro
 
 1. [Overview](#1-overview)
 2. [System requirements](#2-system-requirements)
+   - 2.1 [CMake 3.10 or newer](#21-cmake-310-or-newer)
+   - 2.2 [A C compiler](#22-a-c-compiler)
+   - 2.3 [Hardware and driver](#23-hardware-and-driver)
+   - 2.4 [Network](#24-network)
 3. [How to compile](#3-how-to-compile)
+   - 3.1 [Quick path – batch script](#31-quick-path--batch-script)
+   - 3.2 [Manual – CMake on the command line](#32-manual--cmake-on-the-command-line)
 4. [Running and output](#4-running-and-output)
+   - 4.1 [Discovery (full status)](#41-discovery-full-status)
+   - 4.2 [I2C bus scanner](#42-i2c-bus-scanner)
+   - 4.3 [GPIO set/read](#43-gpio-setread)
+   - 4.4 [SPI transfer (full-duplex)](#44-spi-transfer-full-duplex)
+   - 4.5 [ADC read](#45-adc-read)
+   - 4.6 [PWM output](#46-pwm-output)
+   - 4.7 [DNCP monitor (passive)](#47-dncp-monitor-passive)
+   - 4.8 [DNCP discovery (active, read-only)](#48-dncp-discovery-active-read-only)
+   - 4.9 [Boot, flash & diagnostics tools](#49-boot-flash--diagnostics-tools)
 5. [How does discovery work?](#5-how-does-discovery-work)
 6. [Project structure](#6-project-structure)
 7. [Example pin mapping (LAN8660)](#7-example-pin-mapping-lan8660)
 8. [RCP method IDs](#8-rcp-method-ids)
 9. [Porting to MCU32](#9-porting-to-mcu32)
+
+> 📖 **Hardware setup & full per-tool reference:** see **[TOOLS.md](TOOLS.md)** —
+> board description (what plugs where), jumper/DIP ASCII map with photos, and a
+> detailed page for every tool. **Demo walkthrough:** [howto_demonstrate.md](howto_demonstrate.md).
 
 ---
 
@@ -34,10 +61,18 @@ The tools (all build to `lan866x-<name>.exe`):
 | **`lan866x-spi`** | SPI transfer (full-duplex) |
 | **`lan866x-adc`** | read the on-chip ADC (analog input or internal temperature) |
 | **`lan866x-pwm`** | drive a PWM output on a digital pin |
+| **`lan866x-boot`** | reboot between main app and bootloader (non-destructive) |
+| **`lan866x-flashimg`** | write ONE signed/encrypted image via the bootloader |
+| **`lan866x-flashpkg`** | update an endpoint straight from an **MCHPKG** package |
+| **`lan866x-diag`** | read & interpret **T1S link quality** (read-only) |
+| **`lan866x-clickdemo`** | interactive MikroE **Click** demo (Thumbstick + Proximity → 2× RGB) |
 | **`lan866x-dncpmon`** | passive **DNCP** monitor (standalone, not SOME/IP) |
 | **`lan866x-dncpdisc`** | active **DNCP** discovery (Registry broadcast → collect Announces, read-only) |
 
-The first six use `src/rcp.c` (RCP over `libsomeip`) + the C platform stub `src/someip_stub_win.c`. The two DNCP tools are standalone (Winsock only — DNCP is not SOME/IP).
+The SOME/IP tools use `src/rcp.c` (RCP over `libsomeip`) + the C platform stub `src/someip_stub_win.c`; `lan866x-flashpkg` additionally links a bundled ZIP reader (`third-party/minizip`). The two DNCP tools are standalone (Winsock only — DNCP is not SOME/IP).
+
+> 📖 Every tool is documented in detail — with all options, examples and the board
+> setup it needs — in **[TOOLS.md](TOOLS.md)**.
 
 ---
 
@@ -45,12 +80,14 @@ The first six use `src/rcp.c` (RCP over `libsomeip`) + the C platform stub `src/
 
 To **build**, the machine needs:
 
-### 2.1 CMake ≥ 3.10  *(tested: 4.1)*
+### 2.1 CMake 3.10 or newer
+*(tested with CMake 4.1)*
 - Download: <https://cmake.org/download/> → "Windows x64 Installer".
 - During installation choose **"Add CMake to the system PATH"**.
 - Check: `cmake --version`
 
-### 2.2 A C compiler  *(one of the two options)*
+### 2.2 A C compiler
+*(one of the two options)*
 
 **Option A – MinGW-w64 (GCC)** — recommended for the command line *(tested GCC 16.1)*
 - Easiest source: **WinLibs** <https://winlibs.com/> (UCRT variant) – unzip and add the `…\mingw64\bin` folder to **PATH**.
@@ -60,18 +97,24 @@ To **build**, the machine needs:
 **Option B – Visual Studio 2022**
 - Installer: <https://visualstudio.microsoft.com/> → workload **"Desktop development with C++"** (also provides the MSVC **C** compiler and CMake). No C++ runtime is linked — the sources are C.
 
-### 2.3 Hardware & driver  *(only to run, not to build)*
+### 2.3 Hardware and driver
+*(only needed to run, not to build)*
 - **EVB-LAN8670-USB** (T1S-USB adapter) – shows up on Windows as a normal **Ethernet NIC**.
 - Install the **Windows driver** (`EVB-LAN8670-USB_Drv_Setup.exe`, from the LAN866x Remote Demo package / MicrochipDirect **EV08L38A**).
 - LAN866x endpoint(s) on the T1S bus, **bus terminated**, PoDL power if applicable.
 
-### 2.4 Network  *(only to run)*
+### 2.4 Network
+*(only needed to run)*
 - Give the USB-T1S NIC a **static IP** in the endpoint subnet: **`192.168.0.100/24`**. Endpoints = `192.168.0.<NodeID>`.
 - **SOME/IP-SD** uses multicast `224.0.0.1` (UDP 30490). Allow the tools through the Windows **firewall**.
 
 ---
 
 ## 3. How to compile
+
+> ℹ️ **Optional.** Pre-built, statically linked executables for all tools already ship in
+> [`release/`](release/) — you can run the demo straight from there without compiling
+> anything. Build only if you modify the source.
 
 ### 3.1 Quick path – batch script
 The package contains **`build.bat`** (chooses the compiler automatically: MinGW, else VS2022):
@@ -104,6 +147,8 @@ The `out/` folder is pure build output and can be deleted at any time (remove be
 
 ## 4. Running and output
 
+### 4.1 Discovery (full status)
+
 ```bat
 out\lan866x-discovery.exe
 ```
@@ -135,7 +180,7 @@ Endpoint #0  -  192.168.0.101:6800  (instance 0x0001, available=1)
 
 **Nothing found?** Check: driver installed · NIC IP `192.168.0.x` set · bus terminated · endpoints powered · firewall allowed.
 
-### I2C bus scanner
+### 4.2 I2C bus scanner
 ```bat
 out\lan866x-i2cscan.exe                 REM first endpoint, SDA=PA08 SCL=PA09, 400 kHz
 out\lan866x-i2cscan.exe --ip 192.168.0.54
@@ -150,14 +195,14 @@ Probes 0x08..0x77 with a 1-byte read and prints an `i2cdetect` grid (uses a shor
 ```
 > Pins must match the board configuration (`--sda`/`--scl`, PA number 0–15). The tool releases SDA/SCL before `OpenI2C` automatically (`ReleaseDigitalPins`). If I2C is not configured on that endpoint, `OpenI2C` returns `RT_NOT_REACHABLE` ("OpenI2C failed").
 
-### GPIO set/read
+### 4.3 GPIO set/read
 ```bat
 out\lan866x-gpio.exe --pin 2 --set 1     REM PA02 as output, high
 out\lan866x-gpio.exe --pin 2 --get       REM PA02 as input, read
 out\lan866x-gpio.exe --ip 192.168.0.54 --pin 6 --set 0
 ```
 
-### SPI transfer (full-duplex)
+### 4.4 SPI transfer (full-duplex)
 ```bat
 out\lan866x-spi.exe --tx 9F0000          REM send 3 bytes, read MISO at the same time
 out\lan866x-spi.exe --tx AA55 --mode 0 --speed 1000000
@@ -165,7 +210,7 @@ out\lan866x-spi.exe --miso 12 --sck 13 --cs 14 --mosi 15 --tx 0102
 ```
 Output: `TX: …` / `RX: …`. Default pins MISO=PA12 SCK=PA13 CS=PA14 MOSI=PA15. Pins are released before `OpenSpi`.
 
-### ADC read
+### 4.5 ADC read
 ```bat
 out\lan866x-adc.exe                      REM single analog read, 3V3 reference
 out\lan866x-adc.exe --temp               REM internal temperature sensor
@@ -174,7 +219,7 @@ out\lan866x-adc.exe --count 10 --interval 200
 ```
 Reads the on-chip 12-bit ADC (0..4095) and prints the scaled voltage, e.g. `raw=2048  =  1.650 V`. Channel `0` = analog input, `1` = internal temperature; reference `0` = 3V3, `1` = 1V1.
 
-### PWM output
+### 4.6 PWM output
 ```bat
 out\lan866x-pwm.exe --pin 6 --freq 1000 --duty 50    REM 1 kHz, 50% on PA06
 out\lan866x-pwm.exe --pin 6 --period-ns 20000000 --duty 7.5   REM servo, 1.5 ms pulse
@@ -183,7 +228,7 @@ out\lan866x-pwm.exe --pin 7 --freq 500 --duty 25 --hold 5
 ```
 Opens a PWM channel on a digital pin. Duty cycle wire encoding: `0 = 0% .. 2^31 = 100%` (the tool takes percent and converts). By default the signal is **left running** on the endpoint after the tool exits (the handle lives on the device); `--hold <s>` stops it again after N seconds. The pin is released before `OpenPwm`.
 
-### DNCP monitor (passive)
+### 4.7 DNCP monitor (passive)
 ```bat
 out\lan866x-dncpmon.exe                REM listen forever (Ctrl+C to stop)
 out\lan866x-dncpmon.exe --timeout 30   REM stop after 30 s without packets
@@ -191,13 +236,38 @@ out\lan866x-dncpmon.exe --timeout 30   REM stop after 30 s without packets
 Decodes **DNCP** packets (Dynamic Node Configuration Protocol) on **UDP 65526/65527** — Announce/Registry with MAC, device id, IPv4/IPv6, state (Unconfigured/Configured) and PLCA ids. Standalone (Winsock only), **not** part of SOME/IP.
 > Purely **passive**: only shows DNCP traffic actually present on the bus. To trigger actively, see `lan866x-dncpdisc`.
 
-### DNCP discovery (active, read-only)
+### 4.8 DNCP discovery (active, read-only)
 ```bat
 out\lan866x-dncpdisc.exe                       REM 3 rounds, channel 11
 out\lan866x-dncpdisc.exe --channel 11 --rounds 5 --timeout 4
 ```
 Acts as a **temporary DNCP server** (per AN1891): broadcasts an **empty Registry** to `224.0.0.1:65527`; nodes that do not find themselves in it send an **Announce** to `224.0.0.1:65526`. Per node **all Announce fields** are decoded: MAC, vendor device id, **IPv4 + IPv6**, state, persistency, BurstFramesPerTO, protocol version and all PLCA node ids.
 > **Read-only** — assigns no PLCA ids/IPs, persists nothing. EnumChannel = default (11). **Use only when no other DNCP server is active.** Verified live (a LAN8662 responded).
+
+### 4.9 Boot, flash & diagnostics tools
+
+Four further tools cover firmware management, link diagnostics and the Click demo.
+They are documented in full — with every option and the board setup they need — in
+**[TOOLS.md](TOOLS.md)**:
+
+| Tool | One-liner | TOOLS.md |
+|---|---|---|
+| `lan866x-boot` | reboot between main app ↔ bootloader (non-destructive) | [§4.9](TOOLS.md#49-lan866x-boot) |
+| `lan866x-flashimg` | write one signed image via the bootloader (writes flash) | [§4.10](TOOLS.md#410-lan866x-flashimg) |
+| `lan866x-flashpkg` | update an endpoint from an `.mchpkg` package (writes flash) | [§4.11](TOOLS.md#411-lan866x-flashpkg) |
+| `lan866x-diag` | read & interpret T1S link quality (read-only) | [§4.3](TOOLS.md#43-lan866x-diag) |
+| `lan866x-clickdemo` | Thumbstick + Proximity → 2× RGB Click panels (RTP) | [§4.12](TOOLS.md#412-lan866x-clickdemo) |
+
+```bat
+out\lan866x-diag.exe --ip 192.168.0.54
+out\lan866x-boot.exe --to bootloader
+out\lan866x-flashpkg.exe LAN8661-ws2812_V1.3.2_RELEASE_display1.mchpkg --ip 192.168.0.54
+out\lan866x-clickdemo.exe --ip 192.168.0.54
+```
+
+> `lan866x-flashimg`/`-flashpkg` **write flash** (recoverable from the bootloader);
+> `lan866x-clickdemo` needs the Click boards seated and the DIP switches set as in
+> [TOOLS.md §2.4/§2.5](TOOLS.md#24-click-slots--what-plugs-where).
 
 ---
 
@@ -227,13 +297,18 @@ EP2 --OfferService: I am 192.168.0.102:6800 -->  PC
 ```
 lan866x-tools/
 ├── build.bat            Windows build script (chapter 3)
-├── CMakeLists.txt       C-only build: rcpcore lib + 8 tool executables
+├── CMakeLists.txt       C-only build: rcpcore lib + tool executables
 ├── discovery.c          list endpoints + full GetStatus/GetNetworkStatus
 ├── i2cscan.c            I2C bus scanner
 ├── gpio.c               GPIO set/read
 ├── spi.c                SPI transfer
 ├── adc.c                ADC read (analog / temperature)
 ├── pwm.c                PWM output
+├── boot.c               reboot main app ↔ bootloader (non-destructive)
+├── flashimg.c           write one signed image via the bootloader
+├── flashpkg.c           update from an MCHPKG package (uses minizip)
+├── diag.c               T1S link-quality diagnostics
+├── clickdemo.c          MikroE Click demo (Thumbstick + Proximity → 2× RGB)
 ├── dncpmon.c            passive DNCP monitor (standalone, Winsock)
 ├── dncpdisc.c           active DNCP discovery (standalone, Winsock)
 ├── src/
@@ -243,7 +318,11 @@ lan866x-tools/
 ├── include/             lan866x_common.h (RCP request/reply structs, used by rcp.c)
 ├── libepmicrochip/
 │   └── libsomeip/       the C SOME/IP stack (src/*.c) + windows-udp-handler.c
+├── third-party/
+│   └── minizip/         bundled ZIP reader (only lan866x-flashpkg uses it)
+├── docs/img/            board photos used by TOOLS.md
 ├── README.md
+├── TOOLS.md             board guide + full per-tool reference
 └── PORTING.md           MCU32 port (lwIP/FreeRTOS)
 ```
 > `libepmicrochip/` also still contains Microchip's C++ vendor sources (`liblan866x`, `librtp`, `someip-stub.cpp`). They are **not built** — this toolset uses only the C `libsomeip` core. They can be deleted for a strictly C-only tree.
