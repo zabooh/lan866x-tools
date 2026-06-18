@@ -39,6 +39,16 @@ static uint8_t  s_rx[MAXP];
 static uint16_t s_rxLen = 0u;
 static uint8_t  s_scratch[MAXP];             /* request-parameter scratch     */
 
+/* --- asynchronous (non-blocking) request slots -------------------------- */
+static struct {
+    volatile uint16_t sid;                       /* 0 = free */
+    rcp_async_cb      cb;
+    void             *ctx;
+    struct SOMEIP_Transmit_Buffer *tb;
+    uint32_t          sentMs;
+} s_async[RCP_ASYNC_MAX];
+static uint32_t s_asyncTimeoutMs = 150u;
+
 #ifdef _WIN32
 #  include <windows.h>
 #  define NAP() Sleep(2)
@@ -173,6 +183,136 @@ static ReturnCode_t rcp_xfer(uint16_t methodId, const uint8_t *params, uint16_t 
         if (rc != RT_TIMEOUT) break;   /* a real response (OK or error) -> done */
     }
     return rc;
+}
+
+/* ======================== asynchronous requests ======================== *
+ * Non-blocking: rcp_async_request() sends and returns. The reply (or a
+ * timeout) is delivered later to the user callback - from the rx thread when a
+ * response arrives, or from rcp_async_poll() when the deadline passes. The
+ * synchronous path above is untouched; the two never share state.            */
+
+static void on_async_response(struct SOMEIP_Transmit_Buffer *pBuf, bool ok,
+                              enum SOMEIP_ReturnCode rc, const uint8_t *pRx, uint16_t rxLen)
+{
+    int i; rcp_async_cb cb = NULL; void *ctx = NULL;
+    if (!pBuf) return;
+    SOMEIP_CB_EnterCriticialSection();
+    for (i = 0; i < RCP_ASYNC_MAX; ++i)
+        if (s_async[i].sid != 0u && s_async[i].sid == pBuf->waitForSessionId) {
+            cb = s_async[i].cb; ctx = s_async[i].ctx; s_async[i].sid = 0u; break;
+        }
+    SOMEIP_CB_LeaveCriticialSection();
+    if (cb) cb(ctx, ok ? (ReturnCode_t)rc : RT_TIMEOUT, ok ? pRx : NULL, ok ? rxLen : 0u);
+}
+
+ReturnCode_t rcp_async_request(uint16_t methodId, const uint8_t *params, uint16_t plen,
+                               rcp_async_cb cb, void *ctx)
+{
+    struct SOMEIP_Transmit_Buffer *tb;
+    struct SOMEIP_Header h;
+    uint16_t consumed = 0u, sid;
+    int slot = -1, i;
+    if (s_sel >= s_epCount) return RT_INTERNAL_ERROR;
+    SOMEIP_CB_EnterCriticialSection();
+    for (i = 0; i < RCP_ASYNC_MAX; ++i) if (s_async[i].sid == 0u) { slot = i; break; }
+    SOMEIP_CB_LeaveCriticialSection();
+    if (slot < 0) return RT_INTERNAL_ERROR;          /* too many outstanding */
+    tb = SOMEIP_Transmit_GetBuffer(s_tr);
+    if (!tb) return RT_INTERNAL_ERROR;
+    sid = s_session++; if (s_session == 0u) s_session++;
+    memset(&h, 0, sizeof(h));
+    h.msgType = MSGTYPE_REQUEST; h.retCode = SOMEIP_E_OK; h.serviceId = RCP_SERVICE_ID;
+    h.methodId = methodId; h.clientId = 0xaffeu; h.sessionId = sid; h.interfaceVersion = 0x1u;
+    if (!SOMEIP_Generator_Fill_Header(&h, tb->payload, MAXP, &consumed)) {
+        SOMEIP_Transmit_ReleaseBufferOnError(s_tr, tb); return RT_PARAMETER_NOT_VALID;
+    }
+    if (plen) {
+        if ((uint32_t)consumed + plen > MAXP) { SOMEIP_Transmit_ReleaseBufferOnError(s_tr, tb); return RT_PARAMETER_NOT_VALID; }
+        memcpy(&tb->payload[consumed], params, plen); consumed = (uint16_t)(consumed + plen);
+    }
+    if (!SOMEIP_Generator_Update_Length(consumed, tb->payload, MAXP)) {
+        SOMEIP_Transmit_ReleaseBufferOnError(s_tr, tb); return RT_PARAMETER_NOT_VALID;
+    }
+    tb->callback = on_async_response;
+    tb->fireAndForget = false;
+    tb->waitForSessionId = sid;
+    tb->payloadLength = consumed;
+    tb->udpPort = s_eps[s_sel].port;
+    memcpy(tb->ipV4Addr, s_eps[s_sel].ip, 4);
+    /* publish the slot before sending so a fast rx response is matched */
+    SOMEIP_CB_EnterCriticialSection();
+    s_async[slot].cb = cb; s_async[slot].ctx = ctx; s_async[slot].tb = tb;
+    s_async[slot].sentMs = SOMEIP_CB_GetTimeMS(); s_async[slot].sid = sid;
+    SOMEIP_CB_LeaveCriticialSection();
+    if (!SOMEIP_Transmit_Send(s_tr, tb)) {
+        SOMEIP_CB_EnterCriticialSection(); s_async[slot].sid = 0u; SOMEIP_CB_LeaveCriticialSection();
+        SOMEIP_Transmit_ReleaseBufferOnError(s_tr, tb); return RT_SEND_ERROR;
+    }
+    return RT_OK;
+}
+
+void rcp_async_poll(void)
+{
+    int i;
+    uint32_t now = SOMEIP_CB_GetTimeMS();
+    SOMEIP_Transmit_CheckTimers();
+    for (i = 0; i < RCP_ASYNC_MAX; ++i) {
+        rcp_async_cb cb = NULL; void *ctx = NULL;
+        SOMEIP_CB_EnterCriticialSection();
+        if (s_async[i].sid != 0u && (now - s_async[i].sentMs) >= s_asyncTimeoutMs) {
+            cb = s_async[i].cb; ctx = s_async[i].ctx;
+            if (s_async[i].tb) { s_async[i].tb->callback = NULL; s_async[i].tb->ipV4Addr[0] = 0u; }
+            s_async[i].sid = 0u;
+        }
+        SOMEIP_CB_LeaveCriticialSection();
+        if (cb) cb(ctx, RT_TIMEOUT, NULL, 0u);
+    }
+}
+
+void rcp_set_async_timeout_ms(uint32_t ms) { s_asyncTimeoutMs = ms ? ms : 1u; }
+
+/* ---- param builders / reply decoders for use with rcp_async_request ----- */
+uint16_t rcp_enc_spi2(uint8_t *buf, uint16_t cap, uint16_t handle, uint32_t writeId,
+                      const uint8_t *c0, uint16_t c0len, const uint8_t *c1, uint16_t c1len,
+                      uint16_t r0len, uint16_t r1len)
+{
+    uint16_t pl = 0u;
+    if (!(SOMEIP_Generator_Fill_UINT16(0, handle,  &buf[pl], (uint16_t)(cap - pl), &pl) &&
+          SOMEIP_Generator_Fill_UINT32(1, writeId, &buf[pl], (uint16_t)(cap - pl), &pl) &&
+          SOMEIP_Generator_Fill_UINT16(2, r0len,   &buf[pl], (uint16_t)(cap - pl), &pl) &&
+          SOMEIP_Generator_Fill_BLOB(3, c0, c0len, &buf[pl], (uint16_t)(cap - pl), &pl) &&
+          SOMEIP_Generator_Fill_UINT16(4, r1len,   &buf[pl], (uint16_t)(cap - pl), &pl) &&
+          SOMEIP_Generator_Fill_BLOB(5, c1, c1len, &buf[pl], (uint16_t)(cap - pl), &pl)))
+        return 0u;
+    return pl;
+}
+
+bool rcp_dec_spi2(const uint8_t *rx, uint16_t rxLen, uint8_t *rd0, uint16_t *l0, uint8_t *rd1, uint16_t *l1)
+{
+    uint16_t p = 0u, tag = 0u; uint32_t readId;
+    return SOMEIP_Parser_Read_UINT32(&rx[p], rxLen - p, &tag, &readId, &p) &&
+           SOMEIP_Parser_Read_BLOB(&rx[p], rxLen - p, &tag, rd0, l0, &p) &&
+           SOMEIP_Parser_Read_BLOB(&rx[p], rxLen - p, &tag, rd1, l1, &p);
+}
+
+uint16_t rcp_enc_i2c_read(uint8_t *buf, uint16_t cap, uint16_t handle, uint16_t addr, uint32_t writeId,
+                          const uint8_t *wr, uint16_t wrlen, uint16_t rdlen)
+{
+    uint16_t pl = 0u;
+    if (!(SOMEIP_Generator_Fill_UINT16(0, handle,  &buf[pl], (uint16_t)(cap - pl), &pl) &&
+          SOMEIP_Generator_Fill_UINT16(1, addr,    &buf[pl], (uint16_t)(cap - pl), &pl) &&
+          SOMEIP_Generator_Fill_UINT16(2, rdlen,   &buf[pl], (uint16_t)(cap - pl), &pl) &&
+          SOMEIP_Generator_Fill_UINT32(3, writeId, &buf[pl], (uint16_t)(cap - pl), &pl) &&
+          SOMEIP_Generator_Fill_BLOB(4, wr, wrlen, &buf[pl], (uint16_t)(cap - pl), &pl)))
+        return 0u;
+    return pl;
+}
+
+bool rcp_dec_i2c_read(const uint8_t *rx, uint16_t rxLen, uint8_t *rd, uint16_t *rdLen)
+{
+    uint16_t p = 0u, tag = 0u; uint32_t readId;
+    return SOMEIP_Parser_Read_UINT32(&rx[p], rxLen - p, &tag, &readId, &p) &&
+           SOMEIP_Parser_Read_BLOB(&rx[p], rxLen - p, &tag, rd, rdLen, &p);
 }
 
 /* --- discovery / lifecycle ---------------------------------------------- */

@@ -129,7 +129,6 @@ static void fill_half(int x0, uint8_t r, uint8_t g, uint8_t b)
 /* --- Thumbstick (MCP3204 over SPI) -------------------------------------- */
 static uint16_t s_spi = UINT16_MAX;
 static uint32_t s_spiWid = 0;
-static int      s_compound = 1;   /* read both axes in one round-trip (V1.3.2+) */
 
 static int spi_setup(void)
 {
@@ -141,43 +140,10 @@ static int spi_setup(void)
     rel.PinIdListLength = p; rcp_release_digital_pins(&rel);
     ov.PinIdMiso = SPI_MISO; ov.PinIdSck = SPI_SCK; ov.PinIdCs = SPI_CS;
     ov.PinIdMosi = SPI_MOSI; ov.Mode = 1;
-    ov.ClockSpeed = s_compound ? 8330000u : 1923000u;
+    ov.ClockSpeed = 1923000u;  /* compound works at any supported clock */
     s_spiWid = 0;
     if (rcp_open_spi(&ov, &orep) != RT_OK) { s_spi = UINT16_MAX; return 0; }
     s_spi = orep.HandleSpi;
-    return 1;
-}
-
-static int spi_read_channel(uint8_t ch, uint16_t *val)
-{
-    WriteAndReadSpiVar_t rq; WriteAndReadSpiReply_t rp;
-    memset(&rq, 0, sizeof(rq)); memset(&rp, 0, sizeof(rp));
-    rq.HandleSpi = s_spi; rq.ReadDataLength = 3; rq.WriteId = s_spiWid++;
-    rq.WriteDataLength = 3;
-    rq.WriteData[0] = 0x06; rq.WriteData[1] = (uint8_t)(ch << 6); rq.WriteData[2] = 0xFF;
-    if (rcp_write_and_read_spi(&rq, &rp) != RT_OK || rp.ReadDataLength < 3) return 0;
-    *val = (uint16_t)(((rp.ReadData[1] << 8) | rp.ReadData[2]) & 0x0FFF);
-    return 1;
-}
-
-/* y = channel 0, x = channel 1 (as in the official demo). Uses the compound
- * transfer (both axes, one round-trip) when supported, else two single reads. */
-static int thumbstick_read(uint16_t *x, uint16_t *y)
-{
-    if (s_spi == UINT16_MAX && !spi_setup()) return 0;
-    if (s_compound) {
-        uint8_t c0[3] = { 0x06, 0x00, 0xFF }, c1[3] = { 0x06, 0x40, 0xFF };
-        uint8_t r0[3] = { 0 }, r1[3] = { 0 };
-        uint16_t l0 = 3, l1 = 3;
-        ReturnCode_t rc = rcp_write_and_read_spi2(s_spi, s_spiWid++, c0, 3, r0, &l0, c1, 3, r1, &l1);
-        if (rc == RT_UNKNOWN_METHOD) { s_compound = 0; s_spi = UINT16_MAX; return 0; } /* old config: fall back */
-        if (rc != RT_OK || l0 < 3 || l1 < 3) { s_spi = UINT16_MAX; return 0; }
-        *y = (uint16_t)(((r0[1] << 8) | r0[2]) & 0x0FFF);
-        *x = (uint16_t)(((r1[1] << 8) | r1[2]) & 0x0FFF);
-        return 1;
-    }
-    if (!spi_read_channel(0, y)) { s_spi = UINT16_MAX; return 0; }
-    if (!spi_read_channel(1, x)) { s_spi = UINT16_MAX; return 0; }
     return 1;
 }
 
@@ -235,19 +201,43 @@ static int vcnl4200_init(void)
     return 1;
 }
 
-static int proximity_read(uint16_t *prox)
-{
-    if (s_i2c == UINT16_MAX && !i2c_setup()) return 0;
-    if (!s_proxInit) { s_proxInit = vcnl4200_init(); if (!s_proxInit) { s_i2c = UINT16_MAX; return 0; } }
-    if (!i2c_read_reg(VCNL4200_PS_DATA, prox)) { s_i2c = UINT16_MAX; return 0; }
-    return 1;
-}
-
 /* ------------------------------------------------------------------------ */
 static uint8_t scale(uint32_t v, uint32_t vmax, uint32_t out)
 {
     if (v > vmax) v = vmax;
     return (uint8_t)(vmax ? (v * out / vmax) : 0u);
+}
+
+/* --- async sensor state (written by callbacks, read by the render loop) -- */
+static volatile uint16_t s_tx = ADC_MAX / 2, s_ty = ADC_MAX / 2, s_prox = 0;
+static volatile int s_thumbPending = 0, s_proxPending = 0;
+static volatile int s_thumbOk = 0, s_proxOk = 0;
+
+/* fires on the rx thread (response) or from rcp_async_poll (timeout) */
+static void on_thumb(void *ctx, ReturnCode_t rc, const uint8_t *rx, uint16_t rxLen)
+{
+    (void)ctx;
+    if (rc == RT_OK && rx) {
+        uint8_t r0[3] = {0}, r1[3] = {0}; uint16_t l0 = 3, l1 = 3;
+        if (rcp_dec_spi2(rx, rxLen, r0, &l0, r1, &l1) && l0 >= 3 && l1 >= 3) {
+            s_ty = (uint16_t)(((r0[1] << 8) | r0[2]) & 0x0FFF);   /* ch0 = Y */
+            s_tx = (uint16_t)(((r1[1] << 8) | r1[2]) & 0x0FFF);   /* ch1 = X */
+            s_thumbOk = 1;
+        }
+    } else s_thumbOk = 0;
+    s_thumbPending = 0;
+}
+static void on_prox(void *ctx, ReturnCode_t rc, const uint8_t *rx, uint16_t rxLen)
+{
+    (void)ctx;
+    if (rc == RT_OK && rx) {
+        uint8_t d[8] = {0}; uint16_t l = sizeof(d);
+        if (rcp_dec_i2c_read(rx, rxLen, d, &l) && l >= 2) {
+            s_prox = (uint16_t)(d[0] | (d[1] << 8));             /* VCNL4200 LSB first */
+            s_proxOk = 1;
+        }
+    } else s_proxOk = 0;
+    s_proxPending = 0;
 }
 
 int main(int argc, char **argv)
@@ -256,7 +246,6 @@ int main(int argc, char **argv)
     int wantEp = 0, i, fps = 40, sel, bright = 128, proxDiv = 16;
     rcp_endpoint_t eps[RCP_MAX_ENDPOINTS];
     WSADATA wsa;
-    uint16_t tx = ADC_MAX / 2, ty = ADC_MAX / 2, prox = 0;
 
     for (i = 1; i < argc; ++i) {
         if (!strcmp(argv[i], "-h") || !strcmp(argv[i], "--help")) {
@@ -288,47 +277,60 @@ int main(int argc, char **argv)
     if (s_rtp == INVALID_SOCKET) { printf("socket failed\n"); return 3; }
     s_ssrc = (uint32_t)GetTickCount();
     signal(SIGINT, on_sigint);
-    /* 1 ms scheduler tick so Sleep() and the poll-wait are not quantised to the
-     * ~15.6 ms default tick. */
-    timeBeginPeriod(1);
+    timeBeginPeriod(1);                       /* 1 ms scheduler tick */
 
-    /* The peripheral RCP path over T1S can be lossy. A successful round-trip is
-     * ~40 ms; a lost one must recover fast and not hide behind a long timeout.
-     * Short timeout + a few retries => reads keep succeeding (the display stays
-     * live) but a drop costs tens of ms, not the old 250 ms x 2 = slow. */
-    rcp_set_timeout_ms(70);
-    rcp_set_retries(3);
+    /* One-time, blocking setup of the two peripherals (fine to block here).
+     * Generous timeout + retries + small gaps: the open/init sequence is several
+     * back-to-back round-trips and the host occasionally drops a reply. */
+    rcp_set_timeout_ms(600); rcp_set_retries(2);
+    for (i = 0; i < 2 && s_spi == UINT16_MAX; ++i) { spi_setup(); if (s_spi == UINT16_MAX) Sleep(50); }
+    for (i = 0; i < 2 && !s_proxInit; ++i) {
+        if (s_i2c == UINT16_MAX) i2c_setup();
+        if (s_i2c != UINT16_MAX) s_proxInit = vcnl4200_init();
+        if (!s_proxInit) Sleep(50);
+    }
+    printf("  setup: thumbstick(SPI)=%s  proximity(I2C/VCNL4200)=%s\n",
+           s_spi != UINT16_MAX ? "OK" : "FAILED", s_proxInit ? "OK" : "FAILED");
 
+    /* Non-blocking loop: the RTP framerate is fixed and NEVER waits on a sensor
+     * read. Each frame we kick off async reads (at most one per sensor in
+     * flight), pump completions/timeouts, then render from the latest values. */
+    rcp_set_async_timeout_ms(120);
     {
     uint32_t frame = 0;
-    int okT = 0, okP = 0;
     while (s_run) {
-        uint16_t nx, ny, np;
-        uint8_t r, g, b;
+        uint8_t r, g, b, params[64];
 
-        okT = thumbstick_read(&nx, &ny);
-        if (okT) { tx = nx; ty = ny; }
-        /* proximity changes slowly and costs an extra round-trip: poll it
-         * every 4th frame so the thumbstick stays snappy. */
-        if ((frame++ & 3u) == 0u) { okP = proximity_read(&np); if (okP) prox = np; }
+        if (s_spi != UINT16_MAX && !s_thumbPending) {
+            uint8_t c0[3] = { 0x06, 0x00, 0xFF }, c1[3] = { 0x06, 0x40, 0xFF };
+            uint16_t pl = rcp_enc_spi2(params, sizeof(params), s_spi, s_spiWid++, c0, 3, c1, 3, 3, 3);
+            if (pl && rcp_async_request(0x1509u, params, pl, on_thumb, NULL) == RT_OK) s_thumbPending = 1;
+        }
+        /* proximity changes slowly: kick it off only every 4th frame */
+        if (s_proxInit && !s_proxPending && (frame & 3u) == 0u) {
+            uint8_t reg = VCNL4200_PS_DATA;
+            uint16_t pl = rcp_enc_i2c_read(params, sizeof(params), s_i2c, VCNL4200_ADDR, s_i2cWid++, &reg, 1, 2);
+            if (pl && rcp_async_request(0x1208u, params, pl, on_prox, NULL) == RT_OK) s_proxPending = 1;
+        }
+        frame++;
+
+        rcp_async_poll();                     /* deliver responses + fire timeouts */
 
         /* Left display: X -> red, Y -> green (invert to match stick motion) */
-        r = scale((uint32_t)(ADC_MAX - tx), ADC_MAX, (uint32_t)bright);
-        g = scale((uint32_t)(ADC_MAX - ty), ADC_MAX, (uint32_t)bright);
+        r = scale((uint32_t)(ADC_MAX - s_tx), ADC_MAX, (uint32_t)bright);
+        g = scale((uint32_t)(ADC_MAX - s_ty), ADC_MAX, (uint32_t)bright);
         b = (uint8_t)(bright / 6);
         fill_half(0, r, g, b);
-
         /* Right display: closer object -> warmer (blue far -> red near) */
         {
-            uint8_t inten = scale((uint32_t)prox / (uint32_t)proxDiv, (uint32_t)bright, (uint32_t)bright);
+            uint8_t inten = scale((uint32_t)s_prox / (uint32_t)proxDiv, (uint32_t)bright, (uint32_t)bright);
             fill_half(10, inten, 0, (uint8_t)(bright - inten));
         }
 
         rtp_send();
-        rcp_poll();
 
         printf("\r  Thumbstick x=%4u y=%4u %s | Proximity raw=%5u %s   ",
-               tx, ty, okT ? "  " : "(!)", prox, okP ? "  " : "(!)");
+               s_tx, s_ty, s_thumbOk ? "  " : "..", s_prox, s_proxOk ? "  " : "..");
         fflush(stdout);
         Sleep((DWORD)(1000 / fps));
     }

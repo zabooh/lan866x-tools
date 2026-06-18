@@ -52,6 +52,33 @@ void rcp_set_retries(uint8_t n);
  * loss on a marginal T1S link, but the WriteId-idempotent retries cover it. */
 void rcp_set_chunk(uint16_t n);
 
+/* --- Asynchronous (non-blocking) requests -------------------------------- *
+ * rcp_async_request() builds + sends a request and returns immediately. The
+ * reply payload (or RT_TIMEOUT) is delivered later to cb - from the rx thread
+ * when the response arrives, or from rcp_async_poll() once the deadline passes.
+ * Call rcp_async_poll() periodically to drive completions and timeouts. Lets a
+ * fixed-rate loop (e.g. a video stream) keep running while sensor reads are in
+ * flight, instead of blocking on each round-trip. Up to RCP_ASYNC_MAX may be
+ * outstanding. The callback may run on another thread - keep it short and store
+ * results in volatile/atomic variables. */
+#define RCP_ASYNC_MAX 16
+typedef void (*rcp_async_cb)(void *ctx, ReturnCode_t rc, const uint8_t *rx, uint16_t rxLen);
+ReturnCode_t rcp_async_request(uint16_t methodId, const uint8_t *params, uint16_t paramLen,
+                               rcp_async_cb cb, void *ctx);
+void rcp_async_poll(void);
+void rcp_set_async_timeout_ms(uint32_t ms);   /* per-request deadline (default 150) */
+
+/* Param builders / reply decoders to pair with rcp_async_request (the WTLV
+ * encoding stays inside rcp). Return 0 on encode error; decoders return false
+ * on a malformed reply. rd*Len are in/out (capacity in, bytes read out). */
+uint16_t rcp_enc_spi2(uint8_t *buf, uint16_t cap, uint16_t handle, uint32_t writeId,
+                      const uint8_t *c0, uint16_t c0len, const uint8_t *c1, uint16_t c1len,
+                      uint16_t r0len, uint16_t r1len);
+bool     rcp_dec_spi2(const uint8_t *rx, uint16_t rxLen, uint8_t *rd0, uint16_t *l0, uint8_t *rd1, uint16_t *l1);
+uint16_t rcp_enc_i2c_read(uint8_t *buf, uint16_t cap, uint16_t handle, uint16_t addr, uint32_t writeId,
+                          const uint8_t *wr, uint16_t wrlen, uint16_t rdlen);
+bool     rcp_dec_i2c_read(const uint8_t *rx, uint16_t rxLen, uint8_t *rd, uint16_t *rdLen);
+
 /* --- Methods (signatures mirror the C++ LAN866XClient) ------------------- *
  * All return ReturnCode_t (RT_OK on success; RT_NOT_REACHABLE = peripheral
  * not configured on that node; RT_TIMEOUT = no response).                   */
