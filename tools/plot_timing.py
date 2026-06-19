@@ -252,12 +252,17 @@ def main():
     if args.t_from is not None or args.t_to is not None:
         ax.set_xlim(args.t_from, args.t_to)
 
-    # title with summary
-    dur = max(e["x"] for e in events)
+    # title with summary - rate over the streaming loop only (exclude the
+    # discovery/setup phase that precedes the first FRAME).
+    loop_xs = [e["x"] for e in events
+               if e["event"] in ("FRAME", "THUMB_REQ", "PROX_REQ", "THUMB_RSP", "PROX_RSP")]
+    loop_dur = (max(loop_xs) - min(loop_xs)) if len(loop_xs) > 1 else max(e["x"] for e in events)
     nthr = sum(1 for e in events if e["event"] == "THUMB_REQ")
     npr = sum(1 for e in events if e["event"] == "PROX_REQ")
+    nfr = sum(1 for e in events if e["event"] == "FRAME")
     title = (f"clickdemo timing - {os.path.basename(pcap)} + {os.path.basename(args.csv)}   "
-             f"|  {dur:.1f}s   thumb {nthr/dur:.1f} Hz   prox {npr/dur:.1f} Hz   "
+             f"|  loop {loop_dur:.1f}s   video {nfr/loop_dur:.0f} fps   "
+             f"thumb {nthr/loop_dur:.1f} Hz   prox {npr/loop_dur:.1f} Hz   "
              f"timeouts {n_tmo} (host-drops {len(drops)})")
     ax.set_title(title, fontsize=10)
 

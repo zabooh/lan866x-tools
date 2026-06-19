@@ -556,6 +556,10 @@ a clear `UPDATE OK / FAILED`. It deliberately ignores the benign `FinishUpdate`
 driven from a Thumbstick and a Proximity sensor. Requires the Lighting firmware
 (`LAN8661-ws2812 … display1`, ≥ V1.3.2) and the Click setup of [§2.4](#24-click-slots--what-plugs-where)/[§2.5](#25-jumper--dip-settings-ascii-map).
 
+> 📖 **Deep‑dive with measured timing diagrams:** [docs/CLICKDEMO.md](docs/CLICKDEMO.md)
+> — the software, the render‑loop timing model, and real captures analysed with
+> `tools/plot_timing.py`.
+
 ```bat
 out\lan866x-clickdemo.exe --ip 192.168.0.54
 out\lan866x-clickdemo.exe --fps 50 --bright 128 --bar 64 --prox-max 400
