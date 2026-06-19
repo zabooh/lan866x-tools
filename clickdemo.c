@@ -352,7 +352,8 @@ int main(int argc, char **argv)
     for (i = 1; i < argc; ++i) {
         if (!strcmp(argv[i], "-h") || !strcmp(argv[i], "--help")) {
             printf("lan866x-clickdemo - drive two RGB Click displays from Thumbstick + Proximity\n\n"
-                   "  lan866x-clickdemo [--ip <addr>|--ep <i>] [--fps N] [--bright 0..255] [--prox-div N]\n\n"
+                   "  lan866x-clickdemo [--ip <addr>|--ep <i>] [--fps N] [--bright 0..255]\n"
+                   "                    [--prox-max N] [--bar 0..255] [--log <file>|--nolog]\n\n"
                    "  Left display  (slot 1): orange spot steered by the Thumbstick (slot 4, SPI).\n"
                    "  Right display (slot 2) shows a 1-px blue Proximity bar (slot 3, I2C): raw 2=bottom..max=top.\n"
                    "  --prox-max: proximity raw value that puts the bar at the top (default 400).\n"

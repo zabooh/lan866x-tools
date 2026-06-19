@@ -66,6 +66,7 @@ The tools (all build to `lan866x-<name>.exe`):
 | **`lan866x-flashpkg`** | update an endpoint straight from an **MCHPKG** package |
 | **`lan866x-diag`** | read & interpret **T1S link quality** (read-only) |
 | **`lan866x-clickdemo`** | interactive MikroE **Click** demo (Thumbstick + Proximity → 2× RGB) |
+| **`lan866x-video`** | loop-play a **video file** on the 2× RGB displays (ffmpeg → RTP) |
 | **`lan866x-dncpmon`** | passive **DNCP** monitor (standalone, not SOME/IP) |
 | **`lan866x-dncpdisc`** | active **DNCP** discovery (Registry broadcast → collect Announces, read-only) |
 
@@ -257,12 +258,14 @@ They are documented in full — with every option and the board setup they need 
 | `lan866x-flashpkg` | update an endpoint from an `.mchpkg` package (writes flash) | [§4.11](TOOLS.md#411-lan866x-flashpkg) |
 | `lan866x-diag` | read & interpret T1S link quality (read-only) | [§4.3](TOOLS.md#43-lan866x-diag) |
 | `lan866x-clickdemo` | Thumbstick + Proximity → 2× RGB Click panels (RTP) | [§4.12](TOOLS.md#412-lan866x-clickdemo) |
+| `lan866x-video` | loop-play a video file on the 2× RGB displays (ffmpeg → RTP) | [§4.13](TOOLS.md#413-lan866x-video) |
 
 ```bat
 out\lan866x-diag.exe --ip 192.168.0.54
 out\lan866x-boot.exe --to bootloader
 out\lan866x-flashpkg.exe LAN8661-ws2812_V1.3.2_RELEASE_display1.mchpkg --ip 192.168.0.54
 out\lan866x-clickdemo.exe --ip 192.168.0.54
+out\lan866x-video.exe docs\img\clickdemo.mp4 --ip 192.168.0.54
 ```
 
 > `lan866x-flashimg`/`-flashpkg` **write flash** (recoverable from the bootloader);
@@ -309,6 +312,7 @@ lan866x-tools/
 ├── flashpkg.c           update from an MCHPKG package (uses minizip)
 ├── diag.c               T1S link-quality diagnostics
 ├── clickdemo.c          MikroE Click demo (Thumbstick + Proximity → 2× RGB)
+├── video.c              loop-play a video file on the 2× RGB displays (ffmpeg → RTP)
 ├── dncpmon.c            passive DNCP monitor (standalone, Winsock)
 ├── dncpdisc.c           active DNCP discovery (standalone, Winsock)
 ├── src/
@@ -320,7 +324,11 @@ lan866x-tools/
 │   └── libsomeip/       the C SOME/IP stack (src/*.c) + windows-udp-handler.c
 ├── third-party/
 │   └── minizip/         bundled ZIP reader (only lan866x-flashpkg uses it)
-├── docs/img/            board photos used by TOOLS.md
+├── tools/               analysis helpers (plot_timing.py — clickdemo timing diagram)
+├── docs/
+│   ├── img/             board photos + timing diagrams used by the docs
+│   ├── INTEGRATION_NOTES.md  RCP-on-libsomeip protocol/stack know-how
+│   └── CLICKDEMO.md     clickdemo demo/software/timing deep-dive
 ├── README.md
 ├── TOOLS.md             board guide + full per-tool reference
 └── PORTING.md           MCU32 port (lwIP/FreeRTOS)

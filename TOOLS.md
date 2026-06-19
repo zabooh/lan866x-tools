@@ -33,8 +33,9 @@ Companion document to the [README](README.md). It covers two things in depth:
    - 4.10 [`lan866x-flashimg`](#410-lan866x-flashimg)
    - 4.11 [`lan866x-flashpkg`](#411-lan866x-flashpkg)
    - 4.12 [`lan866x-clickdemo`](#412-lan866x-clickdemo)
-   - 4.13 [`lan866x-dncpmon`](#413-lan866x-dncpmon)
-   - 4.14 [`lan866x-dncpdisc`](#414-lan866x-dncpdisc)
+   - 4.13 [`lan866x-video`](#413-lan866x-video)
+   - 4.14 [`lan866x-dncpmon`](#414-lan866x-dncpmon)
+   - 4.15 [`lan866x-dncpdisc`](#415-lan866x-dncpdisc)
 5. [Tool ↔ RCP method matrix](#5-tool--rcp-method-matrix)
 
 ---
@@ -571,6 +572,11 @@ out\lan866x-clickdemo.exe --fps 50 --bright 128 --bar 64 --prox-max 400
 | `--bright 0..255` | 128 | max brightness of the Thumbstick spot (WS2812 are very bright) |
 | `--prox-max <n>` | 400 | proximity raw value that puts the bar at the top |
 | `--bar 0..255` | 64 | blue brightness of the proximity bar |
+| `--log <file>` | `clickdemo-events.csv` | per-event CSV log for timing analysis; `--nolog` disables it |
+
+> 📖 The render‑loop timing (why it stays smooth, and how to analyse a capture) is
+> documented in depth in [docs/CLICKDEMO.md](docs/CLICKDEMO.md); the `--log` file pairs
+> with a Wireshark capture via [`tools/plot_timing.py`](tools/plot_timing.py).
 
 What it does each loop:
 - reads the **Thumbstick** (MCP3204 over **SPI**, slot 4) and the **Proximity 3**
@@ -585,7 +591,31 @@ The console shows live `Thumbstick x/y` and `Proximity raw`; `..` means that sen
 isn't answering (board not seated / DIP wrong). **Ctrl-C** clears both displays and
 releases the peripherals.
 
-### 4.13 `lan866x-dncpmon`
+### 4.13 `lan866x-video`
+
+**Loop‑play a video file on the two RGB panels.** Same display path as the clickdemo
+(one 20×10 RTP/RFC4175 frame → UDP 5001, left half = display 1, right half = display 2),
+but the pixels come from a video file instead of the sensors. Requires the **Lighting**
+firmware and **ffmpeg** on `PATH` (or `--ffmpeg <path>`).
+
+```bat
+out\lan866x-video.exe docs\img\clickdemo.mp4 --ip 192.168.0.54
+out\lan866x-video.exe clip.gif --fps 20 --bright 96
+```
+
+| Option | Default | Meaning |
+|---|---|---|
+| `<file>` | — | the video/image file (positional, required); any format ffmpeg reads |
+| `--fps N` | 15 | frame rate (1..60) |
+| `--bright 0..255` | 128 | global brightness (WS2812 are very bright) |
+| `--ffmpeg <path>` | `ffmpeg` | ffmpeg executable if not on `PATH` |
+
+ffmpeg decodes + scales the file to 20×10 raw RGB and loops it; the tool sends each
+frame as one RTP packet. It uses **SOME/IP discovery** to find the endpoint (so `--ip`/
+`--ep` work as usual) but issues **no RCP methods** — it is a pure RTP video source.
+**Ctrl-C** clears both displays.
+
+### 4.14 `lan866x-dncpmon`
 
 **Passive DNCP monitor** – standalone (Winsock only, *not* SOME/IP).
 
@@ -598,7 +628,7 @@ Decodes **DNCP** (Dynamic Node Configuration Protocol) Announce/Registry packets
 **UDP 65526/65527**: MAC, device id, IPv4/IPv6, state (Unconfigured/Configured) and PLCA
 ids. **Purely passive** – it only shows DNCP traffic already present on the bus.
 
-### 4.14 `lan866x-dncpdisc`
+### 4.15 `lan866x-dncpdisc`
 
 **Active DNCP discovery** – standalone, **read-only** (per AN1891).
 
@@ -641,4 +671,5 @@ UDP 65526/65527.
 | `boot` | Reboot `0x1000`, GetStatus |
 | `flashimg` / `flashpkg` | Reboot, StartUpdate / WriteImage / FinishUpdate, GetStatus |
 | `clickdemo` | OpenSpi/WriteAndReadSpi `0x1509`, OpenI2C/WriteI2C/WriteAndReadI2C `0x1208` (+ RTP/UDP 5001) |
+| `video` | — (SOME/IP discovery only; pure RTP/RFC4175 video on UDP 5001) |
 | `dncpmon` / `dncpdisc` | — (DNCP, UDP 65526/65527) |

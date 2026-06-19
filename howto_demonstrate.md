@@ -390,8 +390,9 @@ RTP/RFC4175 video stream** the tool sends to UDP 5001 (left 10 columns = display
 
 Press **Ctrl-C** to stop; the demo clears both displays and releases the peripherals.
 
-Options: `--fps N`, `--bright 0..255`, `--bar 0..255`, `--prox-max N`
-(see [TOOLS.md §4.12](TOOLS.md#412-lan866x-clickdemo)).
+Options: `--fps N`, `--bright 0..255`, `--bar 0..255`, `--prox-max N`, `--log <file>`/`--nolog`
+(see [TOOLS.md §4.12](TOOLS.md#412-lan866x-clickdemo); timing deep-dive in
+[docs/CLICKDEMO.md](docs/CLICKDEMO.md)).
 
 ---
 
