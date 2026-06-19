@@ -21,10 +21,14 @@ Makefile
 .vscode/
 *.user
 
-# Exception: shipped release binaries are tracked (statically linked)
+# Exception: the shipped, statically-linked release binaries ARE tracked
+# (so the repo is runnable without a build). They live only in release/.
 !release/
 !release/*.exe
 
-# release binaries + (NDA) firmware must never be tracked
-release/
+# NDA firmware packages must NEVER be tracked (also not inside release/)
 *.mchpkg
+
+# Local diagnostic artifacts (Wireshark captures + the demo's event log)
+logs/
+clickdemo-events*.csv
