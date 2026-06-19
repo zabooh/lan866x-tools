@@ -18,6 +18,28 @@ Read this file first, then `README.md` (build/usage), `docs/INTEGRATION_NOTES.md
 - Bundled third-party: `libepmicrochip/` (Microchip SLA001) and
   `third-party/minizip/` (bitbank2 unzipLIB fork). Respect their licenses.
 
+## Local reference material (NDA) — ASK for the path
+The datasheets, manuals, app notes, schematic, board dossier and firmware
+packages are **not in this repo** (NDA) but are often needed (e.g. to look up an
+RCP method, a register, a pin, or to flash a build). They live in a separate
+local directory on the developer's machine — on the original setup `C:\work\EVB\`,
+but **the path varies per machine, so ASK the developer for it; do not assume or
+hard-code it.** Once given, read from there (don't copy NDA files into the repo).
+
+That directory should contain (and a developer setting it up should provide):
+- **Endpoint User Guide** PDF (`LAN866x-Endpoint-Users-Guide-…`) — the RCP/SOME-IP
+  service spec (method IDs, request/reply structs, reset/diagnosis fields). Primary ref.
+- **Chip datasheets**: LAN8660 (Control), LAN8661 (Lighting), LAN8662 (Audio).
+- **Board schematic** (`02-01132-R3_SCH.pdf`) + the EVB **board dossier**
+  (Setup: DIP switches / Click mounting guide, photos, Wireshark captures).
+- **Firmware packages** (`*.mchpkg`): the display builds + `reference-configs/`
+  (LAN8660/61/62, V1.3.2 & V1.4.0) — used by `lan866x-flashpkg`.
+- **App notes**: Remote-Service + RTP video; firewall/ports. **Integration guides**
+  (libconfigurator integration guide, Remote Configurator user guide).
+- **T1S-USB adapter** user guide + Win/Linux drivers (EVB-LAN8670-USB-PSE).
+- **Peripheral datasheets**: VCNL4200 (proximity), MCP3204 (thumbstick ADC).
+- A `README.md` cataloguing all of the above (the `C:\work\EVB\README.md` is the template).
+
 ## Architecture
 - Vanilla **C**, no C++/libstdc++. One `.c` per tool: discovery, i2cscan, gpio,
   spi, adc, pwm, boot, flashimg, flashpkg, clickdemo, diag, video, dncpmon, dncpdisc.
