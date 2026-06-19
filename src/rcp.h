@@ -67,6 +67,9 @@ ReturnCode_t rcp_async_request(uint16_t methodId, const uint8_t *params, uint16_
                                rcp_async_cb cb, void *ctx);
 void rcp_async_poll(void);
 void rcp_set_async_timeout_ms(uint32_t ms);   /* per-request deadline (default 150) */
+/* SOME/IP session id of the most recent successful rcp_async_request(), to
+ * correlate a request/reply with a capture (someip.sessionid). */
+uint16_t rcp_async_last_sid(void);
 
 /* Param builders / reply decoders to pair with rcp_async_request (the WTLV
  * encoding stays inside rcp). Return 0 on encode error; decoders return false

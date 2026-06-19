@@ -48,6 +48,7 @@ static struct {
     uint32_t          sentMs;
 } s_async[RCP_ASYNC_MAX];
 static uint32_t s_asyncTimeoutMs = 150u;
+static uint16_t s_lastAsyncSid = 0u;   /* SOME/IP session id of the last queued async request */
 
 #ifdef _WIN32
 #  include <windows.h>
@@ -250,8 +251,13 @@ ReturnCode_t rcp_async_request(uint16_t methodId, const uint8_t *params, uint16_
         SOMEIP_CB_EnterCriticialSection(); s_async[slot].sid = 0u; SOMEIP_CB_LeaveCriticialSection();
         SOMEIP_Transmit_ReleaseBufferOnError(s_tr, tb); return RT_SEND_ERROR;
     }
+    s_lastAsyncSid = sid;
     return RT_OK;
 }
+
+/* Session id assigned to the most recent successful rcp_async_request(). Lets the
+ * caller correlate a request/reply with a SOME/IP capture (someip.sessionid). */
+uint16_t rcp_async_last_sid(void) { return s_lastAsyncSid; }
 
 void rcp_async_poll(void)
 {

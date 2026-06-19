@@ -64,6 +64,37 @@ static volatile int s_run = 1;
 
 static void on_sigint(int sig) { (void)sig; s_run = 0; }
 
+/* --- event log ----------------------------------------------------------- *
+ * One CSV row per event, with the UTC epoch (== tshark frame.time_epoch, so it
+ * lines up 1:1 with the Wireshark capture) and the SOME/IP session id (==
+ * someip.sessionid) so each request/reply can be matched to its packet. The
+ * "why" falls straight out: a THUMB_TMO/PROX_TMO row whose sid IS present as a
+ * response on the wire means the Windows host dropped that reply (gotcha #4).
+ * Columns: epoch,rel_ms,event,sid,v1,v2,rc,lat_ms                            */
+static FILE *s_log = NULL;
+static LARGE_INTEGER s_qpcFreq, s_qpcStart;
+
+static double log_epoch(void)   /* UTC seconds since 1970 (~sub-ms resolution) */
+{
+    FILETIME ft; ULARGE_INTEGER u;
+    GetSystemTimeAsFileTime(&ft);
+    u.LowPart = ft.dwLowDateTime; u.HighPart = ft.dwHighDateTime;
+    return (double)(u.QuadPart - 116444736000000000ULL) / 1.0e7;
+}
+static double log_relms(void)   /* monotonic ms since start */
+{
+    LARGE_INTEGER c; QueryPerformanceCounter(&c);
+    return (double)(c.QuadPart - s_qpcStart.QuadPart) * 1000.0 / (double)s_qpcFreq.QuadPart;
+}
+static void elog(const char *ev, unsigned sid, int v1, int v2, int rc, double lat)
+{
+    char line[160]; int n;
+    if (!s_log) return;
+    n = snprintf(line, sizeof(line), "%.6f,%.3f,%s,%u,%d,%d,%d,%.3f\n",
+                 log_epoch(), log_relms(), ev, sid, v1, v2, rc, lat);
+    if (n > 0) fputs(line, s_log);   /* single write = atomic under the CRT FILE lock */
+}
+
 static uint32_t now_us10(void)
 {
     LARGE_INTEGER f, c;
@@ -244,6 +275,9 @@ static void prox_bar(uint16_t raw, int full, int blue)
 static volatile uint16_t s_tx = ADC_MAX / 2, s_ty = ADC_MAX / 2, s_prox = 0;
 static volatile int s_thumbPending = 0, s_proxPending = 0;
 static volatile int s_thumbOk = 0, s_proxOk = 0;
+/* per-sensor request bookkeeping for the event log (one in flight at a time) */
+static volatile unsigned s_thumbSid = 0, s_proxSid = 0;
+static volatile double   s_thumbReqMs = 0.0, s_proxReqMs = 0.0;
 
 /* fires on the rx thread (response) or from rcp_async_poll (timeout) */
 static void on_thumb(void *ctx, ReturnCode_t rc, const uint8_t *rx, uint16_t rxLen)
@@ -255,8 +289,9 @@ static void on_thumb(void *ctx, ReturnCode_t rc, const uint8_t *rx, uint16_t rxL
             s_ty = (uint16_t)(((r0[1] << 8) | r0[2]) & 0x0FFF);   /* ch0 = Y */
             s_tx = (uint16_t)(((r1[1] << 8) | r1[2]) & 0x0FFF);   /* ch1 = X */
             s_thumbOk = 1;
-        }
-    } else s_thumbOk = 0;
+            elog("THUMB_RSP", s_thumbSid, s_tx, s_ty, rc, log_relms() - s_thumbReqMs);
+        } else { s_thumbOk = 0; elog("THUMB_BAD", s_thumbSid, 0, 0, rc, log_relms() - s_thumbReqMs); }
+    } else { s_thumbOk = 0; elog("THUMB_TMO", s_thumbSid, 0, 0, rc, log_relms() - s_thumbReqMs); }
     s_thumbPending = 0;
 }
 static void on_prox(void *ctx, ReturnCode_t rc, const uint8_t *rx, uint16_t rxLen)
@@ -267,14 +302,49 @@ static void on_prox(void *ctx, ReturnCode_t rc, const uint8_t *rx, uint16_t rxLe
         if (rcp_dec_i2c_read(rx, rxLen, d, &l) && l >= 2) {
             s_prox = (uint16_t)(d[0] | (d[1] << 8));             /* VCNL4200 LSB first */
             s_proxOk = 1;
-        }
-    } else s_proxOk = 0;
+            elog("PROX_RSP", s_proxSid, s_prox, 0, rc, log_relms() - s_proxReqMs);
+        } else { s_proxOk = 0; elog("PROX_BAD", s_proxSid, 0, 0, rc, log_relms() - s_proxReqMs); }
+    } else { s_proxOk = 0; elog("PROX_TMO", s_proxSid, 0, 0, rc, log_relms() - s_proxReqMs); }
     s_proxPending = 0;
+}
+
+/* Fire one async sensor read. Returns 1 if a request actually went out, 0 if it
+ * was skipped (peripheral unavailable, or its previous reply is still pending).
+ * Exactly one of these is called per loop tick, so reads go out solo (the host
+ * drops one of two replies that arrive back-to-back). */
+static int fire_thumb(void)
+{
+    uint8_t params[64], c0[3] = { 0x06, 0x00, 0xFF }, c1[3] = { 0x06, 0x40, 0xFF };
+    uint16_t pl;
+    if (s_spi == UINT16_MAX || s_thumbPending) return 0;
+    pl = rcp_enc_spi2(params, sizeof(params), s_spi, s_spiWid++, c0, 3, c1, 3, 3, 3);
+    s_thumbReqMs = log_relms(); s_thumbPending = 1;
+    if (pl && rcp_async_request(0x1509u, params, pl, on_thumb, NULL) == RT_OK) {
+        s_thumbSid = rcp_async_last_sid();
+        elog("THUMB_REQ", s_thumbSid, 0, 0, 0, 0.0);
+        return 1;
+    }
+    s_thumbPending = 0; return 0;
+}
+static int fire_prox(void)
+{
+    uint8_t params[64], reg = VCNL4200_PS_DATA;
+    uint16_t pl;
+    if (!s_proxInit || s_proxPending) return 0;
+    pl = rcp_enc_i2c_read(params, sizeof(params), s_i2c, VCNL4200_ADDR, s_i2cWid++, &reg, 1, 2);
+    s_proxReqMs = log_relms(); s_proxPending = 1;
+    if (pl && rcp_async_request(0x1208u, params, pl, on_prox, NULL) == RT_OK) {
+        s_proxSid = rcp_async_last_sid();
+        elog("PROX_REQ", s_proxSid, 0, 0, 0, 0.0);
+        return 1;
+    }
+    s_proxPending = 0; return 0;
 }
 
 int main(int argc, char **argv)
 {
     const char *wantIp = NULL;
+    const char *logPath = "clickdemo-events.csv";
     int wantEp = 0, i, fps = 50, sel, bright = 128, proxMax = 400, barBlue = 64;
     rcp_endpoint_t eps[RCP_MAX_ENDPOINTS];
     WSADATA wsa;
@@ -286,7 +356,8 @@ int main(int argc, char **argv)
                    "  Left display  (slot 1): orange spot steered by the Thumbstick (slot 4, SPI).\n"
                    "  Right display (slot 2) shows a 1-px blue Proximity bar (slot 3, I2C): raw 2=bottom..max=top.\n"
                    "  --prox-max: proximity raw value that puts the bar at the top (default 400).\n"
-                   "  --bar: blue brightness of the proximity bar, 0..255 (default 64).\n");
+                   "  --bar: blue brightness of the proximity bar, 0..255 (default 64).\n"
+                   "  --log <file>: event log for analysis (default clickdemo-events.csv); --nolog to disable.\n");
             return 0;
         } else if (!strcmp(argv[i], "--ip")       && i+1<argc) wantIp = argv[++i];
         else if (!strcmp(argv[i], "--ep")       && i+1<argc) wantEp = atoi(argv[++i]);
@@ -294,6 +365,8 @@ int main(int argc, char **argv)
         else if (!strcmp(argv[i], "--bright")   && i+1<argc) bright = atoi(argv[++i]);
         else if (!strcmp(argv[i], "--prox-max") && i+1<argc) proxMax = atoi(argv[++i]);
         else if (!strcmp(argv[i], "--bar")      && i+1<argc) barBlue = atoi(argv[++i]);
+        else if (!strcmp(argv[i], "--log")      && i+1<argc) logPath = argv[++i];
+        else if (!strcmp(argv[i], "--nolog")) logPath = NULL;
     }
     if (fps < 1) fps = 1; if (fps > 200) fps = 200;
     if (bright < 1) bright = 1; if (bright > 255) bright = 255;
@@ -307,12 +380,32 @@ int main(int argc, char **argv)
     printf("Target %u.%u.%u.%u, streaming RTP video to :%d at %d fps. Ctrl-C to stop.\n",
            s_ip[0], s_ip[1], s_ip[2], s_ip[3], RTP_PORT, fps);
 
+    /* event log: epoch lines up with the Wireshark capture (frame.time_epoch) */
+    QueryPerformanceFrequency(&s_qpcFreq);
+    QueryPerformanceCounter(&s_qpcStart);
+    if (logPath) {
+        s_log = fopen(logPath, "w");
+        if (s_log) {
+            fputs("epoch,rel_ms,event,sid,v1,v2,rc,lat_ms\n", s_log);
+            printf("  event log -> %s\n", logPath);
+        } else printf("  WARN: could not open log file %s\n", logPath);
+    }
+
     if (WSAStartup(MAKEWORD(2, 2), &wsa) != 0) { printf("WSAStartup failed\n"); return 3; }
     s_rtp = socket(AF_INET, SOCK_DGRAM, IPPROTO_UDP);
     if (s_rtp == INVALID_SOCKET) { printf("socket failed\n"); return 3; }
     s_ssrc = (uint32_t)GetTickCount();
     signal(SIGINT, on_sigint);
     timeBeginPeriod(1);                       /* 1 ms scheduler tick */
+
+    /* Disable console QuickEdit: a stray click/selection in the window otherwise
+     * PAUSES the whole process (a multi-100 ms video freeze). Keep extended flags. */
+    {
+        HANDLE hIn = GetStdHandle(STD_INPUT_HANDLE);
+        DWORD cmode = 0;
+        if (GetConsoleMode(hIn, &cmode))
+            SetConsoleMode(hIn, (cmode & ~0x0040u) | 0x0080u); /* ~ENABLE_QUICK_EDIT | ENABLE_EXTENDED_FLAGS */
+    }
 
     /* One-time, blocking setup of the two peripherals (fine to block here).
      * Generous timeout + retries + small gaps: the open/init sequence is several
@@ -327,58 +420,62 @@ int main(int argc, char **argv)
     }
     printf("  setup: thumbstick(SPI)=%s  proximity(I2C/VCNL4200)=%s\n",
            s_spi != UINT16_MAX ? "OK" : "FAILED", s_proxInit ? "OK" : "FAILED");
+    elog("SETUP", 0, s_spi != UINT16_MAX, s_proxInit, 0, 0.0);
 
-    /* Fixed per-cycle scheme: fire both sensor reads, wait for both, render each
-     * display's half, then send the frame.
-     *   1) query thumbstick + proximity (async, both in flight)
-     *   2) wait until both callbacks delivered (deadline-bounded)
-     *   3) thumbstick -> display 1 (left half)   4) proximity -> display 2 (right half)
-     *   5-8) send the 20x10 frame (both displays in one RTP frame)   9) repeat
-     * Reads run concurrently so a cycle costs ~max(RTT), not the sum. */
-    rcp_set_async_timeout_ms(120);
-    while (s_run) {
-        uint8_t params[64];
-        uint32_t t0;
+    /* Steady-cadence loop, DECOUPLED from the sensor round-trips. Every tick we
+     * render both halves from the LATEST async sensor values and send one RTP
+     * frame FIRST, then fire ONE sensor read (alternating thumbstick/proximity so
+     * the two never go out back-to-back -> the host can't drop one of two replies).
+     * Read replies land asynchronously on the rx thread and update the shared
+     * state whenever they arrive. Because rtp_send() no longer sits behind any
+     * blocking read, an occasional ~150 ms Windows scheduler stall in this loop
+     * can no longer freeze the video - the next tick just carries on.
+     * (The old scheme blocked on each read + a Sleep(12) between them; a stalled
+     *  Sleep then froze the whole pipeline incl. the video -> the visible hitch.) */
+    /* Async deadline. The T1S wire answers in ~3-4 ms, but the host's rx-dispatch
+     * thread occasionally falls ~40-50 ms behind in bursts; with a too-short 40 ms
+     * deadline a reply that IS already on the wire gets discarded as "timed out"
+     * and re-read for nothing. 70 ms clears that rx jitter (so a late reply is still
+     * delivered and the value updates) yet a genuinely lost reply still recovers in
+     * ~70 ms, ~2x faster than the old 120 ms. (Verified by log.004: every timeout's
+     * session id was present as a response on the wire -> 100% host-side, ~4 ms RTT.) */
+    rcp_set_async_timeout_ms(70);
+    {
+        unsigned tick = 0;
+        DWORD lastPrint = 0;
+        while (s_run) {
+            /* render from the latest values, then send the frame (steady cadence) */
+            thumb_spot(s_tx, s_ty, bright);    /* display 1 (left): orange spot   */
+            prox_bar(s_prox, proxMax, barBlue);/* display 2 (right): blue prox bar */
+            rtp_send();                        /* ONE 20x10 frame -> both displays */
+            elog("FRAME", (s_seq - 1u) & 0xFFFFu, s_tx, s_prox, 0, 0.0);  /* sid col = RTP seq */
 
-        /* 1+2) query each sensor and wait for its reply, ONE AT A TIME. Firing
-         *      both at once lets the host drop one of two back-to-back replies
-         *      (~half the proximity reads were lost that way); sequential reads
-         *      arrive solo and land every cycle. Each is still async+callback. */
-        if (s_spi != UINT16_MAX) {
-            uint8_t c0[3] = { 0x06, 0x00, 0xFF }, c1[3] = { 0x06, 0x40, 0xFF };
-            uint16_t pl = rcp_enc_spi2(params, sizeof(params), s_spi, s_spiWid++, c0, 3, c1, 3, 3, 3);
-            s_thumbPending = 1;
-            if (!(pl && rcp_async_request(0x1509u, params, pl, on_thumb, NULL) == RT_OK)) s_thumbPending = 0;
-            t0 = (uint32_t)GetTickCount();
-            while (s_thumbPending && ((uint32_t)GetTickCount() - t0) < 200u) { rcp_async_poll(); Sleep(1); }
+            /* One read per tick, ALTERNATING thumbstick/proximity (1:1) so each
+             * sensor is sampled at ~half the frame rate (~23 Hz). The old 3:1 bias
+             * starved the proximity to ~12 Hz, which read as a stuttering bar; both
+             * are now equal. Still exactly one request per tick, so replies arrive
+             * solo (the host drops one of two that come back-to-back). If the
+             * sensor due this tick still has a reply pending, fire the other so the
+             * tick is not wasted. */
+            if (tick & 1u) { if (!fire_prox())  fire_thumb(); }
+            else           { if (!fire_thumb()) fire_prox();  }
+            tick++;
+
+            rcp_async_poll();   /* deliver replies / time-outs */
+
+            /* throttle the console to ~10 Hz: WriteConsole can stall the loop for
+             * tens of ms, which used to surface as a video hitch. */
+            {
+                DWORD now = GetTickCount();
+                if (now - lastPrint >= 100u) {
+                    printf("\r  Thumbstick x=%4u y=%4u %s | Proximity raw=%5u %s   ",
+                           s_tx, s_ty, s_thumbOk ? "  " : "..", s_prox, s_proxOk ? "  " : "..");
+                    fflush(stdout);
+                    lastPrint = now;
+                }
+            }
+            Sleep((DWORD)(1000 / fps));   /* frame cadence */
         }
-        Sleep(12);   /* space the two reads so their replies don't arrive back-to-back (host drops one) */
-        if (s_proxInit) {
-            uint8_t reg = VCNL4200_PS_DATA;
-            uint16_t pl = rcp_enc_i2c_read(params, sizeof(params), s_i2c, VCNL4200_ADDR, s_i2cWid++, &reg, 1, 2);
-            s_proxPending = 1;
-            if (!(pl && rcp_async_request(0x1208u, params, pl, on_prox, NULL) == RT_OK)) s_proxPending = 0;
-            t0 = (uint32_t)GetTickCount();
-            while (s_proxPending && ((uint32_t)GetTickCount() - t0) < 200u) { rcp_async_poll(); Sleep(1); }
-        }
-
-        /* 3) thumbstick -> display 1 (left): orange flashlight spot, centred at
-         *    rest, reaching the edges at full deflection; dark background. */
-        thumb_spot(s_tx, s_ty, bright);
-        /* 4) proximity -> display 2 (right half): a 1-px blue bar that tracks
-         *    distance (raw 2 = bottom .. proxMax = top; raw 0 = no change). */
-        prox_bar(s_prox, proxMax, barBlue);
-
-        /* 5-8) the firmware renders ONE 20x10 video onto BOTH displays (left
-         *      half = display 1, right half = display 2), so send a single full
-         *      frame. Two separate per-display packets are reassembled wrong
-         *      (each display ends up split top/bottom). */
-        rtp_send();
-
-        printf("\r  Thumbstick x=%4u y=%4u %s | Proximity raw=%5u %s   ",
-               s_tx, s_ty, s_thumbOk ? "  " : "..", s_prox, s_proxOk ? "  " : "..");
-        fflush(stdout);
-        Sleep((DWORD)(1000 / fps));   /* 9) cap the cycle rate */
     }
 
     /* clear both displays and release the peripherals */
@@ -387,6 +484,7 @@ int main(int argc, char **argv)
     rtp_send(); Sleep(30); rtp_send();
     if (s_spi != UINT16_MAX) { CloseSpiVar_t c; c.HandleSpi = s_spi; rcp_close_spi(&c); }
     if (s_i2c != UINT16_MAX) { CloseI2CVar_t c; c.HandleI2C = s_i2c; rcp_close_i2c(&c); }
+    if (s_log) { elog("STOP", 0, 0, 0, 0, 0.0); fclose(s_log); s_log = NULL; }
     timeEndPeriod(1);
     closesocket(s_rtp); WSACleanup();
     return 0;
