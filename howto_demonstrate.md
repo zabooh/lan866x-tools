@@ -12,8 +12,9 @@ A step-by-step guide to building the demo from scratch and showing it live: the
 hardware you need, how to wire it, how to configure the PC, find the endpoint, flash
 the firmware, and run the interactive **Click demo**.
 
-> See also: [README.md](README.md) (build & tool overview) and
-> [TOOLS.md](TOOLS.md) (board details, jumper/DIP map, full tool reference).
+> See also: [README.md](README.md) (build & tool overview),
+> [TOOLS.md](TOOLS.md) (board details, jumper/DIP map, full tool reference) and
+> [docs/CLICKDEMO.md](docs/CLICKDEMO.md) (the Click demo's software & timing deep-dive).
 
 ## Table of contents
 
