@@ -599,9 +599,15 @@ but the pixels come from a video file instead of the sensors. Requires the **Lig
 firmware and **ffmpeg** on `PATH` (or `--ffmpeg <path>`).
 
 ```bat
+out\lan866x-video.exe media\cube.mp4 --ip 192.168.0.54
 out\lan866x-video.exe docs\img\clickdemo.mp4 --ip 192.168.0.54
 out\lan866x-video.exe clip.gif --fps 20 --bright 96
 ```
+
+> A ready‑made demo clip ships in [`media/cube.mp4`](media/cube.mp4) — a rotating cube
+> that zooms in and out, rendered for the 20×10 display and seamless‑looping. Regenerate
+> or tweak it with [`tools/make_cube_video.py`](tools/make_cube_video.py)
+> (`python tools/make_cube_video.py --out media/cube.mp4`).
 
 | Option | Default | Meaning |
 |---|---|---|

@@ -32,3 +32,6 @@ Makefile
 # Local diagnostic artifacts (Wireshark captures + the demo's event log)
 logs/
 clickdemo-events*.csv
+
+# Generated preview images (e.g. tools/make_cube_video.py --preview)
+*.preview.png
