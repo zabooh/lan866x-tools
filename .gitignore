@@ -24,3 +24,7 @@ Makefile
 # Exception: shipped release binaries are tracked (statically linked)
 !release/
 !release/*.exe
+
+# release binaries + (NDA) firmware must never be tracked
+release/
+*.mchpkg
