@@ -399,7 +399,8 @@ lan866x-tools/
 │   ├── DEMOS.md         index of all worked examples (source + per-demo docs)
 │   ├── SPIDEMO.md       non-blocking SPI thumbstick read + monitor (MCP3204)
 │   ├── COMBODEMO.md     sensor->actuator app (proximity -> LEDs, proxled)
-│   └── PWMDEMO.md       "breathing" LED via PWM (ledpwm; firmware-dependent)
+│   ├── PWMDEMO.md       "breathing" LED via PWM (ledpwm; firmware-dependent)
+│   └── FIRMWARE_TRAINS.md  V1.3.2 vs V1.4.0 firmware diff + flash implications
 ├── README.md
 ├── TOOLS.md             board guide + full per-tool reference
 └── PORTING.md           MCU32 port (lwIP, single-thread)
