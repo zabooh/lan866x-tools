@@ -17,6 +17,7 @@
 4. [`lan866x-ledscan` — find the LED pins](#4-lan866x-ledscan--find-the-led-pins)
 5. [`lan866x-ledblink` — the running light](#5-lan866x-ledblink--the-running-light)
 6. [How GPIO-over-RCP works (code walk-through)](#6-how-gpio-over-rcp-works-code-walk-through)
+   - 6.1 [What does `set_pin()` return mean — "received" or "actually set"?](#61-what-does-set_pin-return-mean--received-or-actually-set)
 7. [Build & run](#7-build--run)
 8. [The same code on a real MCU](#8-the-same-code-on-a-real-mcu)
 9. [Troubleshooting](#9-troubleshooting)
@@ -222,6 +223,54 @@ Two single-thread facts worth knowing (full list in
 - We pace control traffic with small `Sleep(20)` between setup round-trips; the
   Windows host drops back-to-back RCP replies (gotcha #4). The 500 ms beat is far
   more than enough spacing during the loop itself.
+
+### 6.1 What does `set_pin()` return mean — "received" or "actually set"?
+
+**It returns only after the endpoint has *executed* the command — i.e. the GPIO
+register was written — not on mere receipt.** This matters if you ever build
+timing-sensitive logic on top of it.
+
+RCP is a request/response RPC over UDP, and **there is no separate transport
+ACK**. There is exactly **one** reply: the SOME/IP *RESPONSE* message, and the
+endpoint's firmware emits it from its method handler *after* it has run the
+method. So "command received" and "command executed" are not two events — there
+is only the single RESPONSE, and it carries the **return code** (the result).
+
+In the wrapper, `rcp_set_gpio()` → `rcp_xfer(0x1330, …)` blocks on exactly that
+reply ([`src/rcp.c`](../src/rcp.c)):
+
+```c
+while (!s_done && (now - start) < s_timeoutMs) { rcp_poll(); plat_sleep_ms(2); }
+return (ReturnCode_t)s_rc;          /* the result code FROM the response */
+```
+
+`s_rc` is the code the firmware put in the RESPONSE. That it can be a meaningful
+*error* (e.g. `RT_PARAMETER_NOT_VALID` for a bad handle) is the proof that this is
+an **execution result**, not a bare "packet arrived" acknowledgement.
+
+The one honest caveat: *"GPIO actually set"* means **the firmware wrote the output
+register and reported OK** — which for an output drives the pin within
+nanoseconds. The firmware does **not** read the physical voltage back to verify
+it. If you want the electrical level confirmed, read it back with `GetGpio`
+(`0x1332`) — though for an output that just echoes the value you set.
+
+Timing consequence for the running light:
+
+| Case | What happens | Cost |
+|---|---|---|
+| Normal | endpoint answers in ~2 ms (T1S RTT) → loop breaks immediately | negligible vs. the 500 ms beat |
+| No answer | retries until `s_timeoutMs × (s_retries+1)` (default 1500 ms × 4) | up to ~6 s stall, then `RT_TIMEOUT` |
+
+So each `Sleep(beat)` in the loop is really `beat + RTT`; at 500 ms that's
+imperceptible. If you ever need *non-blocking* writes (e.g. a tight MCU superloop
+that must never stall), use the async API `rcp_async_request()` /
+`rcp_async_poll()` instead — it sends and returns, delivering the result later via
+callback.
+
+> **Exception — `Reboot`:** this "response = executed" guarantee holds for normal
+> methods like `SetGpio`. `Reboot` (`0x1000`) is special: the device often resets
+> *before* its response goes out, so the tools treat a lost reboot reply as success
+> (see `lan866x-boot`). For `SetGpio` the reply is reliable: it means *done*.
 
 ---
 
