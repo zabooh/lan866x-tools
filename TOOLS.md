@@ -198,7 +198,7 @@ Physical reference photo:
 
 ![Jumper & DIP layout](docs/img/setup-jumper-and-dip.jpg)
 
-This is the **shipped / demo configuration** (matches `Setup/dip-switch-evb-r3.txt`,
+This is the **shipped / demo configuration** (matches `Setup\dip-switch-evb-r3.txt`,
 board Rev 3). Legend: `▣` = bridged/closed/ON, `·` = open/OFF.
 
 **Power-routing jumpers (3-pin headers)**
@@ -287,7 +287,7 @@ EV79C09A-R1`.*
    connected nodes are Power-over-Data-Line tolerant.
 
 > ⚠️ The -PSE board is a **power source** – mis-wiring can damage non-PoDL devices.
-> Full pinout/jumpers: `EVB/EVB-LAN8670-USB-PSE/EVB-LAN8670-USB-PSE-Users-Guide-60001919.pdf`.
+> Full pinout/jumpers: `EVB\EVB-LAN8670-USB-PSE\EVB-LAN8670-USB-PSE-Users-Guide-60001919.pdf`.
 
 ---
 
