@@ -57,11 +57,13 @@ The tools (all build to `lan866x-<name>.exe`):
 |---|---|
 | **`lan866x-discovery`** | list reachable endpoints + type + full `GetStatus` / `GetNetworkStatus` |
 | **`lan866x-i2cscan`** | scan an endpoint's I2C bus (like `i2cdetect`) |
+| **`lan866x-i2cid`** | read a device ID over I2C **non-blocking** (VCNL4200 example) |
 | **`lan866x-gpio`** | set / read a GPIO pin |
 | **`lan866x-ledscan`** | interactively find which GPIO drives which on-board LED (→ JSON) |
 | **`lan866x-ledblink`** | on-board LED **running light** over SOME/IP — the "hello world" demo |
 | **`lan866x-ledtoggle`** | toggle one LED **non-blocking** (async RCP) — superloop-friendly demo |
 | **`lan866x-spi`** | SPI transfer (full-duplex) |
+| **`lan866x-spiid`** | identify the Thumbstick (MCP3204) over SPI **non-blocking** |
 | **`lan866x-adc`** | read the on-chip ADC (analog input or internal temperature) |
 | **`lan866x-pwm`** | drive a PWM output on a digital pin |
 | **`lan866x-boot`** | reboot between main app and bootloader (non-destructive) |
@@ -199,6 +201,13 @@ Probes 0x08..0x77 with a 1-byte read and prints an `i2cdetect` grid (uses a shor
 ```
 > Pins must match the board configuration (`--sda`/`--scl`, PA number 0–15). The tool releases SDA/SCL before `OpenI2C` automatically (`ReleaseDigitalPins`). If I2C is not configured on that endpoint, `OpenI2C` returns `RT_NOT_REACHABLE` ("OpenI2C failed").
 
+> **Read a device ID (non-blocking):** `lan866x-i2cid` reads the VCNL4200's ID
+> register (`0x0E` → `0x1058`) using the async API — the worked I²C example:
+> ```bat
+> out\lan866x-i2cid.exe --ip 192.168.0.54
+> ```
+> Full write-up: **[docs/I2CDEMO.md](docs/I2CDEMO.md)**.
+
 ### 4.3 GPIO set/read
 ```bat
 out\lan866x-gpio.exe --pin 2 --set 1     REM PA02 as output, high
@@ -222,6 +231,14 @@ out\lan866x-spi.exe --tx AA55 --mode 0 --speed 1000000
 out\lan866x-spi.exe --miso 12 --sck 13 --cs 14 --mosi 15 --tx 0102
 ```
 Output: `TX: …` / `RX: …`. Default pins MISO=PA12 SCK=PA13 CS=PA14 MOSI=PA15. Pins are released before `OpenSpi`.
+
+> **Identify the Thumbstick (non-blocking):** `lan866x-spiid` reads the MCP3204
+> joystick axes over SPI with the async API — the worked SPI example (note: the
+> MCP3204 has no ID register, a valid 12-bit read is its fingerprint):
+> ```bat
+> out\lan866x-spiid.exe --ip 192.168.0.54
+> ```
+> Full write-up: **[docs/SPIDEMO.md](docs/SPIDEMO.md)**.
 
 ### 4.5 ADC read
 ```bat
@@ -321,11 +338,13 @@ lan866x-tools/
 ├── CMakeLists.txt       C-only build: rcpcore lib + tool executables
 ├── discovery.c          list endpoints + full GetStatus/GetNetworkStatus
 ├── i2cscan.c            I2C bus scanner
+├── i2cid.c              non-blocking I2C device-ID read (VCNL4200 example)
 ├── gpio.c               GPIO set/read
 ├── ledscan.c            interactive GPIO->LED mapper (writes led_map.json)
 ├── ledblink.c           on-board LED running light over SOME/IP ("hello world")
 ├── ledtoggle.c          non-blocking single-LED toggle (async RCP API)
 ├── spi.c                SPI transfer
+├── spiid.c              non-blocking SPI thumbstick (MCP3204) identify
 ├── adc.c                ADC read (analog / temperature)
 ├── pwm.c                PWM output
 ├── boot.c               reboot main app ↔ bootloader (non-destructive)
@@ -354,7 +373,9 @@ lan866x-tools/
 │   ├── INTEGRATION_NOTES.md  RCP-on-libsomeip protocol/stack know-how
 │   ├── RCP_API.md       full rcp.c API reference (methods, structs, encoding)
 │   ├── CLICKDEMO.md     clickdemo demo/software/timing deep-dive
-│   └── LEDDEMO.md       LED running-light "hello world" + GPIO->LED mapping
+│   ├── LEDDEMO.md       LED running-light "hello world" + GPIO->LED mapping
+│   ├── I2CDEMO.md       non-blocking I2C device-ID read (VCNL4200)
+│   └── SPIDEMO.md       non-blocking SPI thumbstick read (MCP3204)
 ├── README.md
 ├── TOOLS.md             board guide + full per-tool reference
 └── PORTING.md           MCU32 port (lwIP, single-thread)

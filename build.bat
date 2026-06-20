@@ -65,7 +65,7 @@ REM --- copy all built exes to release\ --------------------------------------
 if not exist "release" mkdir "release"
 set "BINDIR=%BUILD_DIR%"
 if exist "%BUILD_DIR%\Release" set "BINDIR=%BUILD_DIR%\Release"
-for %%T in (discovery i2cscan gpio ledscan ledblink ledtoggle spi adc pwm boot flashimg flashpkg clickdemo diag video dncpmon dncpdisc) do (
+for %%T in (discovery i2cscan i2cid gpio ledscan ledblink ledtoggle spi spiid adc pwm boot flashimg flashpkg clickdemo diag video dncpmon dncpdisc) do (
     copy /Y "%BINDIR%\lan866x-%%T.exe" "release\" >nul 2>nul && echo [build] -^> release\lan866x-%%T.exe
 )
 

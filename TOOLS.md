@@ -26,9 +26,11 @@ Companion document to the [README](README.md). It covers two things in depth:
    - 4.2 [`lan866x-discovery`](#42-lan866x-discovery)
    - 4.3 [`lan866x-diag`](#43-lan866x-diag)
    - 4.4 [`lan866x-i2cscan`](#44-lan866x-i2cscan)
+   - 4.4.1 [`lan866x-i2cid`](#441-lan866x-i2cid)
    - 4.5 [`lan866x-gpio`](#45-lan866x-gpio)
    - 4.5.1 [`lan866x-ledscan` / `lan866x-ledblink` / `lan866x-ledtoggle`](#451-lan866x-ledscan--lan866x-ledblink)
    - 4.6 [`lan866x-spi`](#46-lan866x-spi)
+   - 4.6.1 [`lan866x-spiid`](#461-lan866x-spiid)
    - 4.7 [`lan866x-adc`](#47-lan866x-adc)
    - 4.8 [`lan866x-pwm`](#48-lan866x-pwm)
    - 4.9 [`lan866x-boot`](#49-lan866x-boot)
@@ -449,6 +451,29 @@ per-probe timeout, since absent addresses never reply). Pins are released
 > If I²C isn't configured on that endpoint, `OpenI2C` returns `RT_NOT_REACHABLE`
 > (“OpenI2C failed”). On the demo board this finds the Proximity 3 (VCNL4200 @ 0x51).
 
+#### 4.4.1 `lan866x-i2cid`
+
+**Read a device ID over I²C, non-blocking** — the worked I²C example. Reads the
+VCNL4200's ID register (`0x0E`) and checks it equals `0x1058`, using the **async RCP
+API** so the loop never parks on the round-trip. Full write-up:
+**[docs/I2CDEMO.md](docs/I2CDEMO.md)**.
+
+```bat
+out\lan866x-i2cid.exe --ip 192.168.0.54                REM VCNL4200 ID @0x51 reg 0x0E
+out\lan866x-i2cid.exe --addr 0x51 --reg 0x0E --sda 8 --scl 9 --speed 1
+```
+
+| Option | Default | Meaning |
+|---|---|---|
+| `--addr <a>` | 0x51 | I²C device address (hex ok) |
+| `--reg <r>` | 0x0E | ID register (hex ok) |
+| `--sda <n>` / `--scl <n>` | 8 / 9 | I²C pins (PA index) |
+| `--speed <0\|1>` | 1 (400 kHz) | bus speed |
+
+Uses `WriteAndReadI2C` (`0x1208`): writes the register address, reads 2 bytes
+(VCNL4200 = LSB first). Prints how many times the loop spun while the read was in
+flight — the visible proof it didn't block.
+
 ### 4.5 `lan866x-gpio`
 
 **Set or read a single GPIO pin.**
@@ -536,6 +561,29 @@ out\lan866x-spi.exe --miso 12 --sck 13 --cs 14 --mosi 15 --tx 0102
 | `--miso/--sck/--cs/--mosi <n>` | 12/13/14/15 | pins (PA index) |
 
 Output is `TX: …` / `RX: …`. Pins are released before `OpenSpi`.
+
+#### 4.6.1 `lan866x-spiid`
+
+**Identify the Thumbstick (MCP3204) over SPI, non-blocking** — the worked SPI
+example. Reads both joystick axes with the **async RCP API**. Full write-up:
+**[docs/SPIDEMO.md](docs/SPIDEMO.md)**.
+
+```bat
+out\lan866x-spiid.exe --ip 192.168.0.54                REM read ch1=X, ch0=Y
+out\lan866x-spiid.exe --mode 1 --speed 1923000
+```
+
+| Option | Default | Meaning |
+|---|---|---|
+| `--miso/--sck/--cs/--mosi <n>` | 12/13/14/15 | SPI pins (PA index) |
+| `--mode <0..3>` | 1 | SPI mode |
+| `--speed <Hz>` | 1923000 | clock |
+
+> ⚠️ The MCP3204 ADC has **no silicon ID register** (unlike the VCNL4200). So
+> "identifying" it means proving it returns a valid 12-bit conversion: a centred
+> joystick reads ~2048 per axis at rest. Uses `WriteAndReadSpi` (`0x1508`); see
+> [docs/SPIDEMO.md](docs/SPIDEMO.md) for the MCP3204 command bytes and the compound
+> (`0x1509`) alternative.
 
 ### 4.7 `lan866x-adc`
 
@@ -774,10 +822,12 @@ they speak DNCP on UDP 65526/65527.
 | `discovery` | GetStatus `0x1002`, GetNetworkStatus `0x1600` |
 | `diag` | GetStatus, GetNetworkStatus, ReadDiagnosisData `0x1003` + active probe |
 | `i2cscan` | ReleaseDigitalPins `0x1105`, OpenI2C `0x1200`, ReadI2C `0x1220` |
+| `i2cid` | OpenI2C `0x1200`, WriteAndReadI2C `0x1208` **async**, CloseI2C `0x1202` |
 | `gpio` | OpenGpio `0x1300`, SetGpio `0x1330`, GetGpio `0x1332` |
 | `ledscan` / `ledblink` | ReleaseDigitalPins `0x1105`, OpenGpio `0x1300`, SetGpio `0x1330` |
 | `ledtoggle` | OpenGpio `0x1300`, SetGpio `0x1330` **async** (`rcp_async_request`/`rcp_async_poll`) |
 | `spi` | OpenSpi `0x1500`, WriteAndReadSpi `0x1508`, CloseSpi `0x1502` |
+| `spiid` | OpenSpi `0x1500`, WriteAndReadSpi `0x1508` **async**, CloseSpi `0x1502` |
 | `adc` | OpenAdc `0x1700`, ReadAdc `0x1720` |
 | `pwm` | OpenPwm `0x1800`, WritePwm `0x1804` |
 | `boot` | Reboot `0x1000`, GetStatus |

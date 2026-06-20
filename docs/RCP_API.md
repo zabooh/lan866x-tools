@@ -434,6 +434,11 @@ bool     rcp_dec_i2c_read(const uint8_t *rx, uint16_t rxLen, uint8_t *rd, uint16
 /* SetGpio (method 0x1330): one 3-byte tuple [handleHi, handleLo, value] as BLOB
  * tag 0. Same wire format as the blocking rcp_set_gpio(). Used by lan866x-ledtoggle. */
 uint16_t rcp_enc_gpio_set(uint8_t *buf, uint16_t cap, uint16_t handle, uint8_t value);
+
+/* WriteAndReadSpi (method 0x1508): one full-duplex transfer. Used by lan866x-spiid. */
+uint16_t rcp_enc_spi1(uint8_t *buf, uint16_t cap, uint16_t handle, uint32_t writeId,
+                      const uint8_t *tx, uint16_t txLen, uint16_t rdLen);
+bool     rcp_dec_spi1(const uint8_t *rx, uint16_t rxLen, uint8_t *rd, uint16_t *rdLen);
 ```
 Encoders return the byte length (0 on encode error); decoders return `false` on a
 malformed reply. `rd*Len` are in/out. Typical use: `rcp_enc_*` into a stack buffer,

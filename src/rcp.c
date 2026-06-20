@@ -330,6 +330,25 @@ uint16_t rcp_enc_gpio_set(uint8_t *buf, uint16_t cap, uint16_t handle, uint8_t v
     return pl;
 }
 
+uint16_t rcp_enc_spi1(uint8_t *buf, uint16_t cap, uint16_t handle, uint32_t writeId,
+                      const uint8_t *tx, uint16_t txLen, uint16_t rdLen)
+{
+    uint16_t pl = 0u;
+    if (!(SOMEIP_Generator_Fill_UINT16(0, handle,  &buf[pl], (uint16_t)(cap - pl), &pl) &&
+          SOMEIP_Generator_Fill_UINT16(1, rdLen,   &buf[pl], (uint16_t)(cap - pl), &pl) &&
+          SOMEIP_Generator_Fill_UINT32(2, writeId, &buf[pl], (uint16_t)(cap - pl), &pl) &&
+          SOMEIP_Generator_Fill_BLOB(3, tx, txLen, &buf[pl], (uint16_t)(cap - pl), &pl)))
+        return 0u;
+    return pl;
+}
+
+bool rcp_dec_spi1(const uint8_t *rx, uint16_t rxLen, uint8_t *rd, uint16_t *rdLen)
+{
+    uint16_t p = 0u, tag = 0u; uint32_t readId;
+    return SOMEIP_Parser_Read_UINT32(&rx[p], rxLen - p, &tag, &readId, &p) &&
+           SOMEIP_Parser_Read_BLOB(&rx[p], rxLen - p, &tag, rd, rdLen, &p);
+}
+
 /* --- discovery / lifecycle ---------------------------------------------- */
 uint8_t rcp_get_endpoints(rcp_endpoint_t *out, uint8_t maxOut)
 {
