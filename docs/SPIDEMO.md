@@ -5,6 +5,10 @@
 > never blocks on the round-trip. It is the minimal, copy-me example for *"do a
 > full-duplex SPI transfer over SOME/IP without stalling the loop."*
 
+> 📄 **Source:** [../spiid.c](../spiid.c) · live monitor [../thumbmon.c](../thumbmon.c) ·
+> raw transfer [../spi.c](../spi.c) — core: [../src/rcp.c](../src/rcp.c) /
+> [../src/rcp.h](../src/rcp.h). Demo index: [DEMOS.md](DEMOS.md).
+
 ---
 
 ## Table of contents

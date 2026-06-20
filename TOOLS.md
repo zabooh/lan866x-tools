@@ -345,6 +345,13 @@ All tools build to `lan866x-<name>(.exe)` and live in `out/` (or `release/`) aft
 build. The six core RCP tools plus boot/flash/diag/clickdemo speak SOME/IP; the two
 DNCP tools are standalone (Winsock only).
 
+> 📄 **Source:** each tool is a single `.c` file at the repo root named after it —
+> e.g. `lan866x-discovery` → [discovery.c](discovery.c), `lan866x-spiid` →
+> [spiid.c](spiid.c). The [README tool table](README.md#1-overview) links every tool
+> to its source; the worked **examples** are indexed (with source + per-demo docs) in
+> **[docs/DEMOS.md](docs/DEMOS.md)**. Shared core: [src/rcp.c](src/rcp.c) /
+> [src/rcp.h](src/rcp.h).
+
 ### 4.1 Common options & behaviour
 
 Most SOME/IP tools share the same target-selection options:
@@ -368,6 +375,8 @@ upper bound used when the target never replies.
 > retry; see `lan866x-diag` for the measured effect.
 
 ### 4.2 `lan866x-discovery`
+
+> 📄 Source: [discovery.c](discovery.c)
 
 **List every reachable endpoint with its full status.** This is the first tool to run –
 it confirms the link, the driver and the firmware are all alive.
@@ -400,6 +409,8 @@ Endpoint #0  -  192.168.0.101:6800  (instance 0x0001, available=1)
 
 ### 4.3 `lan866x-diag`
 
+> 📄 Source: [diag.c](diag.c)
+
 **Read and interpret T1S link quality** for one endpoint – read-only.
 
 ```bat
@@ -423,6 +434,8 @@ and a verdict (HEALTHY / DEGRADED / LINK DOWN), and warns if PLCA is off.
 > used – it needs ≥2 coordinated nodes.
 
 ### 4.4 `lan866x-i2cscan`
+
+> 📄 Source: [i2cscan.c](i2cscan.c)
 
 **Scan an endpoint's I²C bus**, like `i2cdetect`.
 
@@ -483,6 +496,8 @@ out\lan866x-proxmon.exe --ip 192.168.0.54 --max 400 --hz 15
 ```
 
 ### 4.5 `lan866x-gpio`
+
+> 📄 Source: [gpio.c](gpio.c)
 
 **Set or read a single GPIO pin.**
 
@@ -570,6 +585,8 @@ out\lan866x-proxled.exe --ip 192.168.0.54 --max 400
 
 ### 4.6 `lan866x-spi`
 
+> 📄 Source: [spi.c](spi.c)
+
 **Full-duplex SPI transfer.**
 
 ```bat
@@ -620,6 +637,8 @@ out\lan866x-thumbmon.exe --ip 192.168.0.54 --hz 20
 
 ### 4.7 `lan866x-adc`
 
+> 📄 Source: [adc.c](adc.c)
+
 **Read the on-chip 12-bit ADC** (analog input or internal temperature).
 
 ```bat
@@ -642,6 +661,8 @@ Prints raw (0–4095) and scaled voltage, e.g. `raw=2048  =  1.650 V`.
 
 ### 4.8 `lan866x-pwm`
 
+> 📄 Source: [pwm.c](pwm.c)
+
 **Drive a PWM output** on a digital pin.
 
 ```bat
@@ -662,6 +683,8 @@ By default the signal keeps running on the endpoint after the tool exits (the ha
 lives on the device). The pin is released before `OpenPwm`.
 
 ### 4.9 `lan866x-boot`
+
+> 📄 Source: [boot.c](boot.c)
 
 **Reboot an endpoint between its main app and the bootloader** and show the status in
 each mode. **Non-destructive** – it only issues `Reboot (0x1000)`, never writes flash.
@@ -684,6 +707,8 @@ specific part. This is “stage 1” of the flasher and validates the reboot + r
 path.
 
 ### 4.10 `lan866x-flashimg`
+
+> 📄 Source: [flashimg.c](flashimg.c)
 
 **Write ONE pre-built (signed/encrypted) image** via the bootloader. **Writes flash.**
 
@@ -708,6 +733,8 @@ bringing up/debugging the flash path. A failed write is recoverable (re-flash fr
 bootloader).
 
 ### 4.11 `lan866x-flashpkg`
+
+> 📄 Source: [flashpkg.c](flashpkg.c)
 
 **Update an endpoint straight from an MCHPKG package** – the end-user flash tool.
 **Writes flash** (recoverable from the bootloader).
@@ -736,6 +763,8 @@ a clear `UPDATE OK / FAILED`. It deliberately ignores the benign `FinishUpdate`
 > write newer than the app makes the device fall back to the bootloader (recoverable).
 
 ### 4.12 `lan866x-clickdemo`
+
+> 📄 Source: [clickdemo.c](clickdemo.c) · deep-dive [docs/CLICKDEMO.md](docs/CLICKDEMO.md)
 
 **Interactive MikroE Click demo** for a LAN866x **Lighting** endpoint: two RGB panels
 driven from a Thumbstick and a Proximity sensor. Requires the Lighting firmware
@@ -777,6 +806,8 @@ releases the peripherals.
 
 ### 4.13 `lan866x-video`
 
+> 📄 Source: [video.c](video.c)
+
 **Loop‑play a video file on the two RGB panels.** Same display path as the clickdemo
 (one 20×10 RTP/RFC4175 frame → UDP 5001, left half = display 1, right half = display 2),
 but the pixels come from a video file instead of the sensors. Requires the **Lighting**
@@ -807,6 +838,8 @@ frame as one RTP packet. It uses **SOME/IP discovery** to find the endpoint (so 
 
 ### 4.14 `lan866x-dncpmon`
 
+> 📄 Source: [dncpmon.c](dncpmon.c)
+
 **Passive DNCP monitor** – standalone (Winsock only, *not* SOME/IP).
 
 ```bat
@@ -819,6 +852,8 @@ Decodes **DNCP** (Dynamic Node Configuration Protocol) Announce/Registry packets
 ids. **Purely passive** – it only shows DNCP traffic already present on the bus.
 
 ### 4.15 `lan866x-dncpdisc`
+
+> 📄 Source: [dncpdisc.c](dncpdisc.c)
 
 **Active DNCP discovery** – standalone, **read-only** (per AN1891).
 

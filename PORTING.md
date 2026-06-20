@@ -1,12 +1,17 @@
 # Porting to another platform (MCU + lwIP)
 
-The toolset is **single-thread** and structured so that a new target needs **exactly
-one new file**: `src/plat_<target>.c`, the implementation of the narrow `src/plat.h`
-interface. Everything above it stays **unchanged**:
+> 📄 **Source:** the interface to implement: [src/plat.h](src/plat.h); the Windows
+> reference impl: [src/plat_win.c](src/plat_win.c); the starting template:
+> [src/plat_lwip.c.template](src/plat_lwip.c.template). What stays unchanged:
+> [src/rcp.c](src/rcp.c)/[src/rcp.h](src/rcp.h), [src/someip_stub.c](src/someip_stub.c).
 
-- the tools (`clickdemo.c`, `discovery.c`, …),
-- the RCP wrapper (`src/rcp.c` / `rcp.h`),
-- the platform-neutral SOME/IP stub (`src/someip_stub.c`),
+The toolset is **single-thread** and structured so that a new target needs **exactly
+one new file**: [`src/plat_<target>.c`](src/plat_lwip.c.template), the implementation
+of the narrow [`src/plat.h`](src/plat.h) interface. Everything above it stays **unchanged**:
+
+- the tools ([`clickdemo.c`](clickdemo.c), [`discovery.c`](discovery.c), …),
+- the RCP wrapper ([`src/rcp.c`](src/rcp.c) / [`rcp.h`](src/rcp.h)),
+- the platform-neutral SOME/IP stub ([`src/someip_stub.c`](src/someip_stub.c)),
 - the SOME/IP core (`libepmicrochip/libsomeip/src/*.c`).
 
 > A ready-to-fill **template** of the lwIP/bare-metal port is in

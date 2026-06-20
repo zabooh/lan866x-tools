@@ -7,6 +7,10 @@
 > The LED pins (PA02 / PA06 / PA10) were discovered with `lan866x-ledscan` and
 > stored in [`led_map.json`](../release/led_map.json).
 
+> 📄 **Source:** [../ledblink.c](../ledblink.c) · [../ledtoggle.c](../ledtoggle.c) ·
+> [../ledscan.c](../ledscan.c) — core: [../src/rcp.c](../src/rcp.c) /
+> [../src/rcp.h](../src/rcp.h). Demo index: [DEMOS.md](DEMOS.md).
+
 ---
 
 ## Table of contents

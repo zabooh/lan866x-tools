@@ -11,6 +11,11 @@
 > [INTEGRATION_NOTES.md](INTEGRATION_NOTES.md) (the RCP/stack facts it relies on),
 > [RCP_API.md](RCP_API.md) (the `rcp_*` calls it uses — `OpenSpi`, `WriteAndReadSpi2`, I²C).
 
+> 📄 **Source:** [../clickdemo.c](../clickdemo.c) — core: [../src/rcp.c](../src/rcp.c) /
+> [../src/rcp.h](../src/rcp.h). A stripped-down, no-video version of the same
+> sensor→actuator idea: [../proxled.c](../proxled.c) ([COMBODEMO.md](COMBODEMO.md)).
+> All worked examples: [DEMOS.md](DEMOS.md).
+
 ---
 
 ## 1. What the demo shows

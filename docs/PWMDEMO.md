@@ -9,6 +9,9 @@
 > implement it. **Verify on your board** (see §3). On a Control build PWM is
 > available.
 
+> 📄 **Source:** [../ledpwm.c](../ledpwm.c) · raw tool [../pwm.c](../pwm.c) — core:
+> [../src/rcp.c](../src/rcp.c) / [../src/rcp.h](../src/rcp.h). Demo index: [DEMOS.md](DEMOS.md).
+
 ---
 
 ## Table of contents

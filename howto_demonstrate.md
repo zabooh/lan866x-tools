@@ -348,6 +348,11 @@ out\lan866x-ledtoggle.exe --ip 192.168.0.54
 > status LED in hardware, so pressing them is still visible. Full background:
 > **[docs/LEDDEMO.md](docs/LEDDEMO.md)** and [TOOLS.md §2.7](TOOLS.md#27-on-board-leds--buttons).
 
+> 📄 **Want to learn the code?** All worked examples (GPIO/I²C/SPI/PWM, blocking vs.
+> non-blocking, sensor→actuator) are indexed in **[docs/DEMOS.md](docs/DEMOS.md)**,
+> each with its own doc and a direct link to its `.c` source — e.g.
+> [ledblink.c](ledblink.c), [i2cid.c](i2cid.c), [spiid.c](spiid.c), [proxled.c](proxled.c).
+
 ---
 
 ## 9. Run the Click demo

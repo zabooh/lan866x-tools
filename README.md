@@ -4,6 +4,11 @@
 > illustrated walkthrough to set up and show the demo end-to-end (boards, wiring P↔P/N↔N,
 > static IP, bus scan, flashing, Click demo).
 >
+> 🎓 **Want to learn the code by example? See [docs/DEMOS.md](docs/DEMOS.md)** — the
+> index of all worked examples (GPIO/I²C/SPI/PWM, blocking vs. non-blocking,
+> sensor→actuator), each with its own deep-dive doc **and a direct link to its `.c`
+> source**, ordered as a learning path from "hello world" up.
+>
 > ✅ **No build required to run:** all tools are **already built** under
 > [`release/`](release/) (statically linked `.exe`, plus the demo firmware package). Just
 > run them from there. Building (below) is optional — only needed if you change the source.
@@ -53,31 +58,34 @@ A **pure-C** host that remote-controls LAN866x endpoints via the **Remote Contro
 
 The tools (all build to `lan866x-<name>.exe`):
 
-| Tool | Purpose |
+> The **tool name links to its source** `.c`; the 🎓 tools are worked examples
+> documented in **[docs/DEMOS.md](docs/DEMOS.md)**.
+
+| Tool (→ source) | Purpose |
 |---|---|
-| **`lan866x-discovery`** | list reachable endpoints + type + full `GetStatus` / `GetNetworkStatus` |
-| **`lan866x-i2cscan`** | scan an endpoint's I2C bus (like `i2cdetect`) |
-| **`lan866x-i2cid`** | read a device ID over I2C **non-blocking** (VCNL4200 example) |
-| **`lan866x-proxmon`** | live proximity bar (VCNL4200) over I2C, non-blocking |
-| **`lan866x-gpio`** | set / read a GPIO pin |
-| **`lan866x-ledscan`** | interactively find which GPIO drives which on-board LED (→ JSON) |
-| **`lan866x-ledblink`** | on-board LED **running light** over SOME/IP — the "hello world" demo |
-| **`lan866x-ledtoggle`** | toggle one LED **non-blocking** (async RCP) — superloop-friendly demo |
-| **`lan866x-ledpwm`** | "breathing" LED via **PWM** (non-blocking; PWM firmware-dependent) |
-| **`lan866x-proxled`** | sensor→actuator app: proximity drives the LEDs (no video) |
-| **`lan866x-spi`** | SPI transfer (full-duplex) |
-| **`lan866x-spiid`** | identify the Thumbstick (MCP3204) over SPI **non-blocking** |
-| **`lan866x-thumbmon`** | live Thumbstick (MCP3204) read over SPI, non-blocking |
-| **`lan866x-adc`** | read the on-chip ADC (analog input or internal temperature) |
-| **`lan866x-pwm`** | drive a PWM output on a digital pin |
-| **`lan866x-boot`** | reboot between main app and bootloader (non-destructive) |
-| **`lan866x-flashimg`** | write ONE signed/encrypted image via the bootloader |
-| **`lan866x-flashpkg`** | update an endpoint straight from an **MCHPKG** package |
-| **`lan866x-diag`** | read & interpret **T1S link quality** (read-only) |
-| **`lan866x-clickdemo`** | interactive MikroE **Click** demo (Thumbstick + Proximity → 2× RGB) |
-| **`lan866x-video`** | loop-play a **video file** on the 2× RGB displays (ffmpeg → RTP) |
-| **`lan866x-dncpmon`** | passive **DNCP** monitor (standalone, not SOME/IP) |
-| **`lan866x-dncpdisc`** | active **DNCP** discovery (Registry broadcast → collect Announces, read-only) |
+| [`lan866x-discovery`](discovery.c) | list reachable endpoints + type + full `GetStatus` / `GetNetworkStatus` |
+| [`lan866x-i2cscan`](i2cscan.c) | scan an endpoint's I2C bus (like `i2cdetect`) |
+| 🎓 [`lan866x-i2cid`](i2cid.c) | read a device ID over I2C **non-blocking** (VCNL4200) — [doc](docs/I2CDEMO.md) |
+| 🎓 [`lan866x-proxmon`](proxmon.c) | live proximity bar (VCNL4200) over I2C, non-blocking — [doc](docs/I2CDEMO.md) |
+| [`lan866x-gpio`](gpio.c) | set / read a GPIO pin |
+| 🎓 [`lan866x-ledscan`](ledscan.c) | interactively find which GPIO drives which on-board LED (→ JSON) — [doc](docs/LEDDEMO.md) |
+| 🎓 [`lan866x-ledblink`](ledblink.c) | on-board LED **running light** — the "hello world" demo — [doc](docs/LEDDEMO.md) |
+| 🎓 [`lan866x-ledtoggle`](ledtoggle.c) | toggle one LED **non-blocking** (async RCP) — [doc](docs/LEDDEMO.md) |
+| 🎓 [`lan866x-ledpwm`](ledpwm.c) | "breathing" LED via **PWM** (non-blocking; firmware-dependent) — [doc](docs/PWMDEMO.md) |
+| 🎓 [`lan866x-proxled`](proxled.c) | sensor→actuator app: proximity drives the LEDs (no video) — [doc](docs/COMBODEMO.md) |
+| [`lan866x-spi`](spi.c) | SPI transfer (full-duplex) |
+| 🎓 [`lan866x-spiid`](spiid.c) | identify the Thumbstick (MCP3204) over SPI **non-blocking** — [doc](docs/SPIDEMO.md) |
+| 🎓 [`lan866x-thumbmon`](thumbmon.c) | live Thumbstick (MCP3204) read over SPI, non-blocking — [doc](docs/SPIDEMO.md) |
+| [`lan866x-adc`](adc.c) | read the on-chip ADC (analog input or internal temperature) |
+| [`lan866x-pwm`](pwm.c) | drive a PWM output on a digital pin |
+| [`lan866x-boot`](boot.c) | reboot between main app and bootloader (non-destructive) |
+| [`lan866x-flashimg`](flashimg.c) | write ONE signed/encrypted image via the bootloader |
+| [`lan866x-flashpkg`](flashpkg.c) | update an endpoint straight from an **MCHPKG** package |
+| [`lan866x-diag`](diag.c) | read & interpret **T1S link quality** (read-only) |
+| 🎓 [`lan866x-clickdemo`](clickdemo.c) | interactive MikroE **Click** demo (Thumbstick + Proximity → 2× RGB) — [doc](docs/CLICKDEMO.md) |
+| [`lan866x-video`](video.c) | loop-play a **video file** on the 2× RGB displays (ffmpeg → RTP) |
+| [`lan866x-dncpmon`](dncpmon.c) | passive **DNCP** monitor (standalone, not SOME/IP) |
+| [`lan866x-dncpdisc`](dncpdisc.c) | active **DNCP** discovery (Registry broadcast → collect Announces, read-only) |
 
 The SOME/IP tools use `src/rcp.c` (RCP over `libsomeip`) + the platform-neutral C stub `src/someip_stub.c` on the narrow `src/plat.h` layer (`src/plat_win.c` is the Windows implementation); `lan866x-flashpkg` additionally links a bundled ZIP reader (`third-party/minizip`). The two DNCP tools are standalone (Winsock only — DNCP is not SOME/IP).
 

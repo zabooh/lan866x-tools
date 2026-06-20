@@ -5,6 +5,10 @@
 > main loop never blocks on the round-trip. It is the minimal, copy-me example for
 > *"talk to an I²C device over SOME/IP without stalling the loop."*
 
+> 📄 **Source:** [../i2cid.c](../i2cid.c) · live monitor [../proxmon.c](../proxmon.c) ·
+> bus scan [../i2cscan.c](../i2cscan.c) — core: [../src/rcp.c](../src/rcp.c) /
+> [../src/rcp.h](../src/rcp.h). Demo index: [DEMOS.md](DEMOS.md).
+
 ---
 
 ## Table of contents

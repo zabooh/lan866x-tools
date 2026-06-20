@@ -6,6 +6,10 @@ Hard-won facts for driving the LAN866x **RCP** service directly on the C
 [`CLAUDE.md`](../CLAUDE.md) (constraints + gotcha summary), [`PORTING.md`](../PORTING.md)
 (MCU port) and [`docs/RCP_API.md`](RCP_API.md) (the per-function `rcp_*` API reference).
 
+> 📄 **Source:** [../src/rcp.c](../src/rcp.c) / [../src/rcp.h](../src/rcp.h) (RCP
+> wrapper) · [../src/someip_stub.c](../src/someip_stub.c) (SOME/IP stub) ·
+> [../src/plat_win.c](../src/plat_win.c) (platform layer). Worked examples: [DEMOS.md](DEMOS.md).
+
 ## Wire basics
 - Service id `0xFF10`, `clientId 0xaffe`, `interfaceVersion 1`.
 - SD (OfferService) on UDP **30490** (multicast 224.0.0.1); method endpoint on UDP

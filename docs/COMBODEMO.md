@@ -6,6 +6,9 @@
 > an **output write** into one non-blocking superloop, with **no video** (unlike
 > `lan866x-clickdemo`). This is the loop shape a real device actually runs.
 
+> 📄 **Source:** [../proxled.c](../proxled.c) — core: [../src/rcp.c](../src/rcp.c) /
+> [../src/rcp.h](../src/rcp.h). Demo index: [DEMOS.md](DEMOS.md).
+
 ---
 
 ## Table of contents

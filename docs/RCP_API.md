@@ -1,5 +1,9 @@
 # RCP API reference (`src/rcp.c` / `src/rcp.h`)
 
+> 📄 **Source:** [../src/rcp.h](../src/rcp.h) (the API) · [../src/rcp.c](../src/rcp.c)
+> (the implementation) · [../include/lan866x_common.h](../include/lan866x_common.h)
+> (the request/reply structs). Worked examples that call this API: [DEMOS.md](DEMOS.md).
+
 A precise, exhaustive description of the `rcp_*` API — the wrapper that turns the
 LAN866x **Remote Control Protocol (RCP)** into typed C calls over the pure‑C
 SOME/IP stack. This is the **only** layer an application (and a new port) talks
