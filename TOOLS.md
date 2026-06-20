@@ -497,9 +497,10 @@ out\lan866x-proxmon.exe --ip 192.168.0.54 --max 400 --hz 15
 ```
 
 **`lan866x-lan8680`** — read the **LAN8680 front-end (System Basis Chip)** over its
-housekeeping I²C (slave addr **0x40**, 16-bit registers, MSB first). Auto-probes the
-SERCOM buses, confirms the chip via `PHY_ID2` (MODEL=100000), and decodes supply/temp
-warnings with `--status`. **READ-ONLY** (the LAN8680 is the board's power/watchdog/
+housekeeping I²C (**SERCOM2 = PA08/PA09** per the schematic; 7-bit addr **0x20** or
+**0x40** — datasheet text vs figure disagree, so both are tried; 16-bit regs, MSB
+first). Auto-probes the SERCOM buses, confirms the chip via `PHY_ID2` (MODEL=100000),
+and decodes supply/temp warnings with `--status`. **READ-ONLY** (the LAN8680 is the board's power/watchdog/
 reset controller). Full write-up: [docs/LAN8680.md](docs/LAN8680.md).
 
 ```bat
