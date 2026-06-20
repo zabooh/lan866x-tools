@@ -13,6 +13,87 @@ interface. Everything above it stays **unchanged**:
 > [`src/plat_lwip.c.template`](src/plat_lwip.c.template). Rename it to `plat_lwip.c`,
 > fill in the board hooks, and swap it for `plat_win.c` in `CMakeLists.txt`.
 
+## Exact source files to compile (drop-in for an existing FreeRTOS + lwIP project)
+
+This repo's `CMakeLists.txt` builds standalone Windows tools, but you don't need
+CMake to embed the stack. If you already have an ARM target with **FreeRTOS** and
+**lwIP** running, add the SOME/IP client by compiling **exactly these 8 `.c`
+files** into your existing build (Makefile, MPLAB X, STM32CubeIDE, Keil, …) and
+adding **4 include paths**. Nothing else from this repo is required.
+
+### Compile these (8 translation units)
+
+| File | Role |
+|---|---|
+| `libepmicrochip/libsomeip/src/someip-client.c` | SOME/IP service/discovery state machine |
+| `libepmicrochip/libsomeip/src/someip-gen.c` | message generator (request encoder) |
+| `libepmicrochip/libsomeip/src/someip-pars.c` | message parser (reply decoder) |
+| `libepmicrochip/libsomeip/src/someip-timer.c` | SD / retransmit timers |
+| `libepmicrochip/libsomeip/src/someip-transmit.c` | transmit buffer pool + send path |
+| `src/someip_stub.c` | platform-neutral `SOMEIP_CB_*` over `plat.h` (**do not modify**) |
+| `src/rcp.c` | the RCP-over-SOME/IP wrapper — typed methods + async API (your app's entry point) |
+| `src/plat_lwip.c` | **the one file you write** — the six `plat.h` functions over lwIP (from `plat_lwip.c.template`) |
+
+> Tip: `libsomeip/src/*.c` is a clean glob — adding all `.c` in that folder is
+> correct and future-proof. The only per-target file is `plat_lwip.c`.
+
+### Add these 4 include paths (`-I`)
+
+| Include path | Headers it provides |
+|---|---|
+| `libepmicrochip/libsomeip/inc` | `someip.h` (public API) |
+| `libepmicrochip/libsomeip/src` | `someip-common.h`, `someip-gen.h`, `someip-pars.h`, `someip-timer.h` |
+| `libepmicrochip/libsomeip/stub` | `someip-cfg.h` (compile-time sizing — already MCU-tuned) |
+| `src` | `plat.h`, `rcp.h`, `someip_stub.h` |
+
+### Do NOT copy these (Windows-only / dead / not the stack)
+
+| File | Why not |
+|---|---|
+| `src/plat_win.c` | Windows (Winsock) impl — **replaced by your `plat_lwip.c`** |
+| `src/someip_stub_win.c` | old **threaded** stub, superseded by `src/someip_stub.c` (single-thread); not built |
+| `libepmicrochip/libsomeip/stub/windows-udp-handler.c` / `.h` | old threaded Windows UDP path; not built |
+| `*.c` tool files (`discovery.c`, `clickdemo.c`, `diag.c`, …) | standalone CLI programs; you write your own app that calls `rcp_*` instead. Read them as **usage examples** only |
+| `third-party/minizip/` | only `flashpkg`'s ZIP reader; not part of the SOME/IP stack |
+| `include/`, `src/tool_common.h` | helpers for the CLI tools, not referenced by `rcp.c`/`someip_stub.c` |
+
+### Minimal API your application calls
+
+After the files above are in your build, the application code is just the RCP
+wrapper — include `rcp.h`, then on your existing strand:
+
+```c
+#include "rcp.h"
+rcp_init(...);                 /* once, after the lwIP netif is UP with a valid IP */
+for (;;) {
+    app_step();                /* your work */
+    rcp_async_poll();          /* drives plat_udp_poll() -> lwIP -> synchronous RX */
+}
+```
+
+`rcp.c` is the only file you `#include` from; `someip_stub.c` and the libsomeip
+core are pulled in by the linker. See the `## Steps` and `plat.h` sections below
+for how `plat_lwip.c` bridges to lwIP and where it fits with FreeRTOS.
+
+### FreeRTOS + lwIP specifics (your stated platform)
+
+Because FreeRTOS and lwIP already exist, use the **RTOS variant** of the port
+(also noted in *Single-thread model* below):
+
+- Run `rcp_init()` + the `rcp_async_poll()` loop in **one dedicated task** — that
+  task is the single strand the whole stack assumes. Do **not** call `rcp_*` from
+  any other task or from an ISR.
+- Let lwIP's `tcpip_thread` receive frames as usual; have `plat_udp_poll()` either
+  use lwIP's **socket API** (`LWIP_SOCKET=1`, non-blocking `recvfrom`) or drain a
+  queue that your `udp_recv` callback fills. Either way the RX is dispatched
+  synchronously inside `plat_udp_poll()`.
+- Map `plat_sleep_ms()` → `vTaskDelay(pdMS_TO_TICKS(ms))` and `plat_now_ms()` →
+  `xTaskGetTickCount() * portTICK_PERIOD_MS` (or `sys_now()`).
+- The mutual-exclusion callbacks stay no-ops **as long as only that one task
+  touches `rcp_*`** — this is what keeps the port lockless.
+- lwIP config: `LWIP_IGMP=1` (for the SD multicast `224.0.0.1` join) and a UDP
+  pool large enough for the SD + method sockets.
+
 ## Single-thread model
 
 There are **no application threads**. Received UDP datagrams are delivered

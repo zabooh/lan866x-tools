@@ -3,9 +3,11 @@ project(lan866x_tools C)
 
 # ============================================================================
 # Pure-C toolset. Everything is C: no C++ translation unit is compiled, so the
-# tools link without libstdc++. The C++ vendor sources under libepmicrochip/
-# (liblan866x, librtp, someip-stub.cpp) are NOT built - only the C SOME/IP core
-# (libsomeip/src/*.c) is used, wrapped by src/rcp.c and a C platform stub.
+# tools link without libstdc++. The C++ vendor sources that shipped in the
+# Microchip package (liblan866x, librtp, someip-stub.cpp) have been removed -
+# only the C SOME/IP core (libepmicrochip/libsomeip/src/*.c) is used, wrapped by
+# src/rcp.c and a C platform stub. See libepmicrochip/VENDORED.md for the vendor
+# provenance and the list of local changes.
 # ============================================================================
 
 # --- shared C core: SOME/IP stack + RCP wrapper + Windows platform stub -----
