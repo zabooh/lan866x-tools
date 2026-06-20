@@ -361,6 +361,7 @@ ReturnCode_t rcp_write_and_read_spi2(uint16_t handle, uint32_t writeId,
 |---|---|---|---|---|
 | `rcp_open_pwm` | `0x1800` | `OpenPwmVar_t` | `OpenPwmReply_t` | `PinId`, `IntervalTime` (ns, rounded to 20 ns), `DutyCycle` (`0..2^31` = 0..100 %) → `HandlePwm`. |
 | `rcp_close_pwm` | `0x1802` | `ClosePwmVar_t` | — | `HandlePwm`. |
+| `rcp_write_pwm` | `0x1804` | `WritePwmVar_t` | — | `HandlePwm`, `WriteId` (from 0 after OpenPwm), `WriteData` (duty `0..2^31`). |
 
 > The duty‑cycle wire encoding is `0 = 0% .. 2^31 = 100%`. The CLI tool takes a
 > percent and converts. Opening PWM leaves the signal running on the device after
@@ -439,6 +440,10 @@ uint16_t rcp_enc_gpio_set(uint8_t *buf, uint16_t cap, uint16_t handle, uint8_t v
 uint16_t rcp_enc_spi1(uint8_t *buf, uint16_t cap, uint16_t handle, uint32_t writeId,
                       const uint8_t *tx, uint16_t txLen, uint16_t rdLen);
 bool     rcp_dec_spi1(const uint8_t *rx, uint16_t rxLen, uint8_t *rd, uint16_t *rdLen);
+
+/* WritePwm (method 0x1804): change the duty cycle of an open PWM. Used by lan866x-ledpwm.
+ * Blocking form: rcp_write_pwm(); async params: rcp_enc_pwm_write() (dutyQ31: 0..2^31). */
+uint16_t rcp_enc_pwm_write(uint8_t *buf, uint16_t cap, uint16_t handle, uint32_t writeId, uint32_t dutyQ31);
 ```
 Encoders return the byte length (0 on encode error); decoders return `false` on a
 malformed reply. `rd*Len` are in/out. Typical use: `rcp_enc_*` into a stack buffer,

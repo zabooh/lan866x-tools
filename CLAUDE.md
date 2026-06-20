@@ -43,12 +43,13 @@ That directory should contain (and a developer setting it up should provide):
 
 ## Architecture
 - Vanilla **C**, no C++/libstdc++. One `.c` per tool: discovery, i2cscan, i2cid,
-  gpio, ledscan, ledblink, ledtoggle, spi, spiid, adc, pwm, boot, flashimg,
-  flashpkg, clickdemo, diag, video, dncpmon, dncpdisc. (`ledblink` = on-board-LED
-  "hello world" running light; `ledtoggle` = non-blocking single-LED toggle via the
-  async API; `ledscan` = interactive GPIO→LED mapper → `led_map.json`; `i2cid` =
-  non-blocking I²C device-ID read [VCNL4200]; `spiid` = non-blocking SPI thumbstick
-  [MCP3204] read. See docs/LEDDEMO.md, docs/I2CDEMO.md, docs/SPIDEMO.md.)
+  proxmon, gpio, ledscan, ledblink, ledtoggle, ledpwm, proxled, spi, spiid,
+  thumbmon, adc, pwm, boot, flashimg, flashpkg, clickdemo, diag, video, dncpmon,
+  dncpdisc. Didactic non-blocking examples (async RCP): `ledtoggle` (GPIO),
+  `i2cid`/`proxmon` (I²C VCNL4200), `spiid`/`thumbmon` (SPI MCP3204), `ledpwm` (PWM,
+  firmware-dependent), `proxled` (sensor→actuator: proximity→LEDs). Plus `ledblink`
+  (GPIO "hello world" running light) and `ledscan` (GPIO→LED mapper → `led_map.json`).
+  See docs/LEDDEMO.md, I2CDEMO.md, SPIDEMO.md, COMBODEMO.md, PWMDEMO.md.
 - **Single-thread** (superloop): received UDP is dispatched synchronously from a
   per-tick poll (`plat_udp_poll()` inside `rcp_poll()`/`rcp_async_poll()`). No
   threads, no locks, no `volatile` shared state.

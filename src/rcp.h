@@ -90,6 +90,8 @@ uint16_t rcp_enc_gpio_set(uint8_t *buf, uint16_t cap, uint16_t handle, uint8_t v
 uint16_t rcp_enc_spi1(uint8_t *buf, uint16_t cap, uint16_t handle, uint32_t writeId,
                       const uint8_t *tx, uint16_t txLen, uint16_t rdLen);
 bool     rcp_dec_spi1(const uint8_t *rx, uint16_t rxLen, uint8_t *rd, uint16_t *rdLen);
+/* WritePwm (method 0x1804) params for the async path: handle, writeId, dutyQ31. */
+uint16_t rcp_enc_pwm_write(uint8_t *buf, uint16_t cap, uint16_t handle, uint32_t writeId, uint32_t dutyQ31);
 
 /* --- Methods (signatures mirror the C++ LAN866XClient) ------------------- *
  * All return ReturnCode_t (RT_OK on success; RT_NOT_REACHABLE = peripheral
@@ -164,6 +166,8 @@ ReturnCode_t rcp_close_adc(const CloseAdcVar_t *in);
 /* PWM */
 ReturnCode_t rcp_open_pwm(const OpenPwmVar_t *in, OpenPwmReply_t *out);
 ReturnCode_t rcp_close_pwm(const ClosePwmVar_t *in);
+/* Change the duty cycle of an open PWM (method 0x1804). DutyCycle: 0=0% .. 2^31=100%. */
+ReturnCode_t rcp_write_pwm(const WritePwmVar_t *in);
 
 /* --- Example pin mapping LAN8660 (PA00..PA15 = 0..15) -------------------- */
 #define PIN_PA00  0u

@@ -760,3 +760,23 @@ ReturnCode_t rcp_close_pwm(const ClosePwmVar_t *in)
         return RT_PARAMETER_NOT_VALID;
     return rcp_xfer(0x1802u, s_scratch, pl);
 }
+
+ReturnCode_t rcp_write_pwm(const WritePwmVar_t *in)
+{
+    uint16_t pl = 0u;
+    if (!(SOMEIP_Generator_Fill_UINT16(0, in->HandlePwm, &s_scratch[pl], (uint16_t)(MAXP - pl), &pl) &&
+          SOMEIP_Generator_Fill_UINT32(1, in->WriteId, &s_scratch[pl], (uint16_t)(MAXP - pl), &pl) &&
+          SOMEIP_Generator_Fill_UINT32(2, in->WriteData, &s_scratch[pl], (uint16_t)(MAXP - pl), &pl)))
+        return RT_PARAMETER_NOT_VALID;
+    return rcp_xfer(0x1804u, s_scratch, pl);
+}
+
+uint16_t rcp_enc_pwm_write(uint8_t *buf, uint16_t cap, uint16_t handle, uint32_t writeId, uint32_t dutyQ31)
+{
+    uint16_t pl = 0u;
+    if (!(SOMEIP_Generator_Fill_UINT16(0, handle,  &buf[pl], (uint16_t)(cap - pl), &pl) &&
+          SOMEIP_Generator_Fill_UINT32(1, writeId, &buf[pl], (uint16_t)(cap - pl), &pl) &&
+          SOMEIP_Generator_Fill_UINT32(2, dutyQ31, &buf[pl], (uint16_t)(cap - pl), &pl)))
+        return 0u;
+    return pl;
+}

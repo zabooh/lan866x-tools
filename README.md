@@ -58,12 +58,16 @@ The tools (all build to `lan866x-<name>.exe`):
 | **`lan866x-discovery`** | list reachable endpoints + type + full `GetStatus` / `GetNetworkStatus` |
 | **`lan866x-i2cscan`** | scan an endpoint's I2C bus (like `i2cdetect`) |
 | **`lan866x-i2cid`** | read a device ID over I2C **non-blocking** (VCNL4200 example) |
+| **`lan866x-proxmon`** | live proximity bar (VCNL4200) over I2C, non-blocking |
 | **`lan866x-gpio`** | set / read a GPIO pin |
 | **`lan866x-ledscan`** | interactively find which GPIO drives which on-board LED (→ JSON) |
 | **`lan866x-ledblink`** | on-board LED **running light** over SOME/IP — the "hello world" demo |
 | **`lan866x-ledtoggle`** | toggle one LED **non-blocking** (async RCP) — superloop-friendly demo |
+| **`lan866x-ledpwm`** | "breathing" LED via **PWM** (non-blocking; PWM firmware-dependent) |
+| **`lan866x-proxled`** | sensor→actuator app: proximity drives the LEDs (no video) |
 | **`lan866x-spi`** | SPI transfer (full-duplex) |
 | **`lan866x-spiid`** | identify the Thumbstick (MCP3204) over SPI **non-blocking** |
+| **`lan866x-thumbmon`** | live Thumbstick (MCP3204) read over SPI, non-blocking |
 | **`lan866x-adc`** | read the on-chip ADC (analog input or internal temperature) |
 | **`lan866x-pwm`** | drive a PWM output on a digital pin |
 | **`lan866x-boot`** | reboot between main app and bootloader (non-destructive) |
@@ -339,12 +343,16 @@ lan866x-tools/
 ├── discovery.c          list endpoints + full GetStatus/GetNetworkStatus
 ├── i2cscan.c            I2C bus scanner
 ├── i2cid.c              non-blocking I2C device-ID read (VCNL4200 example)
+├── proxmon.c            non-blocking live proximity monitor (VCNL4200)
 ├── gpio.c               GPIO set/read
 ├── ledscan.c            interactive GPIO->LED mapper (writes led_map.json)
 ├── ledblink.c           on-board LED running light over SOME/IP ("hello world")
 ├── ledtoggle.c          non-blocking single-LED toggle (async RCP API)
+├── ledpwm.c             non-blocking "breathing" LED via PWM
+├── proxled.c            sensor->actuator app: proximity drives the LEDs
 ├── spi.c                SPI transfer
 ├── spiid.c              non-blocking SPI thumbstick (MCP3204) identify
+├── thumbmon.c           non-blocking live thumbstick monitor (MCP3204)
 ├── adc.c                ADC read (analog / temperature)
 ├── pwm.c                PWM output
 ├── boot.c               reboot main app ↔ bootloader (non-destructive)
@@ -374,8 +382,10 @@ lan866x-tools/
 │   ├── RCP_API.md       full rcp.c API reference (methods, structs, encoding)
 │   ├── CLICKDEMO.md     clickdemo demo/software/timing deep-dive
 │   ├── LEDDEMO.md       LED running-light "hello world" + GPIO->LED mapping
-│   ├── I2CDEMO.md       non-blocking I2C device-ID read (VCNL4200)
-│   └── SPIDEMO.md       non-blocking SPI thumbstick read (MCP3204)
+│   ├── I2CDEMO.md       non-blocking I2C device-ID read + proximity monitor (VCNL4200)
+│   ├── SPIDEMO.md       non-blocking SPI thumbstick read + monitor (MCP3204)
+│   ├── COMBODEMO.md     sensor->actuator app (proximity -> LEDs, proxled)
+│   └── PWMDEMO.md       "breathing" LED via PWM (ledpwm; firmware-dependent)
 ├── README.md
 ├── TOOLS.md             board guide + full per-tool reference
 └── PORTING.md           MCU32 port (lwIP, single-thread)

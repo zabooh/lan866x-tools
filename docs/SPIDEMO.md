@@ -16,6 +16,7 @@
 5. [Why non-blocking (code walk-through)](#5-why-non-blocking-code-walk-through)
 6. [Adapting it to another SPI device](#6-adapting-it-to-another-spi-device)
 7. [Troubleshooting](#7-troubleshooting)
+8. [Going further: live monitor](#8-going-further-live-monitor)
 
 ---
 
@@ -176,3 +177,21 @@ transfer safe.
 See also: [docs/LEDDEMO.md](LEDDEMO.md) (GPIO, blocking vs. async),
 [docs/I2CDEMO.md](I2CDEMO.md) (the I²C sibling),
 [docs/RCP_API.md](RCP_API.md) (full `rcp_*` reference), [TOOLS.md](../TOOLS.md).
+
+---
+
+## 8. Going further: live monitor
+
+`spiid` reads the axes *once*. **`lan866x-thumbmon`** keeps reading them and shows a
+live position read-out, using the same async transfer with **one read in flight at
+a time** (alternating X = ch1 / Y = ch0). The render loop runs at a steady cadence,
+decoupled from when replies land:
+
+```bat
+release\lan866x-thumbmon.exe --ip 192.168.0.54
+  X[----------o----------] x=2041 y=2057 (y= 50%)
+```
+
+For a sensor→actuator app (proximity → LEDs, no video) see
+[docs/COMBODEMO.md](COMBODEMO.md); for the same idea with the thumbstick driving the
+LEDs, that's a one-line change (read an axis instead of the proximity).

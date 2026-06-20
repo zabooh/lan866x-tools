@@ -16,6 +16,7 @@
 5. [Why non-blocking (code walk-through)](#5-why-non-blocking-code-walk-through)
 6. [Adapting it to another I²C device](#6-adapting-it-to-another-ic-device)
 7. [Troubleshooting](#7-troubleshooting)
+8. [Going further: live monitor & sensor→actuator](#8-going-further-live-monitor--sensoractuator)
 
 ---
 
@@ -164,3 +165,31 @@ reply is dropped under load (gotcha #4), and `WriteId` makes a re-sent request s
 See also: [docs/LEDDEMO.md](LEDDEMO.md) (GPIO, blocking vs. async),
 [docs/SPIDEMO.md](SPIDEMO.md) (the SPI sibling),
 [docs/RCP_API.md](RCP_API.md) (full `rcp_*` reference), [TOOLS.md](../TOOLS.md).
+
+---
+
+## 8. Going further: live monitor & sensor→actuator
+
+`i2cid` reads the ID *once*. Two tools build on the same async pattern for
+continuous use:
+
+**`lan866x-proxmon`** — live proximity monitor. It enables the VCNL4200's PS engine
+(one-time blocking writes to `PS_CONF1/3`, `ALS_CONF`) and then reads `PS_DATA`
+(`0x08`) continuously, drawing a live bar. One read is in flight at a time; the
+render loop runs at a steady cadence decoupled from reply timing:
+
+```bat
+release\lan866x-proxmon.exe --ip 192.168.0.54
+  [##########------------------------------] raw=  102
+```
+
+**`lan866x-proxled`** — the **sensor→actuator** mini-app: proximity drives the
+on-board LEDs as a 0–3 level meter (closer hand = more LEDs), with **no video**.
+It reads the sensor over I²C (async) and writes the LEDs over GPIO (blocking, only
+on a level change) — the full input→decide→output loop a real device runs. Full
+write-up: **[docs/COMBODEMO.md](COMBODEMO.md)**.
+
+```bat
+release\lan866x-proxled.exe --ip 192.168.0.54
+  raw=  310  level=2/3  [##-]
+```

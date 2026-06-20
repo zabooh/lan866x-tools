@@ -26,11 +26,11 @@ Companion document to the [README](README.md). It covers two things in depth:
    - 4.2 [`lan866x-discovery`](#42-lan866x-discovery)
    - 4.3 [`lan866x-diag`](#43-lan866x-diag)
    - 4.4 [`lan866x-i2cscan`](#44-lan866x-i2cscan)
-   - 4.4.1 [`lan866x-i2cid`](#441-lan866x-i2cid)
+   - 4.4.1 [`lan866x-i2cid` / `lan866x-proxmon`](#441-lan866x-i2cid)
    - 4.5 [`lan866x-gpio`](#45-lan866x-gpio)
-   - 4.5.1 [`lan866x-ledscan` / `lan866x-ledblink` / `lan866x-ledtoggle`](#451-lan866x-ledscan--lan866x-ledblink)
+   - 4.5.1 [`lan866x-ledscan` / `-ledblink` / `-ledtoggle` / `-ledpwm` / `-proxled`](#451-lan866x-ledscan--lan866x-ledblink)
    - 4.6 [`lan866x-spi`](#46-lan866x-spi)
-   - 4.6.1 [`lan866x-spiid`](#461-lan866x-spiid)
+   - 4.6.1 [`lan866x-spiid` / `lan866x-thumbmon`](#461-lan866x-spiid)
    - 4.7 [`lan866x-adc`](#47-lan866x-adc)
    - 4.8 [`lan866x-pwm`](#48-lan866x-pwm)
    - 4.9 [`lan866x-boot`](#49-lan866x-boot)
@@ -474,6 +474,14 @@ Uses `WriteAndReadI2C` (`0x1208`): writes the register address, reads 2 bytes
 (VCNL4200 = LSB first). Prints how many times the loop spun while the read was in
 flight — the visible proof it didn't block.
 
+**`lan866x-proxmon`** — live proximity bar: enables the VCNL4200 PS engine and reads
+`PS_DATA` continuously (async), rendering at a steady cadence. The "read a sensor in
+a superloop" pattern. See [docs/I2CDEMO.md §8](docs/I2CDEMO.md#8-going-further-live-monitor--sensoractuator).
+
+```bat
+out\lan866x-proxmon.exe --ip 192.168.0.54 --max 400 --hz 15
+```
+
 ### 4.5 `lan866x-gpio`
 
 **Set or read a single GPIO pin.**
@@ -543,6 +551,23 @@ out\lan866x-ledtoggle.exe --pin 6 --beat 250
 | `--pin <0..15>` | 2 (LD1) | LED pin to toggle |
 | `--beat <ms>` | 500 | toggle interval |
 
+**`lan866x-ledpwm`** — "breathing" LED via **PWM** (non-blocking `WritePwm`). Adds
+the PWM method family to the examples. ⚠️ PWM is **not confirmed** on the Lighting
+firmware — `OpenPwm` may fail; confirm with `lan866x-pwm` first. See
+[docs/PWMDEMO.md](docs/PWMDEMO.md).
+
+```bat
+out\lan866x-ledpwm.exe --ip 192.168.0.54 --pin 2 --freq 1000 --period 2000
+```
+
+**`lan866x-proxled`** — the **sensor→actuator** mini-app: proximity (I²C) drives the
+on-board LEDs (GPIO) as a 0–3 level meter, no video. The complete input→decide→output
+loop a real device runs. See [docs/COMBODEMO.md](docs/COMBODEMO.md).
+
+```bat
+out\lan866x-proxled.exe --ip 192.168.0.54 --max 400
+```
+
 ### 4.6 `lan866x-spi`
 
 **Full-duplex SPI transfer.**
@@ -584,6 +609,14 @@ out\lan866x-spiid.exe --mode 1 --speed 1923000
 > joystick reads ~2048 per axis at rest. Uses `WriteAndReadSpi` (`0x1508`); see
 > [docs/SPIDEMO.md](docs/SPIDEMO.md) for the MCP3204 command bytes and the compound
 > (`0x1509`) alternative.
+
+**`lan866x-thumbmon`** — live thumbstick read: reads the MCP3204 X/Y axes continuously
+(async, one transfer in flight, alternating axes) with a live position read-out. See
+[docs/SPIDEMO.md §8](docs/SPIDEMO.md#8-going-further-live-monitor).
+
+```bat
+out\lan866x-thumbmon.exe --ip 192.168.0.54 --hz 20
+```
 
 ### 4.7 `lan866x-adc`
 
@@ -823,11 +856,15 @@ they speak DNCP on UDP 65526/65527.
 | `diag` | GetStatus, GetNetworkStatus, ReadDiagnosisData `0x1003` + active probe |
 | `i2cscan` | ReleaseDigitalPins `0x1105`, OpenI2C `0x1200`, ReadI2C `0x1220` |
 | `i2cid` | OpenI2C `0x1200`, WriteAndReadI2C `0x1208` **async**, CloseI2C `0x1202` |
+| `proxmon` | OpenI2C `0x1200`, WriteI2C `0x1204`, WriteAndReadI2C `0x1208` **async** |
+| `proxled` | OpenI2C/WriteAndReadI2C `0x1208` **async** (in) + OpenGpio/SetGpio (out) |
 | `gpio` | OpenGpio `0x1300`, SetGpio `0x1330`, GetGpio `0x1332` |
 | `ledscan` / `ledblink` | ReleaseDigitalPins `0x1105`, OpenGpio `0x1300`, SetGpio `0x1330` |
 | `ledtoggle` | OpenGpio `0x1300`, SetGpio `0x1330` **async** (`rcp_async_request`/`rcp_async_poll`) |
+| `ledpwm` | OpenPwm `0x1800`, WritePwm `0x1804` **async**, ClosePwm `0x1802` |
 | `spi` | OpenSpi `0x1500`, WriteAndReadSpi `0x1508`, CloseSpi `0x1502` |
 | `spiid` | OpenSpi `0x1500`, WriteAndReadSpi `0x1508` **async**, CloseSpi `0x1502` |
+| `thumbmon` | OpenSpi `0x1500`, WriteAndReadSpi `0x1508` **async**, CloseSpi `0x1502` |
 | `adc` | OpenAdc `0x1700`, ReadAdc `0x1720` |
 | `pwm` | OpenPwm `0x1800`, WritePwm `0x1804` |
 | `boot` | Reboot `0x1000`, GetStatus |
