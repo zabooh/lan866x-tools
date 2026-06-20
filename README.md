@@ -58,6 +58,8 @@ The tools (all build to `lan866x-<name>.exe`):
 | **`lan866x-discovery`** | list reachable endpoints + type + full `GetStatus` / `GetNetworkStatus` |
 | **`lan866x-i2cscan`** | scan an endpoint's I2C bus (like `i2cdetect`) |
 | **`lan866x-gpio`** | set / read a GPIO pin |
+| **`lan866x-ledscan`** | interactively find which GPIO drives which on-board LED (→ JSON) |
+| **`lan866x-ledblink`** | on-board LED **running light** over SOME/IP — the "hello world" demo |
 | **`lan866x-spi`** | SPI transfer (full-duplex) |
 | **`lan866x-adc`** | read the on-chip ADC (analog input or internal temperature) |
 | **`lan866x-pwm`** | drive a PWM output on a digital pin |
@@ -203,6 +205,15 @@ out\lan866x-gpio.exe --pin 2 --get       REM PA02 as input, read
 out\lan866x-gpio.exe --ip 192.168.0.54 --pin 6 --set 0
 ```
 
+> **On-board LED "hello world":** the EVB has 3 on-board LEDs on `PA02/PA06/PA10`
+> (LD1–LD3, gated by DIP `SW13-1/2/3`). `lan866x-ledblink` cycles them as a
+> running light over SOME/IP — the canonical *blink-an-LED* demo, done remotely:
+> ```bat
+> out\lan866x-ledblink.exe --ip 192.168.0.54          REM running light, 500 ms/step
+> out\lan866x-ledscan.exe  --ip 192.168.0.54 --all    REM (re)discover the LED pins -> led_map.json
+> ```
+> Full write-up: **[docs/LEDDEMO.md](docs/LEDDEMO.md)**.
+
 ### 4.4 SPI transfer (full-duplex)
 ```bat
 out\lan866x-spi.exe --tx 9F0000          REM send 3 bytes, read MISO at the same time
@@ -310,6 +321,8 @@ lan866x-tools/
 ├── discovery.c          list endpoints + full GetStatus/GetNetworkStatus
 ├── i2cscan.c            I2C bus scanner
 ├── gpio.c               GPIO set/read
+├── ledscan.c            interactive GPIO->LED mapper (writes led_map.json)
+├── ledblink.c           on-board LED running light over SOME/IP ("hello world")
 ├── spi.c                SPI transfer
 ├── adc.c                ADC read (analog / temperature)
 ├── pwm.c                PWM output
@@ -338,7 +351,8 @@ lan866x-tools/
 │   ├── img/             board photos + timing diagrams used by the docs
 │   ├── INTEGRATION_NOTES.md  RCP-on-libsomeip protocol/stack know-how
 │   ├── RCP_API.md       full rcp.c API reference (methods, structs, encoding)
-│   └── CLICKDEMO.md     clickdemo demo/software/timing deep-dive
+│   ├── CLICKDEMO.md     clickdemo demo/software/timing deep-dive
+│   └── LEDDEMO.md       LED running-light "hello world" + GPIO->LED mapping
 ├── README.md
 ├── TOOLS.md             board guide + full per-tool reference
 └── PORTING.md           MCU32 port (lwIP, single-thread)

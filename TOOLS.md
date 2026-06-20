@@ -19,6 +19,7 @@ Companion document to the [README](README.md). It covers two things in depth:
    - 2.4 [Click slots – what plugs where](#24-click-slots--what-plugs-where)
    - 2.5 [Jumper & DIP settings (ASCII map)](#25-jumper--dip-settings-ascii-map)
    - 2.6 [Power options](#26-power-options)
+   - 2.7 [On-board LEDs & buttons](#27-on-board-leds--buttons)
 3. [T1S-USB adapter – EVB-LAN8670-USB-PSE](#3-t1s-usb-adapter--evb-lan8670-usb-pse)
 4. [Tool reference](#4-tool-reference)
    - 4.1 [Common options & behaviour](#41-common-options--behaviour)
@@ -26,6 +27,7 @@ Companion document to the [README](README.md). It covers two things in depth:
    - 4.3 [`lan866x-diag`](#43-lan866x-diag)
    - 4.4 [`lan866x-i2cscan`](#44-lan866x-i2cscan)
    - 4.5 [`lan866x-gpio`](#45-lan866x-gpio)
+   - 4.5.1 [`lan866x-ledscan` / `lan866x-ledblink`](#451-lan866x-ledscan--lan866x-ledblink)
    - 4.6 [`lan866x-spi`](#46-lan866x-spi)
    - 4.7 [`lan866x-adc`](#47-lan866x-adc)
    - 4.8 [`lan866x-pwm`](#48-lan866x-pwm)
@@ -254,6 +256,50 @@ Summary table:
   can supply this – see §3.
 - **USB-C:** local 5 V (J18 open). Two MCP16312 bucks generate 3V3 / Vsup.
 
+### 2.7 On-board LEDs & buttons
+
+The board has user LEDs and push-buttons. **Which side of the board they hang on
+decides whether the RCP SOME/IP service can touch them** — only the MCU pins are
+reachable via the GPIO methods.
+
+**On-board LEDs — driven by the LAN8661 MCU → controllable over RCP.**
+Three LEDs (LD1–LD3) sit on the MCU's SERCOM CS lines, gated by DIP switch
+**SW13**. Verified live with `lan866x-ledscan` (→ [`release/led_map.json`](release/led_map.json)):
+
+| LED | MCU pin | SERCOM function | SW13 position |
+|---|---|---|---|
+| **LD1** | **PA02** | SER0 CS | SW13-1 |
+| **LD2** | **PA06** | SER1 CS | SW13-2 |
+| **LD3** | **PA10** | SER2 CS | SW13-3 |
+| (LD4) | PA14 | SER3 CS | SW13-4 — **OFF** by default (LED dark) |
+
+Drive them with `lan866x-gpio` (one pin) or `lan866x-ledblink` (running-light demo):
+```bat
+lan866x-gpio.exe --ip 192.168.0.54 --pin 2 --set 1     REM LD1 on
+lan866x-ledblink.exe --ip 192.168.0.54                  REM LD1→LD2→LD3 running light
+```
+> `PA03`/`PA07` (the MOSI lines of SER0/SER1) cannot be opened as GPIO — the
+> firmware uses them to drive the WS2812 RGB panels on Click 1/2. Full write-up:
+> **[docs/LEDDEMO.md](docs/LEDDEMO.md)**.
+
+**Push-buttons — on the LAN8680 front-end → NOT reachable over RCP GPIO.**
+The two user buttons (silk `BUTTON_1`/`BUTTON_2`) and the reset/wake buttons are
+wired to the **LAN8680** front-end, not to the MCU:
+
+| Silk | RefDes | Net | LAN8680 pin | own status LED | RCP-readable? |
+|---|---|---|---|---|---|
+| **BUTTON_1** | SW1 | `GPIO0` | DIO0 (pin 9) | LD11 | ❌ no (not an MCU pin) |
+| **BUTTON_2** | SW2 | `GPIO1` | DIO1 (pin 16) | LD10 | ❌ no |
+| (reset) | SW3 | `RST` | RESET_N (pin 1) | — | n/a |
+| (wake) | SW4 | `WAKEIN` | WAKEIN (pin 15) | — | n/a |
+
+`GPIO0`/`GPIO1` reach only the LAN8680 and the Click-header INT pins; **no LAN8661
+PA pin** is connected, so `lan866x-gpio --get` cannot read them. Each user button
+does drive its **own status LED in hardware** (BUTTON_1→LD11, BUTTON_2→LD10), so
+you can verify it physically without any software. Reading the button state in
+software would require the LAN8680's own register interface (housekeeping I²C),
+which needs the LAN8680 datasheet (not available locally).
+
 ---
 
 ## 3. T1S-USB adapter – EVB-LAN8670-USB-PSE
@@ -418,6 +464,44 @@ out\lan866x-gpio.exe --ip 192.168.0.54 --pin 6 --set 0
 | `--pin <n>` | GPIO pin (PA index 0–15) |
 | `--set <0\|1>` | configure as output and drive the level |
 | `--get` | configure as input and read the level |
+
+#### 4.5.1 `lan866x-ledscan` / `lan866x-ledblink`
+
+Two GPIO helpers built around the board's **on-board LEDs** (PA02/PA06/PA10 =
+LD1–LD3, see [§2.7](#27-on-board-leds--buttons)). Full write-up:
+**[docs/LEDDEMO.md](docs/LEDDEMO.md)**.
+
+**`lan866x-ledscan`** — interactively find *which GPIO drives which LED*. It blinks
+each candidate pin and asks you `[y]es / [n]o / [r]epeat / [q]uit`, then writes the
+answers to a JSON file (`led_map.json`) that can be read back by other tools.
+
+```bat
+out\lan866x-ledscan.exe --ip 192.168.0.54            REM probe the candidate set
+out\lan866x-ledscan.exe --all                         REM probe PA00..PA15
+out\lan866x-ledscan.exe --pins 2,6,10 --blinks 8 --out my_leds.json
+```
+
+| Option | Default | Meaning |
+|---|---|---|
+| `--pins <list>` | candidate set (2,3,6,7,10,11,14,15) | pins to probe |
+| `--all` | — | probe PA00..PA15 |
+| `--blinks <n>` / `--on <ms>` / `--off <ms>` | 6 / 250 / 250 | blink pattern per pin |
+| `--out <file>` | `led_map.json` | JSON result file |
+
+**`lan866x-ledblink`** — the **"hello world" running light**: cycles LD1→LD2→LD3,
+half a second each, forever (Ctrl+C turns them off and exits cleanly).
+
+```bat
+out\lan866x-ledblink.exe --ip 192.168.0.54            REM PA02,PA06,PA10 @ 500 ms/step
+out\lan866x-ledblink.exe --pins 2,6,10 --beat 250
+out\lan866x-ledblink.exe --all-on                     REM all LEDs on, then exit
+```
+
+| Option | Default | Meaning |
+|---|---|---|
+| `--pins <list>` | `2,6,10` (LD1,LD2,LD3) | LED pins to cycle |
+| `--beat <ms>` | 500 | time each LED stays lit |
+| `--all-on` | — | turn all listed LEDs on once and exit (no loop) |
 
 ### 4.6 `lan866x-spi`
 
@@ -676,6 +760,7 @@ they speak DNCP on UDP 65526/65527.
 | `diag` | GetStatus, GetNetworkStatus, ReadDiagnosisData `0x1003` + active probe |
 | `i2cscan` | ReleaseDigitalPins `0x1105`, OpenI2C `0x1200`, ReadI2C `0x1220` |
 | `gpio` | OpenGpio `0x1300`, SetGpio `0x1330`, GetGpio `0x1332` |
+| `ledscan` / `ledblink` | ReleaseDigitalPins `0x1105`, OpenGpio `0x1300`, SetGpio `0x1330` |
 | `spi` | OpenSpi `0x1500`, WriteAndReadSpi `0x1508`, CloseSpi `0x1502` |
 | `adc` | OpenAdc `0x1700`, ReadAdc `0x1720` |
 | `pwm` | OpenPwm `0x1800`, WritePwm `0x1804` |

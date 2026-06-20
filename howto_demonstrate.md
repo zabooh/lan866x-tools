@@ -27,8 +27,9 @@ the firmware, and run the interactive **Click demo**.
 5. [Build the tools](#5-build-the-tools)
 6. [Find the endpoint (bus scan)](#6-find-the-endpoint-bus-scan)
 7. [Flash the current firmware package](#7-flash-the-current-firmware-package)
-8. [Run the Click demo](#8-run-the-click-demo)
-9. [Troubleshooting](#9-troubleshooting)
+8. [Blink the on-board LEDs – "hello world"](#8-blink-the-on-board-leds--hello-world)
+9. [Run the Click demo](#9-run-the-click-demo)
+10. [Troubleshooting](#10-troubleshooting)
 
 ---
 
@@ -309,7 +310,39 @@ The `display1` package sets the board to **IP 192.168.0.54 / PLCA node 4**. (Var
 
 ---
 
-## 8. Run the Click demo
+## 8. Blink the on-board LEDs – "hello world"
+
+Before the full Click demo, prove the remote-GPIO path with the simplest possible
+program: blink the board's on-board LEDs over SOME/IP. This is the embedded
+*hello world* — if it works, discovery + RCP + GPIO are all proven.
+
+```bat
+out\lan866x-ledblink.exe --ip 192.168.0.54
+```
+
+The three on-board LEDs **LD1/LD2/LD3** (pins `PA02/PA06/PA10`, enabled by the
+`SW13-1/2/3` switches you set in §3.1) light up as a **running light** — one after
+another, half a second each, looping until **Ctrl+C** (which turns them off again).
+
+```
+LD1 ●○○   →   LD2 ○●○   →   LD3 ○○●   →   (repeat)
+```
+
+Don't know the LED pins on a different board? Discover them interactively — the
+scanner blinks each candidate and asks you yes/no, then writes `led_map.json`:
+
+```bat
+out\lan866x-ledscan.exe --ip 192.168.0.54 --all
+```
+
+> The two user push-buttons (`BUTTON_1`/`BUTTON_2`) are on the LAN8680 front-end,
+> **not** on the MCU, so they can't be read over RCP — but each one drives its own
+> status LED in hardware, so pressing them is still visible. Full background:
+> **[docs/LEDDEMO.md](docs/LEDDEMO.md)** and [TOOLS.md §2.7](TOOLS.md#27-on-board-leds--buttons).
+
+---
+
+## 9. Run the Click demo
 
 Start the interactive demo against the endpoint:
 
@@ -397,7 +430,7 @@ Options: `--fps N`, `--bright 0..255`, `--bar 0..255`, `--prox-max N`, `--log <f
 
 ---
 
-## 9. Troubleshooting
+## 10. Troubleshooting
 
 | Symptom | Check |
 |---|---|
