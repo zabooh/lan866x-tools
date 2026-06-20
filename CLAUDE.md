@@ -43,9 +43,10 @@ That directory should contain (and a developer setting it up should provide):
 
 ## Architecture
 - Vanilla **C**, no C++/libstdc++. One `.c` per tool: discovery, i2cscan, gpio,
-  ledscan, ledblink, spi, adc, pwm, boot, flashimg, flashpkg, clickdemo, diag,
-  video, dncpmon, dncpdisc. (`ledblink` = on-board-LED "hello world" running light;
-  `ledscan` = interactive GPIO→LED mapper → `led_map.json`. See docs/LEDDEMO.md.)
+  ledscan, ledblink, ledtoggle, spi, adc, pwm, boot, flashimg, flashpkg, clickdemo,
+  diag, video, dncpmon, dncpdisc. (`ledblink` = on-board-LED "hello world" running
+  light; `ledtoggle` = non-blocking single-LED toggle via the async API; `ledscan`
+  = interactive GPIO→LED mapper → `led_map.json`. See docs/LEDDEMO.md.)
 - **Single-thread** (superloop): received UDP is dispatched synchronously from a
   per-tick poll (`plat_udp_poll()` inside `rcp_poll()`/`rcp_async_poll()`). No
   threads, no locks, no `volatile` shared state.

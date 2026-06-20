@@ -27,7 +27,7 @@ Companion document to the [README](README.md). It covers two things in depth:
    - 4.3 [`lan866x-diag`](#43-lan866x-diag)
    - 4.4 [`lan866x-i2cscan`](#44-lan866x-i2cscan)
    - 4.5 [`lan866x-gpio`](#45-lan866x-gpio)
-   - 4.5.1 [`lan866x-ledscan` / `lan866x-ledblink`](#451-lan866x-ledscan--lan866x-ledblink)
+   - 4.5.1 [`lan866x-ledscan` / `lan866x-ledblink` / `lan866x-ledtoggle`](#451-lan866x-ledscan--lan866x-ledblink)
    - 4.6 [`lan866x-spi`](#46-lan866x-spi)
    - 4.7 [`lan866x-adc`](#47-lan866x-adc)
    - 4.8 [`lan866x-pwm`](#48-lan866x-pwm)
@@ -503,6 +503,21 @@ out\lan866x-ledblink.exe --all-on                     REM all LEDs on, then exit
 | `--beat <ms>` | 500 | time each LED stays lit |
 | `--all-on` | — | turn all listed LEDs on once and exit (no loop) |
 
+**`lan866x-ledtoggle`** — the **non-blocking** counterpart: toggles **one** LED at a
+half-second beat using the **async RCP API** (`rcp_async_request`/`rcp_async_poll`),
+so the main loop never parks on the network. It's the superloop-friendly pattern an
+MCU port wants. See [docs/LEDDEMO.md §6.2](docs/LEDDEMO.md#62-non-blocking-variant--lan866x-ledtoggle).
+
+```bat
+out\lan866x-ledtoggle.exe --ip 192.168.0.54           REM toggle PA02 (LD1) @ 500 ms
+out\lan866x-ledtoggle.exe --pin 6 --beat 250
+```
+
+| Option | Default | Meaning |
+|---|---|---|
+| `--pin <0..15>` | 2 (LD1) | LED pin to toggle |
+| `--beat <ms>` | 500 | toggle interval |
+
 ### 4.6 `lan866x-spi`
 
 **Full-duplex SPI transfer.**
@@ -761,6 +776,7 @@ they speak DNCP on UDP 65526/65527.
 | `i2cscan` | ReleaseDigitalPins `0x1105`, OpenI2C `0x1200`, ReadI2C `0x1220` |
 | `gpio` | OpenGpio `0x1300`, SetGpio `0x1330`, GetGpio `0x1332` |
 | `ledscan` / `ledblink` | ReleaseDigitalPins `0x1105`, OpenGpio `0x1300`, SetGpio `0x1330` |
+| `ledtoggle` | OpenGpio `0x1300`, SetGpio `0x1330` **async** (`rcp_async_request`/`rcp_async_poll`) |
 | `spi` | OpenSpi `0x1500`, WriteAndReadSpi `0x1508`, CloseSpi `0x1502` |
 | `adc` | OpenAdc `0x1700`, ReadAdc `0x1720` |
 | `pwm` | OpenPwm `0x1800`, WritePwm `0x1804` |

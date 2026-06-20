@@ -82,6 +82,9 @@ bool     rcp_dec_spi2(const uint8_t *rx, uint16_t rxLen, uint8_t *rd0, uint16_t 
 uint16_t rcp_enc_i2c_read(uint8_t *buf, uint16_t cap, uint16_t handle, uint16_t addr, uint32_t writeId,
                           const uint8_t *wr, uint16_t wrlen, uint16_t rdlen);
 bool     rcp_dec_i2c_read(const uint8_t *rx, uint16_t rxLen, uint8_t *rd, uint16_t *rdLen);
+/* SetGpio (0x1330) params for the async path: one 3-byte tuple
+ * [handleHi, handleLo, value] as BLOB tag 0 (same wire format as rcp_set_gpio). */
+uint16_t rcp_enc_gpio_set(uint8_t *buf, uint16_t cap, uint16_t handle, uint8_t value);
 
 /* --- Methods (signatures mirror the C++ LAN866XClient) ------------------- *
  * All return ReturnCode_t (RT_OK on success; RT_NOT_REACHABLE = peripheral

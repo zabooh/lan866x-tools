@@ -18,6 +18,7 @@
 5. [`lan866x-ledblink` — the running light](#5-lan866x-ledblink--the-running-light)
 6. [How GPIO-over-RCP works (code walk-through)](#6-how-gpio-over-rcp-works-code-walk-through)
    - 6.1 [What does `set_pin()` return mean — "received" or "actually set"?](#61-what-does-set_pin-return-mean--received-or-actually-set)
+   - 6.2 [Non-blocking variant — `lan866x-ledtoggle`](#62-non-blocking-variant--lan866x-ledtoggle)
 7. [Build & run](#7-build--run)
 8. [The same code on a real MCU](#8-the-same-code-on-a-real-mcu)
 9. [Troubleshooting](#9-troubleshooting)
@@ -271,6 +272,92 @@ callback.
 > methods like `SetGpio`. `Reboot` (`0x1000`) is special: the device often resets
 > *before* its response goes out, so the tools treat a lost reboot reply as success
 > (see `lan866x-boot`). For `SetGpio` the reply is reliable: it means *done*.
+
+### 6.2 Non-blocking variant — `lan866x-ledtoggle`
+
+`lan866x-ledblink` is fine for a demo, but every `set_pin()` **stops the loop**
+until the endpoint answers (§6.1). On a real device the main loop usually must
+**stay responsive** — service other I/O, render a frame, feed a watchdog — while a
+control round-trip is still in flight. That is what the **async API** is for, and
+`lan866x-ledtoggle` is the minimal example of it: it toggles **one** LED at a
+half-second beat **without ever blocking**.
+
+```bat
+release\lan866x-ledtoggle.exe --ip 192.168.0.54     REM toggle PA02 (LD1) @ 500 ms
+release\lan866x-ledtoggle.exe --pin 6 --beat 250
+```
+
+**Blocking vs. non-blocking — the difference in one line:**
+
+| | `ledblink` (blocking) | `ledtoggle` (non-blocking) |
+|---|---|---|
+| write call | `rcp_set_gpio()` → waits for the reply | `rcp_async_request()` → returns at once |
+| during the round-trip | the loop is **stuck** in the call | the loop **keeps spinning** |
+| reply handling | return value, inline | a short **callback** from `rcp_async_poll()` |
+| good for | scripts, one-shot tools | superloops, fixed-rate work, many in-flight |
+
+**How it works.** Three async pieces ([full API in rcp.h](../src/rcp.h),
+[INTEGRATION_NOTES](INTEGRATION_NOTES.md)):
+
+1. **Fire and forget the deadline.** `rcp_async_request(method, params, len, cb,
+   ctx)` builds + sends the request and returns immediately. We set a deadline
+   shorter than the beat so a lost reply times out before the next toggle:
+
+   ```c
+   rcp_set_async_timeout_ms(300);              /* < beat (500 ms) */
+   ```
+
+2. **Toggle on a clock, never on a reply.** The loop checks a millisecond clock;
+   when the beat is due it flips the value and fires the request — it does **not**
+   wait for the previous one:
+
+   ```c
+   if ((long)(GetTickCount() - nextToggle) >= 0) {
+       value = !value;
+       uint8_t p[16];
+       uint16_t n = rcp_enc_gpio_set(p, sizeof(p), handle, value);  /* SetGpio params */
+       rcp_async_request(0x1330, p, n, on_set_done, NULL);          /* returns at once */
+       nextToggle += beat;
+   }
+   rcp_async_poll();   /* drives replies + deadlines; the callback runs from HERE */
+   Sleep(2);           /* the rest of the superloop would go here */
+   ```
+
+3. **Handle the result in a short callback.** It runs **inline** from
+   `rcp_async_poll()` (single-thread — same strand, never concurrent), so it needs
+   no lock; it must stay short and must **not** call any `rcp_*` itself:
+
+   ```c
+   static void on_set_done(void *ctx, ReturnCode_t rc, const uint8_t *rx, uint16_t rxLen) {
+       if (rc == RT_OK)           g_ok++;
+       else if (rc == RT_TIMEOUT) g_to++;     /* deadline passed, no reply */
+       else                       g_err++;
+   }
+   ```
+
+The tool prints, at each toggle, **how many times the loop spun since the last
+one** — concrete proof the main loop kept running freely instead of parking on the
+network:
+
+```
+  PA02 -> ON   (loop spun 248 times since last toggle; ok=4 to=0 err=0)
+  PA02 -> OFF  (loop spun 249 times since last toggle; ok=5 to=0 err=0)
+```
+
+**Things to know:**
+
+- The `SetGpio` params for the async path are built with the small helper
+  `rcp_enc_gpio_set()` (added alongside `rcp_enc_spi2`/`rcp_enc_i2c_read`) — the
+  blocking `rcp_set_gpio()` does the same encoding internally.
+- Up to `RCP_ASYNC_MAX` (16) requests may be outstanding at once. Here only one is
+  ever in flight (300 ms deadline < 500 ms beat), but a faster `--beat` with a lossy
+  link could overlap a few — that is fine and is exactly why the deadline exists.
+- Setup (`OpenGpio`) and teardown (LED off) still use the simple **blocking** calls
+  — they are one-time and not in the hot loop, so there is nothing to gain from
+  making them async.
+- This is the loop shape an MCU port wants. Nothing here is Windows-specific except
+  `GetTickCount()`/`Sleep()`; on the MCU those become the lwIP/RTOS clock and yield
+  (see [PORTING.md](../PORTING.md)).
 
 ---
 

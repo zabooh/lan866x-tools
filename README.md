@@ -60,6 +60,7 @@ The tools (all build to `lan866x-<name>.exe`):
 | **`lan866x-gpio`** | set / read a GPIO pin |
 | **`lan866x-ledscan`** | interactively find which GPIO drives which on-board LED (→ JSON) |
 | **`lan866x-ledblink`** | on-board LED **running light** over SOME/IP — the "hello world" demo |
+| **`lan866x-ledtoggle`** | toggle one LED **non-blocking** (async RCP) — superloop-friendly demo |
 | **`lan866x-spi`** | SPI transfer (full-duplex) |
 | **`lan866x-adc`** | read the on-chip ADC (analog input or internal temperature) |
 | **`lan866x-pwm`** | drive a PWM output on a digital pin |
@@ -323,6 +324,7 @@ lan866x-tools/
 ├── gpio.c               GPIO set/read
 ├── ledscan.c            interactive GPIO->LED mapper (writes led_map.json)
 ├── ledblink.c           on-board LED running light over SOME/IP ("hello world")
+├── ledtoggle.c          non-blocking single-LED toggle (async RCP API)
 ├── spi.c                SPI transfer
 ├── adc.c                ADC read (analog / temperature)
 ├── pwm.c                PWM output

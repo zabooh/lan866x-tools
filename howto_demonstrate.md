@@ -335,6 +335,14 @@ scanner blinks each candidate and asks you yes/no, then writes `led_map.json`:
 out\lan866x-ledscan.exe --ip 192.168.0.54 --all
 ```
 
+There's also a **non-blocking** variant, `lan866x-ledtoggle`, which toggles one LED
+with the async RCP API so the loop never stalls on the network — the pattern an MCU
+superloop wants (see [docs/LEDDEMO.md §6.2](docs/LEDDEMO.md#62-non-blocking-variant--lan866x-ledtoggle)):
+
+```bat
+out\lan866x-ledtoggle.exe --ip 192.168.0.54
+```
+
 > The two user push-buttons (`BUTTON_1`/`BUTTON_2`) are on the LAN8680 front-end,
 > **not** on the MCU, so they can't be read over RCP — but each one drives its own
 > status LED in hardware, so pressing them is still visible. Full background:

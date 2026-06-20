@@ -318,6 +318,18 @@ bool rcp_dec_i2c_read(const uint8_t *rx, uint16_t rxLen, uint8_t *rd, uint16_t *
            SOMEIP_Parser_Read_BLOB(&rx[p], rxLen - p, &tag, rd, rdLen, &p);
 }
 
+uint16_t rcp_enc_gpio_set(uint8_t *buf, uint16_t cap, uint16_t handle, uint8_t value)
+{
+    uint16_t pl = 0u;
+    uint8_t triple[3];
+    triple[0] = (uint8_t)(handle >> 8);
+    triple[1] = (uint8_t)(handle & 0xFFu);
+    triple[2] = (uint8_t)(value ? 1u : 0u);
+    if (!SOMEIP_Generator_Fill_BLOB(0, triple, 3u, &buf[pl], (uint16_t)(cap - pl), &pl))
+        return 0u;
+    return pl;
+}
+
 /* --- discovery / lifecycle ---------------------------------------------- */
 uint8_t rcp_get_endpoints(rcp_endpoint_t *out, uint8_t maxOut)
 {
