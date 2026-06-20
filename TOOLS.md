@@ -310,6 +310,10 @@ Most SOME/IP tools share the same target-selection options:
 If neither `--ip` nor `--ep` is given, the tool runs **SOME/IP discovery** and uses the
 first endpoint it finds (README §5). Pins are given as the PA index (0–15).
 
+Discovery is **not** a fixed wait: the tool polls and proceeds **as soon as the selected
+endpoint answers** (usually tens of ms); the printed search window (`max N s`) is only the
+upper bound used when the target never replies.
+
 > **Host pacing note:** the PC drops RCP responses if requests are sent faster than it
 > can service them (the wire answers in ~2 ms, but a multi-homed NIC / scheduling can
 > miss back-to-back replies). Tools that do several round-trips space them out and

@@ -291,6 +291,12 @@ EP2 --OfferService: I am 192.168.0.102:6800 -->  PC
 
 **Target endpoint:** default is `[0]` (first found). Select with `--ip <addr>` or `--ep <index>`.
 
+> **Fast start:** the tools poll during discovery and return **the moment the requested
+> endpoint answers** (an `OfferService` typically arrives within tens of ms) instead of
+> always burning the full search window. The window (a few seconds) is only an upper
+> bound, hit when the target never replies — then the tool reports "No endpoints found"
+> (nothing offered `0xFF10`) or "Target endpoint not found" (others answered, not this one).
+
 > Multiple PC interfaces: the stub joins on all of them; responses arrive only over the **T1S interface** (`192.168.0.x`). Its NIC must have an IP in the endpoint subnet (chapter 2.4).
 
 ---
