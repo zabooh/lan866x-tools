@@ -5,7 +5,8 @@
 SOME/IP, via a T1S-to-USB adapter. Each tool is a small command-line program.
 
 Read this file first, then `README.md` (build/usage), `docs/INTEGRATION_NOTES.md`
-(the hard-won protocol/stack know-how), `PORTING.md` (MCU port), `TOOLS.md`.
+(the hard-won protocol/stack know-how), `docs/RCP_API.md` (the full `rcp.c` API
+reference), `PORTING.md` (MCU port), `TOOLS.md`.
 
 ## Constraints — do not violate
 - **Keep this repo private.** It bundles Microchip SLA001 vendor sources under
@@ -105,5 +106,7 @@ Param/reply helpers: `rcp_enc_spi2`/`rcp_dec_spi2`, `rcp_enc_i2c_read`/`rcp_dec_
 
 ## Method IDs
 Base table is in `README.md` §8; corrected/extra IDs and all encoding rules are in
-`docs/INTEGRATION_NOTES.md`. Authoritative source = the SOME/IP **dissector CSV**,
-not the integration-manual prose (which has typos).
+`docs/INTEGRATION_NOTES.md`. The full per-function `rcp_*` reference (method IDs,
+request/reply structs, return codes, WTLV encoding) is in `docs/RCP_API.md`.
+Authoritative source = the SOME/IP **dissector CSV**, not the integration-manual
+prose (which has typos).

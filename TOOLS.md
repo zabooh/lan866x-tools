@@ -666,8 +666,9 @@ state, persistency, BurstFramesPerTO, protocol version and all PLCA node ids.
 ## 5. Tool ↔ RCP method matrix
 
 Which RCP methods each SOME/IP tool exercises (service `0xFF10`; full ID list in
-[README §8](README.md#8-rcp-method-ids)). The DNCP tools use no RCP – they speak DNCP on
-UDP 65526/65527.
+[README §8](README.md#8-rcp-method-ids), and the per-function `rcp_*` API — request/reply
+structs + encoding — in [docs/RCP_API.md](docs/RCP_API.md)). The DNCP tools use no RCP –
+they speak DNCP on UDP 65526/65527.
 
 | Tool | Primary RCP methods |
 |---|---|

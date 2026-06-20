@@ -75,6 +75,11 @@ for (;;) {
 core are pulled in by the linker. See the `## Steps` and `plat.h` sections below
 for how `plat_lwip.c` bridges to lwIP and where it fits with FreeRTOS.
 
+> 📖 **API reference:** every `rcp_*` function your application calls — method IDs,
+> request/reply structs, return codes and the WTLV encoding rules — is documented in
+> [`docs/RCP_API.md`](docs/RCP_API.md), which also doubles as a from-scratch
+> re-implementation guide if you port to another language/transport.
+
 ### FreeRTOS + lwIP specifics (your stated platform)
 
 Because FreeRTOS and lwIP already exist, use the **RTOS variant** of the port

@@ -8,7 +8,8 @@
 
 > Companion docs: [howto_demonstrate.md](../howto_demonstrate.md) (how to run it
 > live), [TOOLS.md](../TOOLS.md#412-lan866x-clickdemo) (board setup, options),
-> [INTEGRATION_NOTES.md](INTEGRATION_NOTES.md) (the RCP/stack facts it relies on).
+> [INTEGRATION_NOTES.md](INTEGRATION_NOTES.md) (the RCP/stack facts it relies on),
+> [RCP_API.md](RCP_API.md) (the `rcp_*` calls it uses — `OpenSpi`, `WriteAndReadSpi2`, I²C).
 
 ---
 

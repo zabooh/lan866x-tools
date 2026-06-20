@@ -3,7 +3,8 @@
 Hard-won facts for driving the LAN866x **RCP** service directly on the C
 `libsomeip` stack (the `src/rcp.c` wrapper + a platform stub), bypassing the C++
 `liblan866x` client. All verified live against real endpoints. Pair with
-`CLAUDE.md` (constraints + gotcha summary) and `PORTING.md`.
+[`CLAUDE.md`](../CLAUDE.md) (constraints + gotcha summary), [`PORTING.md`](../PORTING.md)
+(MCU port) and [`docs/RCP_API.md`](RCP_API.md) (the per-function `rcp_*` API reference).
 
 ## Wire basics
 - Service id `0xFF10`, `clientId 0xaffe`, `interfaceVersion 1`.

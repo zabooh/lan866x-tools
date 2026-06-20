@@ -337,6 +337,7 @@ lan866x-tools/
 ├── docs/
 │   ├── img/             board photos + timing diagrams used by the docs
 │   ├── INTEGRATION_NOTES.md  RCP-on-libsomeip protocol/stack know-how
+│   ├── RCP_API.md       full rcp.c API reference (methods, structs, encoding)
 │   └── CLICKDEMO.md     clickdemo demo/software/timing deep-dive
 ├── README.md
 ├── TOOLS.md             board guide + full per-tool reference
@@ -381,6 +382,10 @@ Service `0xFF10`. **Verified** against the authoritative Microchip SOME/IP disse
 | WriteAndReadI2C | `0x1208` | | OnUartReceive (evt) | `0x8010` |
 
 > Note: the *Library Integration Manual* prose lists `OpenI2C = 0x0100` — that is a typo; the dissector table (and the live wire) use `0x1200`. Always trust the dissector CSV / `lan866x_common.h` over the prose.
+
+> 📖 **Per-function reference:** every `rcp_*` call — its method ID, request/reply
+> struct, field semantics and the WTLV encoding rules — is documented in
+> **[docs/RCP_API.md](docs/RCP_API.md)** (the reference for writing your own client).
 
 ---
 
