@@ -64,6 +64,7 @@ The tools (all build to `lan866x-<name>.exe`):
 | Tool (→ source) | Purpose |
 |---|---|
 | [`lan866x-discovery`](discovery.c) | list reachable endpoints + type + full `GetStatus` / `GetNetworkStatus` |
+| [`lan866x-servicetest`](servicetest.c) | probe which RCP methods/services the endpoint firmware implements |
 | [`lan866x-i2cscan`](i2cscan.c) | scan an endpoint's I2C bus (like `i2cdetect`) |
 | 🎓 [`lan866x-i2cid`](i2cid.c) | read a device ID over I2C **non-blocking** (VCNL4200) — [doc](docs/I2CDEMO.md) |
 | 🎓 [`lan866x-proxmon`](proxmon.c) | live proximity bar (VCNL4200) over I2C, non-blocking — [doc](docs/I2CDEMO.md) |
@@ -350,6 +351,7 @@ lan866x-tools/
 ├── build.bat            Windows build script (chapter 3)
 ├── CMakeLists.txt       C-only build: rcpcore lib + tool executables
 ├── discovery.c          list endpoints + full GetStatus/GetNetworkStatus
+├── servicetest.c        probe which RCP methods the firmware implements
 ├── i2cscan.c            I2C bus scanner
 ├── i2cid.c              non-blocking I2C device-ID read (VCNL4200 example)
 ├── proxmon.c            non-blocking live proximity monitor (VCNL4200)

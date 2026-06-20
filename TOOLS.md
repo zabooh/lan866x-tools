@@ -24,6 +24,7 @@ Companion document to the [README](README.md). It covers two things in depth:
 4. [Tool reference](#4-tool-reference)
    - 4.1 [Common options & behaviour](#41-common-options--behaviour)
    - 4.2 [`lan866x-discovery`](#42-lan866x-discovery)
+   - 4.2.1 [`lan866x-servicetest`](#421-lan866x-servicetest)
    - 4.3 [`lan866x-diag`](#43-lan866x-diag)
    - 4.4 [`lan866x-i2cscan`](#44-lan866x-i2cscan)
    - 4.4.1 [`lan866x-i2cid` / `lan866x-proxmon` / `lan866x-lan8680`](#441-lan866x-i2cid)
@@ -407,6 +408,36 @@ Endpoint #0  -  192.168.0.101:6800  (instance 0x0001, available=1)
 
 > Nothing found? driver installed · NIC IP `192.168.0.x` · bus terminated · endpoints
 > powered · firewall allowed.
+
+#### 4.2.1 `lan866x-servicetest`
+
+> 📄 Source: [servicetest.c](servicetest.c)
+
+**Probe which RCP methods/services the endpoint's firmware actually implements.**
+Different firmware builds expose different method sets (e.g. the Lighting build has
+no `OpenAdc`; a Control build does). For each known method ID it sends an **empty
+payload** and reads the SOME/IP return code:
+
+- `RT_UNKNOWN_METHOD` (**0x03**) → the method is **not implemented**;
+- **any other** code (usually `RT_MALFORMED_MESSAGE` 0x09, because the params were
+  empty) → the **handler exists**.
+
+```bat
+out\lan866x-servicetest.exe --ip 192.168.0.50
+out\lan866x-servicetest.exe --unsafe          REM also probe Reboot/Update methods
+```
+
+| Option | Meaning |
+|---|---|
+| `--unsafe` | also probe the Reboot / firmware-update methods (still empty-payload only) |
+| `--ip` / `--ep` | target endpoint |
+
+**Safe by design:** the firmware looks up the method ID first and rejects the
+empty/malformed payload *before* executing anything, so the probe has no side
+effects. The genuinely destructive methods (Reboot `0x1000`, StartUpdate `0x1004`,
+WriteImage `0x1005`, FinishUpdate `0x1006`) are **skipped unless `--unsafe`**. It
+probes the System, GPIO, I²C, SPI, UART, ADC and PWM method groups and prints a
+per-method verdict plus a present/absent summary.
 
 ### 4.3 `lan866x-diag`
 
@@ -901,6 +932,7 @@ they speak DNCP on UDP 65526/65527.
 | Tool | Primary RCP methods |
 |---|---|
 | `discovery` | GetStatus `0x1002`, GetNetworkStatus `0x1600` |
+| `servicetest` | sends every known method ID with empty params (async); reads the return code (0x03=absent) |
 | `diag` | GetStatus, GetNetworkStatus, ReadDiagnosisData `0x1003` + active probe |
 | `i2cscan` | ReleaseDigitalPins `0x1105`, OpenI2C `0x1200`, ReadI2C `0x1220` |
 | `i2cid` | OpenI2C `0x1200`, WriteAndReadI2C `0x1208` **async**, CloseI2C `0x1202` |
