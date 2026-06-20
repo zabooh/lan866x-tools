@@ -22,16 +22,64 @@
  * Ctrl-C to stop (clears both displays first).
  */
 
-#include <winsock2.h>     /* before any windows.h pulled in by tool_common.h */
-#include <ws2tcpip.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <signal.h>
 #include "rcp.h"
-#include "tool_common.h"
-#include <mmsystem.h>     /* timeBeginPeriod: 1 ms scheduler tick for snappy I/O */
+#include "plat.h"
+#include "tool_common.h"   /* pulls in <windows.h> on Win32 */
 
 uint8_t MULTICAST_IP[] = { 224, 0, 0, 1 };
+
+/* --- clickdemo platform glue --------------------------------------------- *
+ * The render/sensor loop below is platform-neutral (it uses only rcp_* and the
+ * plat_* layer). The handful of host specifics it still needs - a 1 ms
+ * scheduler tick, console QuickEdit handling, and the high-resolution /
+ * wall-clock timing for the event log - are isolated here behind #ifdef _WIN32,
+ * with portable plat_now_ms() fallbacks for any other (e.g. MCU) target. */
+#ifdef _WIN32
+#include <mmsystem.h>     /* timeBeginPeriod: 1 ms scheduler tick for snappy I/O */
+static LARGE_INTEGER s_qpcFreq, s_qpcStart;
+static void clk_timing_init(void) { QueryPerformanceFrequency(&s_qpcFreq); QueryPerformanceCounter(&s_qpcStart); }
+static void clk_sched_begin(void) { timeBeginPeriod(1); }
+static void clk_sched_end(void)   { timeEndPeriod(1); }
+static void clk_console_raw(void)
+{
+    /* Disable console QuickEdit: a stray click/selection otherwise PAUSES the
+     * whole process (a multi-100 ms video freeze). Keep extended flags. */
+    HANDLE hIn = GetStdHandle(STD_INPUT_HANDLE);
+    DWORD cmode = 0;
+    if (GetConsoleMode(hIn, &cmode))
+        SetConsoleMode(hIn, (cmode & ~0x0040u) | 0x0080u); /* ~ENABLE_QUICK_EDIT | ENABLE_EXTENDED_FLAGS */
+}
+static double clk_epoch(void)   /* UTC seconds since 1970 (== tshark frame.time_epoch) */
+{
+    FILETIME ft; ULARGE_INTEGER u;
+    GetSystemTimeAsFileTime(&ft);
+    u.LowPart = ft.dwLowDateTime; u.HighPart = ft.dwHighDateTime;
+    return (double)(u.QuadPart - 116444736000000000ULL) / 1.0e7;
+}
+static double clk_relms(void)   /* monotonic ms since start (sub-ms resolution) */
+{
+    LARGE_INTEGER c; QueryPerformanceCounter(&c);
+    return (double)(c.QuadPart - s_qpcStart.QuadPart) * 1000.0 / (double)s_qpcFreq.QuadPart;
+}
+static uint32_t clk_us10(void)  /* RTP timestamp tick: 1/10 microsecond units */
+{
+    LARGE_INTEGER f, c;
+    QueryPerformanceFrequency(&f);
+    QueryPerformanceCounter(&c);
+    return (uint32_t)(((c.QuadPart * 1000000ULL) / (uint64_t)f.QuadPart) / 10ULL);
+}
+#else
+static void     clk_timing_init(void) { }
+static void     clk_sched_begin(void) { }
+static void     clk_sched_end(void)   { }
+static void     clk_console_raw(void)  { }
+static double   clk_epoch(void) { return (double)plat_now_ms() / 1000.0; }
+static double   clk_relms(void) { return (double)plat_now_ms(); }
+static uint32_t clk_us10(void)  { return plat_now_ms() * 100u; }
+#endif
 
 /* --- frame / RTP -------------------------------------------------------- */
 #define X_RES       20
@@ -57,12 +105,17 @@ uint8_t MULTICAST_IP[] = { 224, 0, 0, 1 };
 #define VCNL4200_ID_REG      0x0Eu
 
 static uint8_t  s_fb[Y_RES][X_RES][3];
-static SOCKET   s_rtp = INVALID_SOCKET;
+static plat_udp_t *s_rtp = NULL;          /* send-only RTP stream to the displays */
 static uint8_t  s_ip[4];
 static uint32_t s_seq = 0, s_ssrc = 0;
 static volatile int s_run = 1;
 
 static void on_sigint(int sig) { (void)sig; s_run = 0; }
+
+/* RTP is send-only; plat_udp_open needs an rx callback, so give it a no-op one. */
+static void rtp_rx(plat_udp_t *s, const uint8_t ip[4], uint16_t port,
+                   const uint8_t *buf, uint16_t len, void *tag)
+{ (void)s; (void)ip; (void)port; (void)buf; (void)len; (void)tag; }
 
 /* --- event log ----------------------------------------------------------- *
  * One CSV row per event, with the UTC epoch (== tshark frame.time_epoch, so it
@@ -72,35 +125,14 @@ static void on_sigint(int sig) { (void)sig; s_run = 0; }
  * response on the wire means the Windows host dropped that reply (gotcha #4).
  * Columns: epoch,rel_ms,event,sid,v1,v2,rc,lat_ms                            */
 static FILE *s_log = NULL;
-static LARGE_INTEGER s_qpcFreq, s_qpcStart;
 
-static double log_epoch(void)   /* UTC seconds since 1970 (~sub-ms resolution) */
-{
-    FILETIME ft; ULARGE_INTEGER u;
-    GetSystemTimeAsFileTime(&ft);
-    u.LowPart = ft.dwLowDateTime; u.HighPart = ft.dwHighDateTime;
-    return (double)(u.QuadPart - 116444736000000000ULL) / 1.0e7;
-}
-static double log_relms(void)   /* monotonic ms since start */
-{
-    LARGE_INTEGER c; QueryPerformanceCounter(&c);
-    return (double)(c.QuadPart - s_qpcStart.QuadPart) * 1000.0 / (double)s_qpcFreq.QuadPart;
-}
 static void elog(const char *ev, unsigned sid, int v1, int v2, int rc, double lat)
 {
     char line[160]; int n;
     if (!s_log) return;
     n = snprintf(line, sizeof(line), "%.6f,%.3f,%s,%u,%d,%d,%d,%.3f\n",
-                 log_epoch(), log_relms(), ev, sid, v1, v2, rc, lat);
+                 clk_epoch(), clk_relms(), ev, sid, v1, v2, rc, lat);
     if (n > 0) fputs(line, s_log);   /* single write = atomic under the CRT FILE lock */
-}
-
-static uint32_t now_us10(void)
-{
-    LARGE_INTEGER f, c;
-    QueryPerformanceFrequency(&f);
-    QueryPerformanceCounter(&c);
-    return (uint32_t)(((c.QuadPart * 1000000ULL) / (uint64_t)f.QuadPart) / 10ULL);
 }
 
 /* --- RTP/RFC4175: send columns [x0 .. x0+w) of the frame in one packet ----
@@ -111,8 +143,7 @@ static void rtp_send_region(int x0, int w)
 {
     uint8_t pkt[64 + Y_RES * 6 + Y_RES * X_RES * 3];
     int n = 0, x, y;
-    uint32_t ts = now_us10();
-    struct sockaddr_in dst;
+    uint32_t ts = clk_us10();
 
     pkt[n++] = 0x80;                                  /* V=2, no pad/ext/cc   */
     pkt[n++] = (uint8_t)(0x80u | (RTP_TYPE & 0x7Fu)); /* marker + payload type*/
@@ -136,12 +167,7 @@ static void rtp_send_region(int x0, int w)
             pkt[n++] = s_fb[y][x][0]; pkt[n++] = s_fb[y][x][1]; pkt[n++] = s_fb[y][x][2];
         }
 
-    memset(&dst, 0, sizeof(dst));
-    dst.sin_family = AF_INET;
-    dst.sin_port = htons(RTP_PORT);
-    dst.sin_addr.s_addr = (uint32_t)s_ip[0] | ((uint32_t)s_ip[1] << 8) |
-                          ((uint32_t)s_ip[2] << 16) | ((uint32_t)s_ip[3] << 24);
-    sendto(s_rtp, (const char *)pkt, n, 0, (struct sockaddr *)&dst, sizeof(dst));
+    plat_udp_send(s_rtp, s_ip, RTP_PORT, pkt, (uint16_t)n);
     s_seq++;
 }
 static void rtp_send(void) { rtp_send_region(0, X_RES); }   /* full frame (clear on exit) */
@@ -158,7 +184,7 @@ static int spi_setup(void)
     rel.PinIdList[p++] = SPI_MISO; rel.PinIdList[p++] = SPI_SCK;
     rel.PinIdList[p++] = SPI_CS;   rel.PinIdList[p++] = SPI_MOSI;
     rel.PinIdListLength = p; rcp_release_digital_pins(&rel);
-    Sleep(25);   /* space requests: back-to-back, the host drops the 2nd reply */
+    plat_sleep_ms(25);   /* space requests: back-to-back, the host drops the 2nd reply */
     ov.PinIdMiso = SPI_MISO; ov.PinIdSck = SPI_SCK; ov.PinIdCs = SPI_CS;
     ov.PinIdMosi = SPI_MOSI; ov.Mode = 1;
     ov.ClockSpeed = 1923000u;  /* compound works at any supported clock */
@@ -179,7 +205,7 @@ static int i2c_setup(void)
     memset(&ov, 0, sizeof(ov)); memset(&orep, 0, sizeof(orep));
     rel.PinIdList[0] = I2C_SDA; rel.PinIdList[1] = I2C_SCL; rel.PinIdListLength = 2;
     rcp_release_digital_pins(&rel);
-    Sleep(25);   /* space requests: back-to-back, the host drops the 2nd reply */
+    plat_sleep_ms(25);   /* space requests: back-to-back, the host drops the 2nd reply */
     ov.PinIdSda = I2C_SDA; ov.PinIdScl = I2C_SCL; ov.ClockSpeed = 1; /* 400 kHz */
     s_i2cWid = 0; s_proxInit = 0;
     if (rcp_open_i2c(&ov, &orep) != RT_OK) { s_i2c = UINT16_MAX; return 0; }
@@ -218,13 +244,13 @@ static int vcnl4200_init(void)
      * datasheet), 1 multi-pulse (default, fastest), IT 1.5T (short = fast),
      * 16-bit output. Active-force stays OFF (continuous measurement). */
     b[0] = VCNL4200_PS_CONF1; b[1] = 0x02 | 0x00; b[2] = 0x08;  /* IT_1.5T | DUTY_1_160 ; PS_HD 16-bit */
-    Sleep(25); if (!i2c_write(b, 3)) return 0;
+    plat_sleep_ms(25); if (!i2c_write(b, 3)) return 0;
     /* PS_CONF3/MS: sunlight cancel enable ; LED 200 mA (max IR, keeps signal up at short IT) */
     b[0] = VCNL4200_PS_CONF3; b[1] = 0x01; b[2] = 0x07;  /* LED_I_200mA */
-    Sleep(25); if (!i2c_write(b, 3)) return 0;
+    plat_sleep_ms(25); if (!i2c_write(b, 3)) return 0;
     /* ALS_CONF: enabled */
     b[0] = VCNL4200_ALS_CONF; b[1] = 0x00; b[2] = 0x00;
-    Sleep(25); if (!i2c_write(b, 3)) return 0;
+    plat_sleep_ms(25); if (!i2c_write(b, 3)) return 0;
     return 1;
 }
 
@@ -289,9 +315,9 @@ static void on_thumb(void *ctx, ReturnCode_t rc, const uint8_t *rx, uint16_t rxL
             s_ty = (uint16_t)(((r0[1] << 8) | r0[2]) & 0x0FFF);   /* ch0 = Y */
             s_tx = (uint16_t)(((r1[1] << 8) | r1[2]) & 0x0FFF);   /* ch1 = X */
             s_thumbOk = 1;
-            elog("THUMB_RSP", s_thumbSid, s_tx, s_ty, rc, log_relms() - s_thumbReqMs);
-        } else { s_thumbOk = 0; elog("THUMB_BAD", s_thumbSid, 0, 0, rc, log_relms() - s_thumbReqMs); }
-    } else { s_thumbOk = 0; elog("THUMB_TMO", s_thumbSid, 0, 0, rc, log_relms() - s_thumbReqMs); }
+            elog("THUMB_RSP", s_thumbSid, s_tx, s_ty, rc, clk_relms() - s_thumbReqMs);
+        } else { s_thumbOk = 0; elog("THUMB_BAD", s_thumbSid, 0, 0, rc, clk_relms() - s_thumbReqMs); }
+    } else { s_thumbOk = 0; elog("THUMB_TMO", s_thumbSid, 0, 0, rc, clk_relms() - s_thumbReqMs); }
     s_thumbPending = 0;
 }
 static void on_prox(void *ctx, ReturnCode_t rc, const uint8_t *rx, uint16_t rxLen)
@@ -302,9 +328,9 @@ static void on_prox(void *ctx, ReturnCode_t rc, const uint8_t *rx, uint16_t rxLe
         if (rcp_dec_i2c_read(rx, rxLen, d, &l) && l >= 2) {
             s_prox = (uint16_t)(d[0] | (d[1] << 8));             /* VCNL4200 LSB first */
             s_proxOk = 1;
-            elog("PROX_RSP", s_proxSid, s_prox, 0, rc, log_relms() - s_proxReqMs);
-        } else { s_proxOk = 0; elog("PROX_BAD", s_proxSid, 0, 0, rc, log_relms() - s_proxReqMs); }
-    } else { s_proxOk = 0; elog("PROX_TMO", s_proxSid, 0, 0, rc, log_relms() - s_proxReqMs); }
+            elog("PROX_RSP", s_proxSid, s_prox, 0, rc, clk_relms() - s_proxReqMs);
+        } else { s_proxOk = 0; elog("PROX_BAD", s_proxSid, 0, 0, rc, clk_relms() - s_proxReqMs); }
+    } else { s_proxOk = 0; elog("PROX_TMO", s_proxSid, 0, 0, rc, clk_relms() - s_proxReqMs); }
     s_proxPending = 0;
 }
 
@@ -318,7 +344,7 @@ static int fire_thumb(void)
     uint16_t pl;
     if (s_spi == UINT16_MAX || s_thumbPending) return 0;
     pl = rcp_enc_spi2(params, sizeof(params), s_spi, s_spiWid++, c0, 3, c1, 3, 3, 3);
-    s_thumbReqMs = log_relms(); s_thumbPending = 1;
+    s_thumbReqMs = clk_relms(); s_thumbPending = 1;
     if (pl && rcp_async_request(0x1509u, params, pl, on_thumb, NULL) == RT_OK) {
         s_thumbSid = rcp_async_last_sid();
         elog("THUMB_REQ", s_thumbSid, 0, 0, 0, 0.0);
@@ -332,7 +358,7 @@ static int fire_prox(void)
     uint16_t pl;
     if (!s_proxInit || s_proxPending) return 0;
     pl = rcp_enc_i2c_read(params, sizeof(params), s_i2c, VCNL4200_ADDR, s_i2cWid++, &reg, 1, 2);
-    s_proxReqMs = log_relms(); s_proxPending = 1;
+    s_proxReqMs = clk_relms(); s_proxPending = 1;
     if (pl && rcp_async_request(0x1208u, params, pl, on_prox, NULL) == RT_OK) {
         s_proxSid = rcp_async_last_sid();
         elog("PROX_REQ", s_proxSid, 0, 0, 0, 0.0);
@@ -347,7 +373,6 @@ int main(int argc, char **argv)
     const char *logPath = "clickdemo-events.csv";
     int wantEp = 0, i, fps = 50, sel, bright = 128, proxMax = 400, barBlue = 64;
     rcp_endpoint_t eps[RCP_MAX_ENDPOINTS];
-    WSADATA wsa;
 
     for (i = 1; i < argc; ++i) {
         if (!strcmp(argv[i], "-h") || !strcmp(argv[i], "--help")) {
@@ -382,8 +407,7 @@ int main(int argc, char **argv)
            s_ip[0], s_ip[1], s_ip[2], s_ip[3], RTP_PORT, fps);
 
     /* event log: epoch lines up with the Wireshark capture (frame.time_epoch) */
-    QueryPerformanceFrequency(&s_qpcFreq);
-    QueryPerformanceCounter(&s_qpcStart);
+    clk_timing_init();
     if (logPath) {
         s_log = fopen(logPath, "w");
         if (s_log) {
@@ -392,32 +416,26 @@ int main(int argc, char **argv)
         } else printf("  WARN: could not open log file %s\n", logPath);
     }
 
-    if (WSAStartup(MAKEWORD(2, 2), &wsa) != 0) { printf("WSAStartup failed\n"); return 3; }
-    s_rtp = socket(AF_INET, SOCK_DGRAM, IPPROTO_UDP);
-    if (s_rtp == INVALID_SOCKET) { printf("socket failed\n"); return 3; }
-    s_ssrc = (uint32_t)GetTickCount();
-    signal(SIGINT, on_sigint);
-    timeBeginPeriod(1);                       /* 1 ms scheduler tick */
-
-    /* Disable console QuickEdit: a stray click/selection in the window otherwise
-     * PAUSES the whole process (a multi-100 ms video freeze). Keep extended flags. */
     {
-        HANDLE hIn = GetStdHandle(STD_INPUT_HANDLE);
-        DWORD cmode = 0;
-        if (GetConsoleMode(hIn, &cmode))
-            SetConsoleMode(hIn, (cmode & ~0x0040u) | 0x0080u); /* ~ENABLE_QUICK_EDIT | ENABLE_EXTENDED_FLAGS */
+        uint16_t rtpPort = 0;     /* ephemeral local port; the RTP stream is send-only */
+        s_rtp = plat_udp_open(&rtpPort, rtp_rx, NULL);
+        if (!s_rtp) { printf("RTP socket failed\n"); return 3; }
     }
+    s_ssrc = plat_now_ms();
+    signal(SIGINT, on_sigint);
+    clk_sched_begin();    /* 1 ms scheduler tick   (Win32; no-op on other targets) */
+    clk_console_raw();    /* disable console QuickEdit (Win32; no-op on other targets) */
 
     /* One-time, blocking setup of the two peripherals (fine to block here).
      * Generous timeout + retries + small gaps: the open/init sequence is several
      * back-to-back round-trips and the host occasionally drops a reply. */
     rcp_set_timeout_ms(600); rcp_set_retries(2);
-    for (i = 0; i < 5 && s_spi == UINT16_MAX; ++i) { spi_setup(); if (s_spi == UINT16_MAX) Sleep(50); }
-    Sleep(40);   /* gap before the I2C open so its reply isn't dropped after SPI's */
+    for (i = 0; i < 5 && s_spi == UINT16_MAX; ++i) { spi_setup(); if (s_spi == UINT16_MAX) plat_sleep_ms(50); }
+    plat_sleep_ms(40);   /* gap before the I2C open so its reply isn't dropped after SPI's */
     for (i = 0; i < 5 && !s_proxInit; ++i) {
         if (s_i2c == UINT16_MAX) i2c_setup();
         if (s_i2c != UINT16_MAX) s_proxInit = vcnl4200_init();
-        if (!s_proxInit) Sleep(50);
+        if (!s_proxInit) plat_sleep_ms(50);
     }
     printf("  setup: thumbstick(SPI)=%s  proximity(I2C/VCNL4200)=%s\n",
            s_spi != UINT16_MAX ? "OK" : "FAILED", s_proxInit ? "OK" : "FAILED");
@@ -427,10 +445,10 @@ int main(int argc, char **argv)
      * render both halves from the LATEST async sensor values and send one RTP
      * frame FIRST, then fire ONE sensor read (alternating thumbstick/proximity so
      * the two never go out back-to-back -> the host can't drop one of two replies).
-     * Read replies land asynchronously on the rx thread and update the shared
-     * state whenever they arrive. Because rtp_send() no longer sits behind any
-     * blocking read, an occasional ~150 ms Windows scheduler stall in this loop
-     * can no longer freeze the video - the next tick just carries on.
+     * Read replies are delivered synchronously by rcp_async_poll() (single-thread)
+     * and update the shared state when they arrive. Because rtp_send() no longer
+     * sits behind any blocking read, an occasional ~150 ms Windows scheduler stall
+     * in this loop can no longer freeze the video - the next tick just carries on.
      * (The old scheme blocked on each read + a Sleep(12) between them; a stalled
      *  Sleep then froze the whole pipeline incl. the video -> the visible hitch.) */
     /* Async deadline. The T1S wire answers in ~3-4 ms, but the host's rx-dispatch
@@ -443,7 +461,7 @@ int main(int argc, char **argv)
     rcp_set_async_timeout_ms(70);
     {
         unsigned tick = 0;
-        DWORD lastPrint = 0;
+        uint32_t lastPrint = 0;
         while (s_run) {
             /* render from the latest values, then send the frame (steady cadence) */
             thumb_spot(s_tx, s_ty, bright);    /* display 1 (left): orange spot   */
@@ -467,7 +485,7 @@ int main(int argc, char **argv)
             /* throttle the console to ~10 Hz: WriteConsole can stall the loop for
              * tens of ms, which used to surface as a video hitch. */
             {
-                DWORD now = GetTickCount();
+                uint32_t now = plat_now_ms();
                 if (now - lastPrint >= 100u) {
                     printf("\r  Thumbstick x=%4u y=%4u %s | Proximity raw=%5u %s   ",
                            s_tx, s_ty, s_thumbOk ? "  " : "..", s_prox, s_proxOk ? "  " : "..");
@@ -475,18 +493,18 @@ int main(int argc, char **argv)
                     lastPrint = now;
                 }
             }
-            Sleep((DWORD)(1000 / fps));   /* frame cadence */
+            plat_sleep_ms((uint32_t)(1000 / fps));   /* frame cadence */
         }
     }
 
     /* clear both displays and release the peripherals */
     printf("\nStopping - clearing displays ...\n");
     memset(s_fb, 0, sizeof(s_fb));
-    rtp_send(); Sleep(30); rtp_send();
+    rtp_send(); plat_sleep_ms(30); rtp_send();
     if (s_spi != UINT16_MAX) { CloseSpiVar_t c; c.HandleSpi = s_spi; rcp_close_spi(&c); }
     if (s_i2c != UINT16_MAX) { CloseI2CVar_t c; c.HandleI2C = s_i2c; rcp_close_i2c(&c); }
     if (s_log) { elog("STOP", 0, 0, 0, 0, 0.0); fclose(s_log); s_log = NULL; }
-    timeEndPeriod(1);
-    closesocket(s_rtp); WSACleanup();
+    clk_sched_end();
+    plat_udp_close(s_rtp);
     return 0;
 }

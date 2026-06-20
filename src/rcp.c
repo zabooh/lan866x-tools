@@ -14,6 +14,8 @@
  */
 #include "rcp.h"
 #include "someip.h"
+#include "someip_stub.h"   /* someip_service(): synchronous RX + SD pump (single-thread) */
+#include "plat.h"          /* plat_sleep_ms(): the only platform call rcp.c needs */
 #include <string.h>
 
 #define MAXP  SOMEIP_TRANSMIT_MAX_PAYLOAD_LEN
@@ -32,16 +34,20 @@ static uint32_t       s_timeoutMs = 1500u;   /* per-attempt response timeout */
 static uint8_t        s_retries   = 3u;      /* extra attempts on RT_TIMEOUT  */
 static uint16_t       s_chunk     = 1200u;   /* WriteImage chunk size (<=1200) */
 
-static volatile bool                   s_done = false;
-static volatile uint16_t               s_waitSid = 0u;  /* session currently awaited */
-static volatile enum SOMEIP_ReturnCode s_rc   = SOMEIP_E_TIMEOUT;
+/* Single-thread model: responses are dispatched SYNCHRONOUSLY from
+ * someip_service() (called by rcp_poll()/rcp_async_poll()), on the same and
+ * only execution strand as the waiting code. No RX thread exists, so this
+ * shared state needs no volatile/atomic/lock. */
+static bool                   s_done = false;
+static uint16_t               s_waitSid = 0u;  /* session currently awaited */
+static enum SOMEIP_ReturnCode s_rc   = SOMEIP_E_TIMEOUT;
 static uint8_t  s_rx[MAXP];
 static uint16_t s_rxLen = 0u;
 static uint8_t  s_scratch[MAXP];             /* request-parameter scratch     */
 
 /* --- asynchronous (non-blocking) request slots -------------------------- */
 static struct {
-    volatile uint16_t sid;                       /* 0 = free */
+    uint16_t          sid;                       /* 0 = free */
     rcp_async_cb      cb;
     void             *ctx;
     struct SOMEIP_Transmit_Buffer *tb;
@@ -49,14 +55,6 @@ static struct {
 } s_async[RCP_ASYNC_MAX];
 static uint32_t s_asyncTimeoutMs = 150u;
 static uint16_t s_lastAsyncSid = 0u;   /* SOME/IP session id of the last queued async request */
-
-#ifdef _WIN32
-#  include <windows.h>
-#  define NAP() Sleep(2)
-#else
-#  include <time.h>
-#  define NAP() do{ struct timespec t={0,2000000L}; nanosleep(&t,0);}while(0)
-#endif
 
 /* --- discovery event callback (mirrors OnSomeIpEvent) ------------------- */
 static void on_event(enum SOMEIP_CB_Event evnt, struct SOMEIP_Server_Client *pSC,
@@ -158,16 +156,15 @@ static ReturnCode_t rcp_attempt(uint16_t methodId, const uint8_t *params, uint16
         SOMEIP_Transmit_ReleaseBufferOnError(s_tr, tb); return RT_SEND_ERROR;
     }
     start = SOMEIP_CB_GetTimeMS();
-    while (!s_done && (SOMEIP_CB_GetTimeMS() - start) < s_timeoutMs) { rcp_poll(); NAP(); }
+    while (!s_done && (SOMEIP_CB_GetTimeMS() - start) < s_timeoutMs) { rcp_poll(); plat_sleep_ms(2u); }
     if (!s_done) {
         /* Give up on this buffer: free its slot (ipV4Addr=0) and detach its
          * callback so a late response or the transmit layer's own timeout
-         * cannot complete a later request's wait. */
-        SOMEIP_CB_EnterCriticialSection();
+         * cannot complete a later request's wait. (Single-thread: no lock
+         * needed - nothing runs concurrently with this.) */
         s_waitSid = 0u;
         tb->callback = NULL;
         tb->ipV4Addr[0] = 0u;
-        SOMEIP_CB_LeaveCriticialSection();
         return RT_TIMEOUT;
     }
     return (ReturnCode_t)s_rc;   /* SOMEIP_E_OK == 0 == RT_OK */
@@ -197,10 +194,10 @@ static void on_async_response(struct SOMEIP_Transmit_Buffer *pBuf, bool ok,
 {
     int i; rcp_async_cb cb = NULL; void *ctx = NULL;
     if (!pBuf) return;
-    /* The transmit layer invokes this WHILE holding SOMEIP_CB critsec (a
-     * NON-reentrant semaphore - someip-transmit.c ReceivedResponse/CheckTimers).
-     * We must NOT take it again here (that self-deadlocks the rx thread). The
-     * slot table is already serialized by the caller's held lock. */
+    /* Single-thread: the transmit layer invokes this synchronously from
+     * SOMEIP_Transmit_ReceivedResponse()/CheckTimers(), which run inside
+     * someip_service()/rcp_async_poll() on the only execution strand. No lock
+     * is needed to touch the slot table, and no rx-thread can run it. */
     for (i = 0; i < RCP_ASYNC_MAX; ++i)
         if (s_async[i].sid != 0u && s_async[i].sid == pBuf->waitForSessionId) {
             cb = s_async[i].cb; ctx = s_async[i].ctx; s_async[i].sid = 0u; break;
@@ -216,9 +213,7 @@ ReturnCode_t rcp_async_request(uint16_t methodId, const uint8_t *params, uint16_
     uint16_t consumed = 0u, sid;
     int slot = -1, i;
     if (s_sel >= s_epCount) return RT_INTERNAL_ERROR;
-    SOMEIP_CB_EnterCriticialSection();
     for (i = 0; i < RCP_ASYNC_MAX; ++i) if (s_async[i].sid == 0u) { slot = i; break; }
-    SOMEIP_CB_LeaveCriticialSection();
     if (slot < 0) return RT_INTERNAL_ERROR;          /* too many outstanding */
     tb = SOMEIP_Transmit_GetBuffer(s_tr);
     if (!tb) return RT_INTERNAL_ERROR;
@@ -243,12 +238,10 @@ ReturnCode_t rcp_async_request(uint16_t methodId, const uint8_t *params, uint16_
     tb->udpPort = s_eps[s_sel].port;
     memcpy(tb->ipV4Addr, s_eps[s_sel].ip, 4);
     /* publish the slot before sending so a fast rx response is matched */
-    SOMEIP_CB_EnterCriticialSection();
     s_async[slot].cb = cb; s_async[slot].ctx = ctx; s_async[slot].tb = tb;
     s_async[slot].sentMs = SOMEIP_CB_GetTimeMS(); s_async[slot].sid = sid;
-    SOMEIP_CB_LeaveCriticialSection();
     if (!SOMEIP_Transmit_Send(s_tr, tb)) {
-        SOMEIP_CB_EnterCriticialSection(); s_async[slot].sid = 0u; SOMEIP_CB_LeaveCriticialSection();
+        s_async[slot].sid = 0u;
         SOMEIP_Transmit_ReleaseBufferOnError(s_tr, tb); return RT_SEND_ERROR;
     }
     s_lastAsyncSid = sid;
@@ -263,19 +256,18 @@ void rcp_async_poll(void)
 {
     int i;
     uint32_t now = SOMEIP_CB_GetTimeMS();
+    someip_service();            /* drive synchronous RX + SD pump each poll (single-thread) */
     SOMEIP_Transmit_CheckTimers();
     for (i = 0; i < RCP_ASYNC_MAX; ++i) {
         rcp_async_cb cb = NULL; void *ctx = NULL;
-        SOMEIP_CB_EnterCriticialSection();
         if (s_async[i].sid != 0u && (now - s_async[i].sentMs) >= s_asyncTimeoutMs) {
             cb = s_async[i].cb; ctx = s_async[i].ctx;
             s_async[i].sid = 0u;   /* free the slot; the transmit buffer is reclaimed
                                     * by the transmit layer's own timeout or a late
-                                    * reply (which finds no slot and is ignored). Do
-                                    * NOT poke the buffer here - that can race the
-                                    * transmit layer and wedge the poll. */
+                                    * reply (which finds no slot and is ignored). Leave
+                                    * the buffer alone here - the transmit layer owns
+                                    * its lifecycle. */
         }
-        SOMEIP_CB_LeaveCriticialSection();
         if (cb) cb(ctx, RT_TIMEOUT, NULL, 0u);
     }
 }
@@ -357,7 +349,7 @@ bool rcp_init(const uint8_t localIfIP[4])
     return SOMEIP_Client_AddService(&svc, true, false);
 }
 
-void rcp_poll(void) { SOMEIP_Transmit_CheckTimers(); }
+void rcp_poll(void) { someip_service(); SOMEIP_Transmit_CheckTimers(); }
 bool rcp_is_ready(void) { return s_epCount > 0u; }
 void rcp_set_timeout_ms(uint32_t ms) { s_timeoutMs = ms ? ms : 1u; }
 void rcp_set_retries(uint8_t n) { s_retries = n; }

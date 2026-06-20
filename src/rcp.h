@@ -54,13 +54,14 @@ void rcp_set_chunk(uint16_t n);
 
 /* --- Asynchronous (non-blocking) requests -------------------------------- *
  * rcp_async_request() builds + sends a request and returns immediately. The
- * reply payload (or RT_TIMEOUT) is delivered later to cb - from the rx thread
- * when the response arrives, or from rcp_async_poll() once the deadline passes.
+ * reply payload (or RT_TIMEOUT) is delivered later to cb - synchronously from
+ * rcp_async_poll() (single-thread: it both pumps the RX and fires the deadline,
+ * so the callback always runs on the caller's strand, never concurrently).
  * Call rcp_async_poll() periodically to drive completions and timeouts. Lets a
  * fixed-rate loop (e.g. a video stream) keep running while sensor reads are in
  * flight, instead of blocking on each round-trip. Up to RCP_ASYNC_MAX may be
- * outstanding. The callback may run on another thread - keep it short and store
- * results in volatile/atomic variables. */
+ * outstanding. The callback runs inline on the polling strand - keep it short;
+ * no volatile/atomic/lock is needed for the state it touches. */
 #define RCP_ASYNC_MAX 16
 typedef void (*rcp_async_cb)(void *ctx, ReturnCode_t rc, const uint8_t *rx, uint16_t rxLen);
 ReturnCode_t rcp_async_request(uint16_t methodId, const uint8_t *params, uint16_t paramLen,

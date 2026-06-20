@@ -10,10 +10,14 @@ project(lan866x_tools C)
 
 # --- shared C core: SOME/IP stack + RCP wrapper + Windows platform stub -----
 file(GLOB SOMEIP_C_CORE ${CMAKE_CURRENT_SOURCE_DIR}/libepmicrochip/libsomeip/src/*.c)
+#   Single-thread platform layer: the platform-neutral SOME/IP stub
+#   (src/someip_stub.c) on top of the narrow plat.h, with one impl per platform
+#   (src/plat_win.c). Replaces the old threaded someip_stub_win.c +
+#   windows-udp-handler.c (still on disk, no longer built).
 add_library(rcpcore STATIC
     src/rcp.c
-    src/someip_stub_win.c
-    libepmicrochip/libsomeip/stub/windows-udp-handler.c
+    src/someip_stub.c
+    src/plat_win.c
     ${SOMEIP_C_CORE})
 target_include_directories(rcpcore PUBLIC
     ${CMAKE_CURRENT_SOURCE_DIR}/src

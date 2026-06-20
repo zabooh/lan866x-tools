@@ -1,6 +1,28 @@
-# Porting to MCU32 (lwIP + FreeRTOS)
+# Porting to MCU32 (lwIP, bare-metal superloop or FreeRTOS)
 
-The toolset is already vanilla C, structured so that for the embedded port **only the platform layer** is swapped. The tools, the RCP wrapper (`rcp.c/.h`) and the SOME/IP core (`libsomeip/src/*.c`) stay **unchanged**.
+The toolset is **single-thread** and structured so that for the embedded port you
+write **exactly one file**: `src/plat_<target>.c`, the implementation of the narrow
+`src/plat.h` interface. Everything above it — the tools, the RCP wrapper (`rcp.c/.h`),
+the platform-neutral SOME/IP stub (`src/someip_stub.c`) and the SOME/IP core
+(`libsomeip/src/*.c`) — stays **unchanged**.
+
+> A ready-to-fill **sketch** of the lwIP/bare-metal port lives in
+> [`src/plat_lwip.c.template`](src/plat_lwip.c.template) (not compiled). Rename it to
+> `plat_lwip.c`, fill in the board hooks, and swap it for `plat_win.c` in CMake.
+
+## Single-thread model — why there is no porting of locks/threads
+
+The host prototype has **no application threads**. Received UDP datagrams are
+delivered **synchronously** from `plat_udp_poll()` (called once per superloop tick by
+`rcp_poll()`/`rcp_async_poll()` via `someip_service()`), on the same and only
+execution strand as the waiting code. Consequences for the port:
+
+- **No RTOS is required.** A plain `while(1)` superloop works (bare metal + lwIP RAW API).
+- `SOMEIP_CB_EnterCriticialSection`/`Leave` and `SOMEIP_CB_NeedService` are **no-ops**;
+  the `SOMEIP_CB_Sem*` set is never called by the core. None of this needs OS objects.
+- No `volatile`/atomic/lock is needed for the shared request/reply state.
+- An RTOS variant is still possible (lwIP `tcpip_thread` pumps RX; `plat_sleep_ms` →
+  `vTaskDelay`); then `plat_udp_poll()` drains a queue the tcpip callback fills.
 
 ## What stays / what is swapped
 
@@ -8,45 +30,65 @@ The toolset is already vanilla C, structured so that for the embedded port **onl
 |---|---|---|
 | Tools + RCP encoding (`*.c`, `rcp.c`) | C | **same** |
 | SOME/IP core (`someip-client/-gen/-pars/-transmit/-timer.c`) | C | **same** |
-| UDP transport | `stub/windows-udp-handler.c` (Winsock) | **lwIP handler (new)** |
-| Time base (`someip-timer`) | system clock | **`xTaskGetTickCount()`** |
+| SOME/IP platform stub (`SOMEIP_CB_*`) | `src/someip_stub.c` (platform-neutral) | **same** |
+| **Platform layer (`plat.h`)** | `src/plat_win.c` (Winsock, non-blocking) | **`src/plat_lwip.c` (new — the only file you write)** |
+| Time base (`plat_now_ms`) | `GetTickCount()` | `sys_now()` / `xTaskGetTickCount()` |
 | Config (`stub/someip-cfg.h`) | PC sizes | **tune smaller** |
 | T1S connection | USB-Ethernet bridge | **LAN8650/51 MAC-PHY via OA-SPI** (or LAN8670 PHY via RMII) + lwIP |
 
-## The real porting boundary: the `SOMEIP_CB_*` callbacks
+## The `plat.h` porting surface — three responsibilities
 
-The libsomeip core calls a fixed set of **platform callbacks**. In this toolset they are provided **in C** by `src/someip_stub_win.c` (+ `windows-udp-handler.c`, Win32 threads). **You reimplement exactly these functions** for MCU32 (lwIP + FreeRTOS) — the rest stays:
-
-| Callback | Task | MCU32 implementation |
+| Function(s) | Task | lwIP / bare-metal implementation |
 |---|---|---|
-| `SOMEIP_CB_OpenSocket` | open UDP socket, register RX callback | lwIP `udp_new`/`udp_bind`/`udp_recv` |
-| `SOMEIP_CB_SendUdp` | send UDP (incl. multicast join for `224.0.0.1`) | `udp_sendto` + `igmp_joingroup` |
-| `SOMEIP_CB_GetLocalIpAddr` | local IP for the target subnet | from `netif` |
-| `SOMEIP_CB_EnterCriticialSection` / `Leave` | mutual exclusion | FreeRTOS mutex / `taskENTER_CRITICAL` |
-| `SOMEIP_CB_SemInit/Wait/Post/Destroy` | semaphores | FreeRTOS `xSemaphore*` |
-| `SOMEIP_CB_ProvideBuffer` | memory for TX | static pool / `pbuf` |
-| `SOMEIP_CB_NeedService` | "CheckTimers needed soon" | notify task |
-| `SOMEIP_CB_Log` | logging | UART/ITM |
-> So the MCU32 port is essentially: **implement this table** + define `MULTICAST_IP[]={224,0,0,1}`. The tools and the RCP wrapper (`rcp.c`) stay unchanged.
+| `plat_now_ms` | millisecond time base | `sys_now()` (or a systick counter) |
+| `plat_udp_open` / `_send` / `_close` | non-blocking UDP socket | `udp_new`/`udp_bind`/`udp_recv` ; `udp_sendto` ; `udp_remove` |
+| `plat_udp_poll` | drain RX, dispatch rx cb **synchronously** | pump the netif (`ethernetif_input`) + `sys_check_timeouts()`; lwIP calls the `udp_recv` trampoline inline |
+| `plat_udp_join_multicast` | join SD group `224.0.0.1` | `igmp_joingroup` (needs `LWIP_IGMP=1`) |
+| `plat_net_enum_ifaces` | local IPs + masks (subnet match) | iterate `netif_list` |
+| `plat_sleep_ms` / `plat_yield` | wait between ticks | spin while pumping the stack (bare metal) / `vTaskDelay` (RTOS) |
 
-**Concrete C reference:** `src/someip_stub_win.c` already implements this whole table **in C** for Windows (Win32 + Winsock, reusing `windows-udp-handler.c`) — a working, pure-C platform layer with **no C++**, shared by every tool via the `rcpcore` static library. For MCU32 you replace this one file with an lwIP/FreeRTOS version of the same functions; the tools and `rcp.c` stay as-is. The RX dispatch lives in `rcp.c` (`on_data_received`) and was ported 1:1 from `LAN866XClientImpl::OnDataReceived` (responses → `SOMEIP_Transmit_ReceivedResponse`).
+## Under the hood: the `SOMEIP_CB_*` callbacks (you do NOT reimplement these)
+
+The libsomeip core calls a fixed set of **platform callbacks**. They are implemented
+**once, platform-neutrally**, in `src/someip_stub.c` on top of `plat.h` — you do **not**
+rewrite them per target. The table shows how the stub maps each one (most collapse to
+`plat_*` or to a no-op thanks to the single-thread model):
+
+| Callback | Stub maps it to | Note |
+|---|---|---|
+| `SOMEIP_CB_OpenSocket` | `plat_udp_open` | registers the synchronous RX trampoline |
+| `SOMEIP_CB_SendUdp` | `plat_udp_send` (+ `plat_udp_join_multicast` for `224.0.0.1`) | |
+| `SOMEIP_CB_GetLocalIpAddr` | cached `plat_net_enum_ifaces` table | subnet match |
+| `SOMEIP_CB_GetTimeMS` | `plat_now_ms` | |
+| `SOMEIP_CB_EnterCriticialSection` / `Leave` | **no-op** | single-thread, no contention |
+| `SOMEIP_CB_NeedService` | **no-op** | the superloop pumps every tick |
+| `SOMEIP_CB_SemInit/Wait/Post/Destroy` | trivial stubs | the core never calls them |
+| `SOMEIP_CB_ProvideBuffer`/`Calloc`/`Free` | `malloc`/`calloc`/`free` | swap for a static pool if no heap |
+| `SOMEIP_CB_Log` | `printf` | retarget to UART/ITM |
+
+> So the MCU32 port is essentially: **implement the six `plat.h` functions** in
+> `plat_lwip.c` + define `MULTICAST_IP[]={224,0,0,1}` in the app. `someip_stub.c`,
+> `rcp.c` and the tools stay unchanged. The RX dispatch lives in `rcp.c`
+> (`on_data_received`, ported 1:1 from `LAN866XClientImpl::OnDataReceived`).
 
 ## Concrete steps
 
-1. **Replace the UDP handler:** `windows-udp-handler.c` with an lwIP variant. Implement the platform functions the core expects (`SomeIPSocket_Init`, send, RX → `SOMEIP_Client_DataReceived(...)`). Prefer the lwIP **RAW API** (`LWIP_SOCKET=0`, less RAM).
-2. **Time:** map `someip_get_time_ms()` to the FreeRTOS tick:
-   ```c
-   uint32_t someip_get_time_ms(void){ return xTaskGetTickCount()*portTICK_PERIOD_MS; }
+1. **Write `plat_lwip.c`** from [`src/plat_lwip.c.template`](src/plat_lwip.c.template):
+   the six `plat.h` functions over the lwIP **RAW API** (`LWIP_SOCKET=0`, less RAM) +
+   `LWIP_IGMP=1` for the multicast join. Swap `plat_win.c` → `plat_lwip.c` in CMake.
+2. **Time:** `plat_now_ms()` → `sys_now()` (bare metal) or `xTaskGetTickCount()*portTICK_PERIOD_MS`
+   (RTOS). It must increment monotonically; 32-bit wrap is fine.
+3. **Pump model (single-thread default):**
    ```
-   No `HAL_Delay()` / blocking delays in the SOME/IP task.
-3. **Task model:**
+   while (1) { app_render(); rcp_async_poll(); }   // plat_udp_poll() runs inside
    ```
-   Ethernet IRQ → lwIP (tcpip_thread) → queue → SOME/IP task → app task(s)
-   ```
-   Priorities: lwIP **high**, SOME/IP **medium**, app **medium/low**.
-4. **Startup order:** PHY → lwIP netif UP → SOME/IP init → service discovery → app.
+   `plat_udp_poll()` pushes RX frames into lwIP, whose `udp_recv` callback fires
+   synchronously and dispatches to the stub. *(RTOS variant: a `tcpip_thread` pumps RX
+   and `plat_udp_poll()` drains a queue instead.)*
+4. **Startup order:** PHY → lwIP netif UP → `rcp_init()` → service discovery → app.
    *Common mistake:* SOME/IP starts before a valid IP → discovery fails.
-5. **Memory:** no `malloc` in the hot path; FreeRTOS `heap_4`/`heap_5`; static queues/buffers; lwIP `MEM_LIBC_MALLOC=0`.
+5. **Memory:** no `malloc` in the hot path if you can avoid it; for a no-heap target,
+   back `SOMEIP_CB_ProvideBuffer`/`Calloc` with a static pool; lwIP `MEM_LIBC_MALLOC=0`.
 
 ## Footprint (per the roadmap overview)
 SOME/IP core **ROM ≈ 28 kB, RAM ≈ 300 B** → fits on an MCU32 incl. FreeRTOS.

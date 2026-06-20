@@ -1,0 +1,182 @@
+/*
+ * plat_lwip.c.template  -  SKETCH of the lwIP / bare-metal (superloop)
+ *                          implementation of plat.h. NOT COMPILED, NOT WIRED
+ *                          INTO THE BUILD - it is a starting template for the
+ *                          MCU32 port. Rename to plat_lwip.c, fill in the TODOs,
+ *                          and add it to rcpcore in place of plat_win.c.
+ *
+ * It mirrors plat_win.c one-to-one. Everything ABOVE plat.h stays unchanged:
+ *   - src/someip_stub.c   (platform-neutral SOMEIP_CB_* over plat_*)
+ *   - src/rcp.c           (RCP methods + async layer)
+ *   - the tool .c files    (clickdemo, discovery, ...)
+ *
+ * SINGLE-THREAD MODEL (same as the Windows host):
+ *   No RTOS task is required. The superloop calls rcp_poll()/rcp_async_poll(),
+ *   which call someip_service() -> plat_udp_poll(). On lwIP RAW API, plat_udp_poll()
+ *   pushes pending RX frames through the stack; lwIP then calls our udp_recv
+ *   trampoline SYNCHRONOUSLY, which dispatches to the plat_udp_rx_cb. So a received
+ *   datagram is handled on the same strand as the waiting code - exactly the
+ *   contract plat.h documents, with no locks anywhere.
+ *
+ *   An RTOS variant is also possible (lwIP tcpip_thread pumps RX on its own thread,
+ *   plat_sleep_ms -> vTaskDelay). Then plat_udp_poll() would instead drain a queue
+ *   the tcpip callback fills. The bare-metal sketch below is the simpler default.
+ *
+ * Required lwIP options (lwipopts.h):
+ *   LWIP_UDP=1, LWIP_IGMP=1 (multicast join), LWIP_NETIF_API or RAW API,
+ *   MEMP_NUM_UDP_PCB >= number of sockets (SD + transmit + RTP = ~3), SO_REUSE=1.
+ *   No LWIP_SOCKET needed (RAW API uses less RAM).
+ */
+#if 0   /* template only - do not compile */
+
+#include "plat.h"
+#include "lwip/udp.h"
+#include "lwip/igmp.h"
+#include "lwip/netif.h"
+#include "lwip/timeouts.h"
+#include "lwip/sys.h"
+#include <string.h>
+
+/* The application's netif (set up at startup: PHY -> netif_add -> netif_set_up). */
+extern struct netif g_netif;            /* TODO: provide from your board init */
+/* Pump one batch of received Ethernet frames into lwIP. With a polled MAC driver
+ * this is your ethernetif_input(); with an IRQ+queue driver it drains the queue. */
+extern void board_ethernet_poll(struct netif *nif);   /* TODO: provide */
+
+#define MAX_PLAT_SOCKETS  (4)
+
+struct plat_udp {
+    struct udp_pcb *pcb;
+    plat_udp_rx_cb  rx;
+    void           *tag;
+    bool            used;
+};
+
+static struct plat_udp s_socks[MAX_PLAT_SOCKETS];
+static int             s_dispatched;    /* counted by the recv trampoline per poll */
+
+/* ===================== 1) time base ===================================== */
+uint32_t plat_now_ms(void)
+{
+    return sys_now();           /* lwIP system time in ms (or your systick counter) */
+}
+
+/* ===================== 2) non-blocking UDP + net ======================= */
+
+/* lwIP RAW recv callback: runs synchronously while plat_udp_poll() pumps the
+ * stack. Linearise the pbuf and hand it to the plat rx callback, then free it. */
+static void lwip_recv_cb(void *arg, struct udp_pcb *pcb, struct pbuf *p,
+                         const ip_addr_t *addr, u16_t port)
+{
+    struct plat_udp *s = (struct plat_udp *)arg;
+    (void)pcb;
+    if (p) {
+        if (s && s->rx && s->used) {
+            static uint8_t lin[1600];
+            uint16_t n = (p->tot_len > sizeof(lin)) ? sizeof(lin) : p->tot_len;
+            uint8_t ip[4];
+            u32_t a = ip4_addr_get_u32(ip_2_ip4(addr));   /* network byte order */
+            pbuf_copy_partial(p, lin, n, 0);
+            ip[0] = (uint8_t)(a);       ip[1] = (uint8_t)(a >> 8);
+            ip[2] = (uint8_t)(a >> 16); ip[3] = (uint8_t)(a >> 24);
+            s->rx(s, ip, port, lin, n, s->tag);
+            s_dispatched++;
+        }
+        pbuf_free(p);
+    }
+}
+
+plat_udp_t *plat_udp_open(uint16_t *port, plat_udp_rx_cb rx, void *tag)
+{
+    struct plat_udp *s = NULL;
+    int i;
+    if (!port || !rx) return NULL;
+    for (i = 0; i < MAX_PLAT_SOCKETS; i++) if (!s_socks[i].used) { s = &s_socks[i]; break; }
+    if (!s) return NULL;
+
+    s->pcb = udp_new();
+    if (!s->pcb) return NULL;
+    if (udp_bind(s->pcb, IP_ANY_TYPE, *port) != ERR_OK) { udp_remove(s->pcb); return NULL; }
+    if (*port == 0u) *port = s->pcb->local_port;   /* report the ephemeral port back */
+    s->rx = rx; s->tag = tag; s->used = true;
+    udp_recv(s->pcb, lwip_recv_cb, s);             /* register synchronous RX cb */
+    return s;
+}
+
+bool plat_udp_send(plat_udp_t *s, const uint8_t dstIp[4], uint16_t dstPort,
+                   const uint8_t *buf, uint16_t len)
+{
+    struct pbuf *p;
+    ip_addr_t dst;
+    err_t e;
+    if (!s || !s->used) return false;
+    p = pbuf_alloc(PBUF_TRANSPORT, len, PBUF_RAM);
+    if (!p) return false;
+    memcpy(p->payload, buf, len);
+    IP_ADDR4(&dst, dstIp[0], dstIp[1], dstIp[2], dstIp[3]);
+    e = udp_sendto(s->pcb, p, &dst, dstPort);
+    pbuf_free(p);
+    return (e == ERR_OK);
+}
+
+bool plat_udp_join_multicast(plat_udp_t *s, const uint8_t group[4],
+                             const uint8_t localIf[4])
+{
+    ip4_addr_t g, ifa;
+    (void)s;   /* lwIP joins per-interface, not per-socket */
+    IP4_ADDR(&g,   group[0],  group[1],  group[2],  group[3]);
+    IP4_ADDR(&ifa, localIf[0], localIf[1], localIf[2], localIf[3]);
+    return (igmp_joingroup(&ifa, &g) == ERR_OK);   /* idempotent in lwIP */
+}
+
+int plat_udp_poll(void)
+{
+    s_dispatched = 0;
+    board_ethernet_poll(&g_netif);   /* RX frames -> lwIP -> lwip_recv_cb (synchronous) */
+    sys_check_timeouts();            /* lwIP periodic work (ARP, IGMP, etc.) */
+    return s_dispatched;
+}
+
+void plat_udp_close(plat_udp_t *s)
+{
+    if (s && s->used) { udp_remove(s->pcb); s->pcb = NULL; s->used = false; s->rx = NULL; }
+}
+
+void plat_net_enum_ifaces(plat_if_cb cb, void *tag)
+{
+    struct netif *nif;
+    if (!cb) return;
+    for (nif = netif_list; nif != NULL; nif = nif->next) {
+        uint8_t ip[4], mask[4];
+        u32_t a, m;
+        if (!netif_is_up(nif) || ip4_addr_isany_val(*netif_ip4_addr(nif))) continue;
+        a = ip4_addr_get_u32(netif_ip4_addr(nif));
+        m = ip4_addr_get_u32(netif_ip4_netmask(nif));
+        ip[0]   = (uint8_t)a;       ip[1]   = (uint8_t)(a >> 8);
+        ip[2]   = (uint8_t)(a >> 16); ip[3] = (uint8_t)(a >> 24);
+        mask[0] = (uint8_t)m;       mask[1] = (uint8_t)(m >> 8);
+        mask[2] = (uint8_t)(m >> 16); mask[3] = (uint8_t)(m >> 24);
+        cb(ip, mask, tag);
+    }
+}
+
+/* ===================== 3) wait / yield ================================= */
+
+/* Bare-metal: spin to the deadline while keeping the stack alive, so a reply that
+ * arrives during the nap is still processed promptly. (RTOS variant: vTaskDelay.) */
+void plat_sleep_ms(uint32_t ms)
+{
+    uint32_t start = plat_now_ms();
+    while ((plat_now_ms() - start) < ms) {
+        board_ethernet_poll(&g_netif);
+        sys_check_timeouts();
+    }
+}
+
+void plat_yield(void)
+{
+    board_ethernet_poll(&g_netif);
+    sys_check_timeouts();
+}
+
+#endif /* template only */
