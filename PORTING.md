@@ -88,15 +88,29 @@ rewrite them per target. How the stub maps each one:
 5. **Memory:** for a no-heap target, back `SOMEIP_CB_ProvideBuffer`/`Calloc` with a
    static pool and set lwIP `MEM_LIBC_MALLOC=0`.
 
-## Footprint
-Measured on the host x86 build (`size` over `libsomeip/src/*.o`):
-- **Code (text): ≈ 28 kB.** (ARM-Thumb is in the same range; text is arch-dependent.)
-- **Static RAM (bss): config-dependent, dominated by the transmit buffer pool.** With
-  the PC `someip-cfg.h` it is ≈ 375 kB: ≈ 368 kB pool (payload 1440 B ×
-  `SOMEIP_TRANSMIT_MAX_QUEUE_ENTRIES` 64 × `SOMEIP_TRANSMIT_MAX_INSTANCES` 4) + ≈ 7 kB
-  client/SD state. For an MCU, shrink these in `someip-cfg.h` — e.g. 1 instance × 8
-  entries ≈ 12 kB pool, less again with a smaller payload if you don't flash large
-  images. (bss is arch-independent, so these numbers carry to the target.)
+## Footprint — and how to size it for an MCU
+Static RAM is **entirely config-driven**: the core statically reserves a transmit
+buffer pool of `SOMEIP_TRANSMIT_MAX_INSTANCES × SOMEIP_TRANSMIT_MAX_QUEUE_ENTRIES`
+buffers of `SOMEIP_TRANSMIT_MAX_PAYLOAD_LEN + 32` bytes each. The **PC defaults
+(4 × 64 × 1472 B ≈ 368 kB) are not meant for an MCU** — shrink four knobs:
+
+| Knob | Where | PC | MCU |
+|---|---|---|---|
+| `SOMEIP_TRANSMIT_MAX_INSTANCES` | `someip-cfg.h` | 4 | **1** (this client uses one) |
+| `SOMEIP_TRANSMIT_MAX_QUEUE_ENTRIES` | `someip-cfg.h` | 64 | **4–8** (in-flight buffers) |
+| `MAX_CONNECTIONS_CLIENT` | `someip-cfg.h` | 16 | **2–4** (endpoints you talk to) |
+| `SOMEIP_TRANSMIT_MAX_PAYLOAD_LEN` | `someip.h` | 1440 | **512** (no OTA) / **≥1288** (OTA: 1200-byte WriteImage chunks) |
+
+Measured static RAM (bss, arch-independent — `size` over `libsomeip/src/*.o`):
+
+| Config | Core RAM | + `rcp.c` scratch (`s_rx`+`s_scratch` = 2 × payload) | Total |
+|---|---|---|---|
+| PC (4 × 64, 16 conn, 1440) | ≈ 375 kB | ≈ 3.8 kB | — |
+| **MCU, OTA-capable** (1 × 4, 2 conn, 1440) | **≈ 6.7 kB** | ≈ 3.8 kB | **≈ 10 kB** |
+| **MCU, no OTA** (1 × 4, 2 conn, 512) | ≈ 3 kB | ≈ 1 kB | **≈ 5 kB** |
+
+Code (text): ≈ 12 kB at `-Os` (≈ 28 kB unoptimised); add the plat layer's RX linear
+buffer (≈ 1.6 kB RAM). All comfortably MCU-sized once the pool is tuned.
 
 ## Reference
 - **LAN866x Endpoint User's Guide** — §4 Functional Description, §6 SOME/IP methods.
