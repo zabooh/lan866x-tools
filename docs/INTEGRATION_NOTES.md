@@ -138,6 +138,17 @@ A config-only flash leaves the node in the bootloader if the app version differs
 benign `RT_NOT_REACHABLE` (5) even on success** → judge success by outcome (reboot
 + check the running version), as `flashpkg` does.
 
+**GOTCHA — the bootloader IP can differ from the main-app IP.** The bootloader has
+its **own** network config (the package's `updater/config`), and `flashpkg` only
+flashes `main/app` + `main/config`, never `updater/*`. So after a build swap the
+bootloader keeps the *previous* package's IP: e.g. a Control main app on `.50` whose
+(leftover Lighting) bootloader comes up on `.54`. A re-discovery that waits for the
+**same** IP then misses the rebooted node and times out at the reboot step — even
+though the node is alive and reachable, just on another address. Fix: after a reboot
+re-acquire the endpoint by **SOME/IP-SD** (select whichever node now answers
+GetStatus, regardless of IP), not by polling the old IP. `tool_reacquire()` in
+`src/tool_common.h` does this; `flashpkg` and `boot` use it.
+
 ## Displays / RTP (clickdemo, video)
 The lighting firmware renders a video stream onto the WS2812 displays; they are
 **not** per-pixel addressable over RCP. Send **one 20×10 RTP/RFC4175 frame** to

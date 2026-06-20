@@ -52,4 +52,36 @@ static int tool_select(const char *wantIp, int wantEp, int waitS, const char *to
     return sel;
 }
 
+/* Re-acquire the endpoint after a reboot. The rebooted node may come back at a
+ * DIFFERENT IP than before (e.g. the bootloader config's IP differs from the main
+ * app's - a real trap when flashing). So instead of polling GetStatus at the old
+ * IP, this re-runs discovery and selects whichever endpoint now answers GetStatus,
+ * regardless of its IP. Returns the selected index, or -1 if none reappeared
+ * within waitS seconds. Leaves the answering endpoint selected. */
+static int tool_reacquire(int waitS)
+{
+    int i, t, sel = -1;
+    rcp_set_retries(0); rcp_set_timeout_ms(600);   /* a non-answer is expected while rebooting */
+    for (t = 0; t < waitS * 2 && sel < 0; ++t) {   /* ~2 ticks/s */
+        rcp_endpoint_t eps[RCP_MAX_ENDPOINTS];
+        uint8_t n;
+        rcp_poll();                                /* pump SD: collect (re)offers */
+        n = rcp_get_endpoints(eps, RCP_MAX_ENDPOINTS);
+        for (i = 0; i < (int)n; ++i) {
+            GetStatusReply_t st;
+            if (!eps[i].available) continue;
+            if (!rcp_select_endpoint((uint8_t)i)) continue;
+            memset(&st, 0, sizeof(st));
+            if (rcp_get_status(&st) == RT_OK) {    /* this one is alive -> take it */
+                printf("  endpoint reappeared at %u.%u.%u.%u\n",
+                       eps[i].ip[0], eps[i].ip[1], eps[i].ip[2], eps[i].ip[3]);
+                sel = i; break;
+            }
+        }
+        if (sel < 0) Sleep(300);
+    }
+    rcp_set_retries(3); rcp_set_timeout_ms(1500);  /* restore defaults */
+    return sel;
+}
+
 #endif /* TOOL_COMMON_H */

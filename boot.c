@@ -42,21 +42,10 @@ static long long get_uptime(void)
     return -1;
 }
 
-/* poll GetStatus until the (rebooted) endpoint answers again */
-static int wait_up(int timeoutS)
-{
-    int i, ok = 0;
-    rcp_set_retries(0);            /* a non-answer is expected while rebooting */
-    rcp_set_timeout_ms(800);
-    for (i = 0; i < timeoutS; ++i) {
-        GetStatusReply_t st; memset(&st, 0, sizeof(st));
-        if (rcp_get_status(&st) == RT_OK) { ok = 1; break; }
-        rcp_poll(); Sleep(300);
-    }
-    rcp_set_retries(3);            /* restore defaults */
-    rcp_set_timeout_ms(1500);
-    return ok;
-}
+/* Wait for the (rebooted) endpoint to come back - re-acquiring it by SOME/IP-SD
+ * so a changed IP (bootloader config IP != main app IP) is handled, not just the
+ * same-IP case. */
+static int wait_up(int timeoutS) { return tool_reacquire(timeoutS) >= 0; }
 
 static int reboot_to(const char *image, const char *label, int waitS)
 {

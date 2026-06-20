@@ -85,18 +85,11 @@ static long long get_uptime(void)
     if (rcp_get_status(&st) == RT_OK) return (long long)(st.UpTime / 1000000000ULL);
     return -1;
 }
-static int wait_up(int timeoutS)
-{
-    int i, ok = 0;
-    rcp_set_retries(0); rcp_set_timeout_ms(800);
-    for (i = 0; i < timeoutS; ++i) {
-        GetStatusReply_t st; memset(&st, 0, sizeof(st));
-        if (rcp_get_status(&st) == RT_OK) { ok = 1; break; }
-        rcp_poll(); Sleep(300);
-    }
-    rcp_set_retries(3); rcp_set_timeout_ms(1500);
-    return ok;
-}
+/* Wait for the (rebooted) endpoint to come back. Re-acquires it by SOME/IP-SD, so
+ * if it reappears at a DIFFERENT IP (the bootloader config's IP can differ from the
+ * main app's) it is still found and re-selected - which is exactly the trap that
+ * made a flash-back fail when the bootloader came up on another address. */
+static int wait_up(int timeoutS) { return tool_reacquire(timeoutS) >= 0; }
 static int reboot_to(const char *image, const char *label, int waitS)
 {
     long long before = get_uptime(), after;

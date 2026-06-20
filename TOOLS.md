@@ -750,6 +750,12 @@ bootloader mode `GetStatus` reports the generic family id (`LAN866x`) rather tha
 specific part. This is “stage 1” of the flasher and validates the reboot + re-discovery
 path.
 
+> **Reappears at any IP:** after the reboot, `boot` (and `flashpkg`) re-acquire the
+> node by **SOME/IP-SD** — selecting whichever endpoint answers, regardless of its
+> address. This matters because the **bootloader's IP can differ from the main app's**
+> (the bootloader keeps the previous package's `updater/config`): e.g. a Control main
+> on `.50` whose bootloader comes up on `.54`. Waiting for the *same* IP would miss it.
+
 ### 4.10 `lan866x-flashimg`
 
 > 📄 Source: [flashimg.c](flashimg.c)
