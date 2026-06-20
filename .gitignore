@@ -29,6 +29,11 @@ Makefile
 # NDA firmware packages must NEVER be tracked (also not inside release/)
 *.mchpkg
 
+# NDA local reference dossier: the ENTIRE EVB/ tree (datasheets, user guides,
+# schematic, firmware, captures, vendor SDK) must never be tracked. It is local
+# only — see CLAUDE.md "Local reference material (NDA)".
+EVB/
+
 # Local diagnostic artifacts (Wireshark captures + the demo's event log)
 logs/
 clickdemo-events*.csv
