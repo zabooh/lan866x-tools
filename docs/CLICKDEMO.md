@@ -63,21 +63,27 @@ flowchart LR
 ## 3. The software
 
 Single file [`clickdemo.c`](../clickdemo.c), linked against `rcpcore` (RCP over
-`libsomeip`) + Winsock for the RTP socket. The relevant pieces:
+`libsomeip`) on the **single‑thread platform layer** ([`plat.h`](../src/plat.h) /
+[PORTING.md](../PORTING.md)). The render/sensor loop is platform‑neutral; the few
+Windows specifics sit behind an `#ifdef _WIN32` glue. The relevant pieces:
 
 | Part | Function(s) | Role |
 |---|---|---|
-| Setup | `spi_setup`, `i2c_setup`, `vcnl4200_init` | one‑time, *blocking* open/init of the two peripherals (paced with small `Sleep`s) |
-| Async reads | `fire_thumb`, `fire_prox` + callbacks `on_thumb`, `on_prox` | non‑blocking RCP requests; the reply lands later on the rx thread and updates shared `volatile` state |
+| Setup | `spi_setup`, `i2c_setup`, `vcnl4200_init` | one‑time, *blocking* open/init of the two peripherals (paced with small `plat_sleep_ms`s) |
+| Async reads | `fire_thumb`, `fire_prox` + callbacks `on_thumb`, `on_prox` | non‑blocking RCP requests; the reply is delivered **synchronously** by `rcp_async_poll()` and updates plain shared state |
 | Render | `thumb_spot`, `prox_bar` | turn the latest sensor values into the 20×10 RGB framebuffer |
-| Stream | `rtp_send` / `rtp_send_region` | pack the framebuffer into one RFC4175 datagram → UDP 5001 |
+| Stream | `rtp_send` / `rtp_send_region` | pack the framebuffer into one RFC4175 datagram → UDP 5001 (via `plat_udp_*`) |
 | Event log | `elog` + `--log` | one CSV row per event for analysis (see §6) |
 
 **Asynchronous RCP** is the key. `rcp_async_request()` sends and returns
-immediately; `rcp_async_poll()` drives completions/timeouts. The callback runs
-**under the transmit lock** (a non‑reentrant semaphore — see
-[gotcha #3](INTEGRATION_NOTES.md#gotcha--callbacks-run-under-a-non-reentrant-lock)),
-so it only stores results in `volatile` variables and never calls back into `rcp_*`.
+immediately; `rcp_async_poll()` drives completions/timeouts. Since the
+[single‑thread port](../PORTING.md), received datagrams are dispatched
+**synchronously** from the poll, so the callback runs on the **same (only)
+execution strand** as the loop — there is no rx thread, the critical sections are
+no‑ops, and the old non‑reentrant‑semaphore self‑deadlock
+([gotcha #3](INTEGRATION_NOTES.md#gotcha--callbacks-run-under-a-non-reentrant-lock))
+**cannot occur**. The callback just stores results in plain variables; no
+`volatile`/atomic/lock is needed, and it must not call back into `rcp_*`.
 
 ---
 
@@ -92,7 +98,7 @@ so it only stores results in `volatile` variables and never calls back into `rcp
    │ 3. fire ONE sensor read  ← alternating thumb / prox (1:1)        │
    │ 4. rcp_async_poll()      ← deliver replies / time‑outs           │
    │ 5. throttled status line (~10 Hz)                                │
-   │ 6. Sleep(1000/fps)                                               │
+   │ 6. plat_sleep_ms(1000/fps)                                       │
    └──────────────────────────────────────────────────────────────────┘
 ```
 
@@ -107,24 +113,38 @@ pipeline — including the video — froze. Now a loop stall delays at most one 
 
 **(b) One read per tick, alternating thumb/prox (1:1).** Two RCP requests fired
 back‑to‑back make their two replies arrive ~ms apart, and the Windows host then
-**drops one of them** (see (d)). Firing exactly one per tick keeps replies **solo**.
-1:1 gives each sensor ~half the frame rate (~23 Hz). An earlier 3:1 thumb bias
-starved the proximity to ~12 Hz — a visibly stuttering bar.
+**drops one of them** ([gotcha #4](INTEGRATION_NOTES.md#host-throughput-vs-t1s-link-quality-important)
+— a socket‑path behaviour, independent of threading). Firing exactly one per tick
+paces requests ~20 ms apart and keeps replies **solo** — this is what holds the
+measured drop rate at **0 %** (§5). 1:1 gives each sensor ~half the frame rate
+(~23 Hz). An earlier 3:1 thumb bias starved the proximity to ~12 Hz — a visibly
+stuttering bar.
 
-**(c) Async deadline = 70 ms.** The wire answers in ~3–4 ms, but the host's
-rx‑dispatch thread occasionally falls **~40–50 ms behind in bursts**. A too‑short
-deadline (we tried 40 ms) discards a reply that is *already on the wire* and re‑reads
-for nothing; 70 ms clears that jitter while a genuine loss still recovers ~2× faster
-than the original 120 ms.
+**(c) Async deadline = 70 ms — now comfortable headroom.** The wire answers in
+~3–4 ms and, with one paced read per tick, every reply is collected by the next
+`rcp_async_poll()`. 70 ms covers the worst observed loop stall (~71 ms scheduler
+hiccup) so a reply in flight across a stall is still delivered, not falsely timed
+out. In the single‑thread build it was **never hit** (0 timeouts, §5). *(Historically,
+in the old rx‑thread design this deadline absorbed bursts where the host's rx
+dispatch fell ~40–50 ms behind; the single‑thread synchronous poll removed that
+failure mode.)*
 
-### 4.2 The dominant timing fact: host‑side reply drops (gotcha #4)
+### 4.2 The dominant timing fact: wire ~4 ms, host delivers at the poll cadence
 
-The 10BASE‑T1S link and the firmware are **excellent** — RTT ~3–4 ms, every request
-answered. **All** observed hitches are **host‑side**: the reply datagram is captured
-on the NIC but **the Windows socket path doesn't hand it to the app in time**, so the
-async layer times out. This is [gotcha #4](INTEGRATION_NOTES.md#host-throughput-vs-t1s-link-quality-important).
-It is made worse by extra active NICs (the SD multicast is joined on every interface)
-— disabling unrelated NICs/Wi‑Fi reduces it.
+The 10BASE‑T1S link and the firmware are **excellent** — wire RTT ~3.6 ms, **every
+request answered** (§5). The app sees each reply not at 3.6 ms but at the **next poll
+tick** (~21 ms), because the loop fires one read and then collects replies once per
+frame — so the host‑observed latency is the *poll cadence*, not the wire.
+
+The old failure mode — the Windows socket path dropping a reply that was already on
+the NIC ([gotcha #4](INTEGRATION_NOTES.md#host-throughput-vs-t1s-link-quality-important))
+— came from **two requests racing back‑to‑back** and, in the previous design, a
+separate rx thread that could fall behind. The single‑thread build removes the rx
+thread entirely (replies are polled synchronously), and the one‑read‑per‑tick pacing
+keeps requests from racing. Result: **0 host‑side drops** across a full run (§5.3),
+versus the ~1 % the threaded build still saw. Gotcha #4 remains a real host behaviour
+under *unpaced* back‑to‑back traffic — the pacing is what avoids it. (Extra active
+NICs still aggravate it, since the SD multicast is joined on every interface.)
 
 ---
 
@@ -136,44 +156,54 @@ top→bottom: wire RTP `:5001`, wire reply `←:49153`, wire request `→:6800`,
 `FRAME`, app `PROX`, app `THUMB`. Markers: REQ ○, RSP ● (green), TMO ✕ (red). The
 bottom panel plots the sensor values.
 
+*(Measured on the single‑thread build — capture `log.006.pcapng` + its
+`clickdemo-events.csv`, an 11.7 s run, hand waved in front of the proximity sensor
+~3–6 s and the thumbstick worked ~6–9 s.)*
+
 ### 5.1 Overview of a full run
 
 ![timing overview](img/clickdemo-timing-overview.png)
 
-The first ~9 s is **discovery + peripheral setup** (sparse, paced round‑trips, no
-frames). From then on the loop streams: the RTP / reply / request lanes are **dense
-and steady (~47 fps video, ~23 Hz per sensor)**, and the bottom panel shows the
-proximity value (blue) responding to a hand waved in front of the sensor while the
-thumbstick (orange) is moved around 20–33 s. Title line carries the run summary.
+The whole run streams: the RTP / reply / request lanes are **dense and steady**
+(~46 fps video, ~23 Hz per sensor), the PROX and THUMB lanes are a solid line of
+**green RSPs with no red ✕ anywhere** — **0 timeouts, 0 host‑drops** (title line). The
+bottom panel shows the proximity value (blue) spiking as a hand approaches (~3–6 s) and
+the thumbstick X/Y (orange/brown) swept around 6–9 s. (Discovery + peripheral setup
+happen before the event log opens, so the CSV covers the streaming phase only.)
 
-### 5.2 A clean window — balanced reads, smooth values
+### 5.2 A clean window — balanced reads, every reply delivered
 
 ![timing, clean window](img/clickdemo-timing-clean.png)
 
-Zoomed to ~4 s of normal operation. Thumbstick and proximity RSPs (green) **alternate
-evenly** at ~23 Hz each; every wire request gets a reply within a couple of ms; the
-`prox raw` step curve updates smoothly. This is what "flüssig" looks like.
+Zoomed to 6–9 s. Thumbstick and proximity **alternate evenly** — REQ (○) then RSP (●
+green) — at ~23 Hz each; **every** wire request gets a reply within a couple of ms and
+the app delivers it (no red); the thumb X/Y step curves update smoothly. This is what
+"flüssig" looks like, and it is now the *typical* window, not a lucky one.
 
-### 5.3 A drop window — the host‑drop mechanism, made explicit
+### 5.3 The single‑thread result: wire RTT vs host latency, and cadence
 
-![timing, host drops](img/clickdemo-timing-drops.png)
+![latency and cadence](img/clickdemo-st-latency.png)
 
-The headline plot. Each **red ✕** on an app lane is a sensor **timeout**, connected by
-a red dotted line to a **red circle on the wire‑reply lane** — i.e. *the reply WAS on
-the wire (~4 ms after the request) but the app never received it*. That is gotcha #4
-caught red‑handed: pure **host‑side** loss, not a link problem. After the fixes these
-are rare (~1 % of reads) and each costs ~70 ms (one re‑read), instead of the ~170 ms
-freeze the original code suffered.
+The headline plot for the single‑thread build. **Left:** the wire RTT (green) is a
+tight spike at **~3.6 ms** — the real 10BASE‑T1S round‑trip — while the app delivers
+each reply at **~21 ms** (blue), i.e. one poll tick later. The gap between the two is
+**not loss**; it is the once‑per‑frame poll cadence (the app fires one read and
+collects replies on the next tick). **Right:** the frame interval sits at **21 ms
+(≈48 fps)** with a thin tail to a single **71 ms** scheduler hiccup — **0 gaps over
+100 ms**, so the decoupled video never freezes. All 541 sensor replies were delivered;
+**no red ✕ exists to plot**, because there were no timeouts.
 
-### 5.4 Before → after (what the fixes bought)
+### 5.4 Threaded → single‑thread (what the port bought)
 
-| Symptom | Before | After |
+| Symptom | Threaded build | Single‑thread build (log.006) |
 |---|---|---|
-| Video cadence | ~24 fps, froze ~150 ms on a loop stall | **~47 fps**, no stalls (decoupled) |
-| Proximity sample rate | ~12 Hz (3:1 bias) → stuttering bar | **~23 Hz** (1:1) |
-| Reply‑drop rate | ~4 % (prox) | **~1 %** |
-| Stall per dropped reply | ~170 ms (120 ms timeout) | **~70 ms** |
-| Cause of every timeout | — | **100 % host‑side**, proven by sid↔wire correlation |
+| Reply delivery | ~99 % (≈1 % host drops) | **100 %** — 541/541 replies delivered |
+| Timeouts in a run | a handful (each a host drop) | **0** |
+| Host‑side reply drops | ~1 % of reads | **0** (sid↔wire correlation: every reply consumed) |
+| Wire RTT | ~3–4 ms | ~3.6 ms (median), 5.1 ms max — unchanged, the link is fine |
+| Video cadence | ~47 fps | **~46 fps**, 0 stalls > 100 ms |
+| Per‑sensor rate | ~23 Hz | ~23 Hz (1:1, unchanged) |
+| Concurrency hazard | callback under a non‑reentrant lock (gotcha #3) | **eliminated** — synchronous poll, no lock |
 
 ---
 
@@ -190,9 +220,9 @@ freeze the original code suffered.
    python tools/plot_timing.py --pcap logs/log.NNN.pcapng --csv release/clickdemo-events.csv
    python tools/plot_timing.py --from 9 --to 12 --out logs/zoom.png   # zoom to a window
    ```
-   It prints the host‑drop timestamps so you can zoom straight to them. A timeout
-   whose `sid` is present as a reply on the wire is a host drop; one that is **absent**
-   from the wire would be a (rare) real link loss.
+   It prints the timeout/host‑drop count. On the single‑thread build this is
+   normally **0** (as in `log.006`); a timeout whose `sid` is present as a reply on
+   the wire would be a host drop, one absent from the wire a (rare) real link loss.
 
 ---
 
@@ -202,11 +232,13 @@ freeze the original code suffered.
   `--log/--nolog`. See [TOOLS.md §4.12](../TOOLS.md#412-lan866x-clickdemo).
 - **Read balance:** the 1:1 thumb/prox split lives in the loop (`tick & 1u`). Bias it
   (e.g. 3:2) only if one sensor needs more samples than the other.
-- **Async deadline:** `rcp_set_async_timeout_ms(70)` — raise it if your host's
-  rx‑dispatch jitter is larger; lower it (never below ~10× the ~4 ms RTT) for faster
-  recovery on a clean host.
-- **Environment:** disabling NICs not on the T1S subnet measurably cuts gotcha #4.
+- **Async deadline:** `rcp_set_async_timeout_ms(70)` — comfortable headroom on the
+  single‑thread build (never hit in `log.006`). Raise it for a host with larger
+  scheduler stalls; lower it (never below ~10× the ~4 ms RTT) for faster recovery.
+- **Environment:** disabling NICs not on the T1S subnet still cuts gotcha #4 under
+  unpaced traffic.
 - **Takeaway:** with the wire at ~4 ms RTT and the firmware answering everything, the
   art of a smooth host demo is **timing discipline** — decouple the display from the
-  round‑trips, pace requests so replies arrive solo, and size the timeout to the
-  host's jitter, not the wire's latency.
+  round‑trips, and pace requests so replies arrive solo. The single‑thread port then
+  removes the last host‑side hazard: replies are polled synchronously, so there is no
+  rx thread to fall behind (0 drops measured) and no lock to deadlock (gotcha #3 gone).
