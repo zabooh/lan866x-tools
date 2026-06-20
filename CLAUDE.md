@@ -43,9 +43,10 @@ That directory should contain (and a developer setting it up should provide):
 
 ## Architecture
 - Vanilla **C**, no C++/libstdc++. One `.c` per tool: discovery, i2cscan, i2cid,
-  proxmon, gpio, ledscan, ledblink, ledtoggle, ledpwm, proxled, spi, spiid,
+  proxmon, lan8680, gpio, ledscan, ledblink, ledtoggle, ledpwm, proxled, spi, spiid,
   thumbmon, adc, pwm, boot, flashimg, flashpkg, clickdemo, diag, video, dncpmon,
-  dncpdisc. Didactic non-blocking examples (async RCP): `ledtoggle` (GPIO),
+  dncpdisc. (`lan8680` = read the LAN8680 front-end/SBC over its housekeeping I²C,
+  slave addr 0x40, read-only — see docs/LAN8680.md.) Didactic non-blocking examples (async RCP): `ledtoggle` (GPIO),
   `i2cid`/`proxmon` (I²C VCNL4200), `spiid`/`thumbmon` (SPI MCP3204), `ledpwm` (PWM,
   firmware-dependent), `proxled` (sensor→actuator: proximity→LEDs). Plus `ledblink`
   (GPIO "hello world" running light) and `ledscan` (GPIO→LED mapper → `led_map.json`).

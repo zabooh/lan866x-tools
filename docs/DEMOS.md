@@ -39,7 +39,9 @@ Target an endpoint with `--ip <addr>` or `--ep <index>`; every tool has `--help`
   (find the LED pins) — all in [LEDDEMO.md](LEDDEMO.md). Single pin set/read:
   [../gpio.c](../gpio.c).
 - **I²C:** [../i2cid.c](../i2cid.c) (ID read), [../proxmon.c](../proxmon.c) (live)
-  — [I2CDEMO.md](I2CDEMO.md). Bus scan: [../i2cscan.c](../i2cscan.c).
+  — [I2CDEMO.md](I2CDEMO.md). Bus scan: [../i2cscan.c](../i2cscan.c). Reading the
+  **LAN8680 front-end** (SBC) over its housekeeping I²C: [../lan8680.c](../lan8680.c)
+  — [LAN8680.md](LAN8680.md).
 - **SPI:** [../spiid.c](../spiid.c) (identify), [../thumbmon.c](../thumbmon.c)
   (live) — [SPIDEMO.md](SPIDEMO.md). Raw transfer: [../spi.c](../spi.c).
 - **PWM:** [../ledpwm.c](../ledpwm.c) — [PWMDEMO.md](PWMDEMO.md). Raw PWM:

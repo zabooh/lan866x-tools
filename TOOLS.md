@@ -26,7 +26,7 @@ Companion document to the [README](README.md). It covers two things in depth:
    - 4.2 [`lan866x-discovery`](#42-lan866x-discovery)
    - 4.3 [`lan866x-diag`](#43-lan866x-diag)
    - 4.4 [`lan866x-i2cscan`](#44-lan866x-i2cscan)
-   - 4.4.1 [`lan866x-i2cid` / `lan866x-proxmon`](#441-lan866x-i2cid)
+   - 4.4.1 [`lan866x-i2cid` / `lan866x-proxmon` / `lan866x-lan8680`](#441-lan866x-i2cid)
    - 4.5 [`lan866x-gpio`](#45-lan866x-gpio)
    - 4.5.1 [`lan866x-ledscan` / `-ledblink` / `-ledtoggle` / `-ledpwm` / `-proxled`](#451-lan866x-ledscan--lan866x-ledblink)
    - 4.6 [`lan866x-spi`](#46-lan866x-spi)
@@ -298,9 +298,10 @@ wired to the **LAN8680** front-end, not to the MCU:
 `GPIO0`/`GPIO1` reach only the LAN8680 and the Click-header INT pins; **no LAN8661
 PA pin** is connected, so `lan866x-gpio --get` cannot read them. Each user button
 does drive its **own status LED in hardware** (BUTTON_1→LD11, BUTTON_2→LD10), so
-you can verify it physically without any software. Reading the button state in
-software would require the LAN8680's own register interface (housekeeping I²C),
-which needs the LAN8680 datasheet (not available locally).
+you can verify it physically without any software. The button **state** lives in the
+LAN8680's own registers, reachable over its **housekeeping I²C** (slave addr 0x40) —
+the front-end's DIO0/DIO1 bits in its SBC registers. That bus *is* accessible now:
+see [`lan866x-lan8680`](#441-lan866x-i2cid) and [docs/LAN8680.md](docs/LAN8680.md).
 
 ---
 
@@ -493,6 +494,17 @@ a superloop" pattern. See [docs/I2CDEMO.md §8](docs/I2CDEMO.md#8-going-further-
 
 ```bat
 out\lan866x-proxmon.exe --ip 192.168.0.54 --max 400 --hz 15
+```
+
+**`lan866x-lan8680`** — read the **LAN8680 front-end (System Basis Chip)** over its
+housekeeping I²C (slave addr **0x40**, 16-bit registers, MSB first). Auto-probes the
+SERCOM buses, confirms the chip via `PHY_ID2` (MODEL=100000), and decodes supply/temp
+warnings with `--status`. **READ-ONLY** (the LAN8680 is the board's power/watchdog/
+reset controller). Full write-up: [docs/LAN8680.md](docs/LAN8680.md).
+
+```bat
+out\lan866x-lan8680.exe --ip 192.168.0.54 --status
+out\lan866x-lan8680.exe --sda 4 --scl 5 --reg 0x44
 ```
 
 ### 4.5 `lan866x-gpio`
@@ -892,6 +904,7 @@ they speak DNCP on UDP 65526/65527.
 | `i2cscan` | ReleaseDigitalPins `0x1105`, OpenI2C `0x1200`, ReadI2C `0x1220` |
 | `i2cid` | OpenI2C `0x1200`, WriteAndReadI2C `0x1208` **async**, CloseI2C `0x1202` |
 | `proxmon` | OpenI2C `0x1200`, WriteI2C `0x1204`, WriteAndReadI2C `0x1208` **async** |
+| `lan8680` | OpenI2C `0x1200`, WriteAndReadI2C `0x1208` (read-only), CloseI2C `0x1202` |
 | `proxled` | OpenI2C/WriteAndReadI2C `0x1208` **async** (in) + OpenGpio/SetGpio (out) |
 | `gpio` | OpenGpio `0x1300`, SetGpio `0x1330`, GetGpio `0x1332` |
 | `ledscan` / `ledblink` | ReleaseDigitalPins `0x1105`, OpenGpio `0x1300`, SetGpio `0x1330` |

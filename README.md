@@ -67,6 +67,7 @@ The tools (all build to `lan866x-<name>.exe`):
 | [`lan866x-i2cscan`](i2cscan.c) | scan an endpoint's I2C bus (like `i2cdetect`) |
 | 🎓 [`lan866x-i2cid`](i2cid.c) | read a device ID over I2C **non-blocking** (VCNL4200) — [doc](docs/I2CDEMO.md) |
 | 🎓 [`lan866x-proxmon`](proxmon.c) | live proximity bar (VCNL4200) over I2C, non-blocking — [doc](docs/I2CDEMO.md) |
+| 🎓 [`lan866x-lan8680`](lan8680.c) | read the **LAN8680 front-end** (SBC) over its housekeeping I2C, read-only — [doc](docs/LAN8680.md) |
 | [`lan866x-gpio`](gpio.c) | set / read a GPIO pin |
 | 🎓 [`lan866x-ledscan`](ledscan.c) | interactively find which GPIO drives which on-board LED (→ JSON) — [doc](docs/LEDDEMO.md) |
 | 🎓 [`lan866x-ledblink`](ledblink.c) | on-board LED **running light** — the "hello world" demo — [doc](docs/LEDDEMO.md) |
@@ -352,6 +353,7 @@ lan866x-tools/
 ├── i2cscan.c            I2C bus scanner
 ├── i2cid.c              non-blocking I2C device-ID read (VCNL4200 example)
 ├── proxmon.c            non-blocking live proximity monitor (VCNL4200)
+├── lan8680.c            read the LAN8680 front-end (SBC) over I2C (read-only)
 ├── gpio.c               GPIO set/read
 ├── ledscan.c            interactive GPIO->LED mapper (writes led_map.json)
 ├── ledblink.c           on-board LED running light over SOME/IP ("hello world")
@@ -391,6 +393,8 @@ lan866x-tools/
 │   ├── CLICKDEMO.md     clickdemo demo/software/timing deep-dive
 │   ├── LEDDEMO.md       LED running-light "hello world" + GPIO->LED mapping
 │   ├── I2CDEMO.md       non-blocking I2C device-ID read + proximity monitor (VCNL4200)
+│   ├── LAN8680.md       reading the LAN8680 front-end (SBC) over housekeeping I2C
+│   ├── DEMOS.md         index of all worked examples (source + per-demo docs)
 │   ├── SPIDEMO.md       non-blocking SPI thumbstick read + monitor (MCP3204)
 │   ├── COMBODEMO.md     sensor->actuator app (proximity -> LEDs, proxled)
 │   └── PWMDEMO.md       "breathing" LED via PWM (ledpwm; firmware-dependent)
