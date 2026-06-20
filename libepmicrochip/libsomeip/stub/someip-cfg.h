@@ -42,7 +42,7 @@ extern "C" {
 #define MAX_CONNECTIONS_SERVER  (0u)        /** Specifies the maximum remote (IP-) connections for each server instance */
 
 #define MAX_CLIENT_SERVICES     (1u)        /** Specifies the maximum possible amount of client services/events */
-#define MAX_CONNECTIONS_CLIENT  (16u)       /** Specifies the maximum remote (IP-) connections for each client instance */
+#define MAX_CONNECTIONS_CLIENT  (8u)        /** Max endpoints tracked at once. MCU-sized (was 16); raise for a large PLCA bus. See PORTING.md Footprint. */
 
 #define MAX_SERVER_SESSION_IDS  (4u)        /** Specifies the maximum possible session id lookup table (support for multiple nodes, each having its own session id) */
 
@@ -58,8 +58,16 @@ extern "C" {
 #define MAX_CONFIG_RETRIES      (3u)        /** Maximum retry amount in case of Config transmission */
 #define CONFIG_RETRY_DELAY_TIME (50u)       /** Time in millis to do Config retransmission */
 
-#define SOMEIP_TRANSMIT_MAX_INSTANCES       (4u)
-#define SOMEIP_TRANSMIT_MAX_QUEUE_ENTRIES   (64u)
+/* Transmit buffer pool = INSTANCES x QUEUE_ENTRIES buffers of
+ * (SOMEIP_TRANSMIT_MAX_PAYLOAD_LEN + ~32) B each. This is the dominant RAM term,
+ * so it is sized for an MCU here (was 4 x 64 = 368 kB on the PC reference):
+ *   - INSTANCES 1: this client opens exactly one transmit instance.
+ *   - QUEUE 8: the sync tools use 1 buffer at a time; clickdemo's async path
+ *     keeps ~1-2 in flight (one read per tick) - 8 is comfortable headroom.
+ * Payload stays at SOMEIP_TRANSMIT_MAX_PAYLOAD_LEN (someip.h, 1440) because
+ * flashpkg sends 1200-byte WriteImage chunks. See PORTING.md "Footprint". */
+#define SOMEIP_TRANSMIT_MAX_INSTANCES       (1u)
+#define SOMEIP_TRANSMIT_MAX_QUEUE_ENTRIES   (8u)
 #define SOMEIP_TRANSMIT_MAX_TIMEOUT_TIME    (1000u)
 
 /*>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>*/
