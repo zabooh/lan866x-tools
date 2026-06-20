@@ -89,7 +89,14 @@ rewrite them per target. How the stub maps each one:
    static pool and set lwIP `MEM_LIBC_MALLOC=0`.
 
 ## Footprint
-SOME/IP core: ROM ≈ 28 kB, RAM ≈ 300 B.
+Measured on the host x86 build (`size` over `libsomeip/src/*.o`):
+- **Code (text): ≈ 28 kB.** (ARM-Thumb is in the same range; text is arch-dependent.)
+- **Static RAM (bss): config-dependent, dominated by the transmit buffer pool.** With
+  the PC `someip-cfg.h` it is ≈ 375 kB: ≈ 368 kB pool (payload 1440 B ×
+  `SOMEIP_TRANSMIT_MAX_QUEUE_ENTRIES` 64 × `SOMEIP_TRANSMIT_MAX_INSTANCES` 4) + ≈ 7 kB
+  client/SD state. For an MCU, shrink these in `someip-cfg.h` — e.g. 1 instance × 8
+  entries ≈ 12 kB pool, less again with a smaller payload if you don't flash large
+  images. (bss is arch-independent, so these numbers carry to the target.)
 
 ## Reference
 - **LAN866x Endpoint User's Guide** — §4 Functional Description, §6 SOME/IP methods.
