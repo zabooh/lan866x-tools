@@ -10,7 +10,7 @@
 
 A **pure-C** host that remote-controls LAN866x endpoints via the **Remote Control Protocol (RCP)** on top of the **C SOME/IP stack (`libsomeip`)**. Access is via the **T1S-USB adapter** (EVB-LAN8670-USB) as an Ethernet bridge.
 
-> 🟦 **100 % C — no C++.** Every tool, the RCP wrapper and the platform layer are C; they link **without `libstdc++`**. The same code base ports to a 32-bit MCU (lwIP/FreeRTOS) by swapping a single file — see [chapter 9](#9-porting-to-mcu32).
+> 🟦 **100 % C — no C++.** Every tool, the RCP wrapper and the platform layer are C; they link **without `libstdc++`**. It is **single-thread** (a superloop, no RTOS required), so the same code base ports to a 32-bit MCU (lwIP) by writing a single platform file — see [chapter 9](#9-porting-to-mcu32).
 >
 > 📦 **Self-contained:** this directory contains **all** sources required to build. Unpack → build, no external paths.
 
@@ -49,7 +49,7 @@ A **pure-C** host that remote-controls LAN866x endpoints via the **Remote Contro
 
 ## 1. Overview
 
-**Purpose:** a Windows host prototype that doubles as a **1:1 template for a 32-bit embedded device** (MCU32 + lwIP + FreeRTOS). Everything is plain C.
+**Purpose:** a Windows host prototype that doubles as a **1:1 template for a 32-bit embedded device** (MCU32 + lwIP, single-thread superloop). Everything is plain C.
 
 The tools (all build to `lan866x-<name>.exe`):
 
@@ -70,7 +70,7 @@ The tools (all build to `lan866x-<name>.exe`):
 | **`lan866x-dncpmon`** | passive **DNCP** monitor (standalone, not SOME/IP) |
 | **`lan866x-dncpdisc`** | active **DNCP** discovery (Registry broadcast → collect Announces, read-only) |
 
-The SOME/IP tools use `src/rcp.c` (RCP over `libsomeip`) + the C platform stub `src/someip_stub_win.c`; `lan866x-flashpkg` additionally links a bundled ZIP reader (`third-party/minizip`). The two DNCP tools are standalone (Winsock only — DNCP is not SOME/IP).
+The SOME/IP tools use `src/rcp.c` (RCP over `libsomeip`) + the platform-neutral C stub `src/someip_stub.c` on the narrow `src/plat.h` layer (`src/plat_win.c` is the Windows implementation); `lan866x-flashpkg` additionally links a bundled ZIP reader (`third-party/minizip`). The two DNCP tools are standalone (Winsock only — DNCP is not SOME/IP).
 
 > 📖 Every tool is documented in detail — with all options, examples and the board
 > setup it needs — in **[TOOLS.md](TOOLS.md)**.
@@ -316,12 +316,15 @@ lan866x-tools/
 ├── dncpmon.c            passive DNCP monitor (standalone, Winsock)
 ├── dncpdisc.c           active DNCP discovery (standalone, Winsock)
 ├── src/
-│   ├── rcp.h / rcp.c    RCP over libsomeip — typed methods, 1:1 with the C++ client
-│   ├── someip_stub_win.c  C Windows platform stub (the file you swap for MCU32)
+│   ├── rcp.h / rcp.c    RCP over libsomeip — typed methods + async API
+│   ├── someip_stub.c    platform-neutral SOMEIP_CB_* on the plat.h layer
+│   ├── plat.h           narrow platform interface (time, non-blocking UDP, sleep)
+│   ├── plat_win.c       Windows (Winsock) implementation of plat.h
+│   ├── plat_lwip.c.template  starting template for an lwIP/MCU port (not built)
 │   └── tool_common.h    tiny shared discover-and-select helper
 ├── include/             lan866x_common.h (RCP request/reply structs, used by rcp.c)
 ├── libepmicrochip/
-│   └── libsomeip/       the C SOME/IP stack (src/*.c) + windows-udp-handler.c
+│   └── libsomeip/       the C SOME/IP stack (src/*.c)
 ├── third-party/
 │   └── minizip/         bundled ZIP reader (only lan866x-flashpkg uses it)
 ├── tools/               analysis helpers (plot_timing.py — clickdemo timing diagram)
@@ -331,11 +334,11 @@ lan866x-tools/
 │   └── CLICKDEMO.md     clickdemo demo/software/timing deep-dive
 ├── README.md
 ├── TOOLS.md             board guide + full per-tool reference
-└── PORTING.md           MCU32 port (lwIP/FreeRTOS)
+└── PORTING.md           MCU32 port (lwIP, single-thread)
 ```
 > `libepmicrochip/` also still contains Microchip's C++ vendor sources (`liblan866x`, `librtp`, `someip-stub.cpp`). They are **not built** — this toolset uses only the C `libsomeip` core. They can be deleted for a strictly C-only tree.
 
-The build produces a shared static lib **`rcpcore`** (rcp.c + someip_stub_win.c + windows-udp-handler.c + libsomeip/src/\*.c) that each SOME/IP tool links; the DNCP tools link only Winsock.
+The build produces a shared static lib **`rcpcore`** (rcp.c + someip_stub.c + plat_win.c + libsomeip/src/\*.c) that each SOME/IP tool links; the DNCP tools link only Winsock.
 
 ---
 
@@ -377,18 +380,19 @@ Service `0xFF10`. **Verified** against the authoritative Microchip SOME/IP disse
 
 ## 9. Porting to MCU32
 
-The whole toolset is already vanilla C on `libsomeip`, so the embedded port is small. The **only platform-specific file is `src/someip_stub_win.c`** — it implements the `SOMEIP_CB_*` callbacks (UDP sockets, semaphores, critical sections, time, buffers) on Win32 + Winsock. For MCU32 you **replace just that one file** with an lwIP/FreeRTOS implementation of the same callback set; `rcp.c`/`rcp.h` and the tool logic stay unchanged.
+The toolset is **single-thread** and vanilla C on `libsomeip`, so the embedded port is small: you write **one file**, `src/plat_<target>.c`, implementing the six functions of the narrow `src/plat.h` layer — a millisecond clock, non-blocking UDP (open/send/poll-receive + multicast join + interface enumeration), and sleep/yield. Everything else stays unchanged: the tools, `rcp.c`/`rcp.h`, the platform-neutral SOME/IP stub `src/someip_stub.c`, and the SOME/IP core.
 
-What stays / what is swapped:
+What stays / what you write:
 
-| Layer | Windows | MCU32 |
+| Layer | Windows | MCU |
 |---|---|---|
-| Tool + `rcp.c` (RCP encode/decode) | C | **same** |
+| Tools + `rcp.c` (RCP encode/decode) | C | **same** |
 | SOME/IP core (`libsomeip/src/*.c`) | C | **same** |
-| Platform stub (`SOMEIP_CB_*`) | `src/someip_stub_win.c` (Winsock, Win32 threads) | **new lwIP/FreeRTOS file** |
-| Time base (`SOMEIP_CB_GetTimeMS`) | `GetTickCount()` | `xTaskGetTickCount()` |
+| SOME/IP stub (`SOMEIP_CB_*`) | `src/someip_stub.c` | **same** |
+| Platform layer (`plat.h`) | `src/plat_win.c` (Winsock) | **`src/plat_<target>.c` (lwIP)** |
+| Time base (`plat_now_ms`) | `GetTickCount()` | `sys_now()` / `xTaskGetTickCount()` |
 | T1S link | USB-Ethernet bridge | LAN8650/51 MAC-PHY (OA-SPI) or LAN8670 PHY (RMII) + lwIP |
 
-**Recommended base:** Microchip also ships a generated, callback-based **pure-C client** (`lan866x_c/`) in the multi-language library repo (see the *LAN866x Library Integration Manual*); it uses the same `RT_*` codes and `*Var_t`/`*Reply_t` structs as `include/lan866x_common.h`. `src/rcp.c` here is a compact, self-contained equivalent built directly on `libsomeip`.
+Received UDP is dispatched **synchronously** from `plat_udp_poll()`, so no RTOS is required (a plain superloop works) and no locks are needed. `someip-cfg.h` is sized MCU-friendly (core static RAM ≈ 15 kB). A ready-to-fill starting point is in [`src/plat_lwip.c.template`](src/plat_lwip.c.template).
 
 ➡️ Details: **[PORTING.md](PORTING.md)**.

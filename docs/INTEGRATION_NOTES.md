@@ -69,15 +69,15 @@ The original C++ scanner probed with `ReadI2C(addr, ReadDataLength=1)` and was
 clean; a C port that substitutes `WriteAndReadI2C` regresses it. **Lesson: port
 the EXACT original method, not a superficially similar one.**
 
-## GOTCHA — callbacks run UNDER a non-reentrant lock
-`SOMEIP_CB_EnterCriticialSection` in the Win stub is a **semaphore with max count
-1** (not a reentrant CRITICAL_SECTION). `someip-transmit.c` `ReceivedResponse`
-(rx thread) and `CheckTimers` call `pub->callback(...)` **while holding it**. So a
-buffer callback (the sync `on_response` or an async dispatcher) **must not** call
-`SOMEIP_CB_EnterCriticialSection` — it self-deadlocks the rx thread, then the
-whole app wedges on the next lock. Symptom: works for a few requests (replies
-dropped/late), then freezes hard the first time a reply is actually delivered. The
-state the callback touches is already serialized by the held lock.
+## Callbacks run synchronously on the single execution strand
+The toolset is single-thread. `someip-transmit.c` `ReceivedResponse` and
+`CheckTimers` call `pub->callback(...)` inline, and the stub's
+`SOMEIP_CB_EnterCriticialSection`/`Leave` are no-ops — so a buffer callback (the
+sync `on_response` or the async dispatcher) runs **synchronously** from
+`rcp_poll()` / `rcp_async_poll()`, on the same strand as the waiting code. No
+locks, no `volatile`, no reentrancy hazard. Keep callbacks short and **do not**
+re-enter `rcp_*` from inside one (it would reuse transmit buffers mid-iteration);
+the state a callback touches is naturally serialized by the single strand.
 
 ## Transmit API
 `SOMEIP_Transmit_Init(&port, rxCb, tag)` → `SOMETR_t*`; `SOMEIP_Transmit_GetBuffer`;
@@ -90,7 +90,7 @@ host retries by sending again (WriteId makes flash chunks idempotent).
 
 `src/rcp.c` adds an **async** layer on top: `rcp_async_request()` +
 `rcp_async_poll()` + `rcp_set_async_timeout_ms()`, with a session→callback slot
-table and a lock-free dispatcher (per the gotcha above). Param/reply helpers:
+table dispatched synchronously from `rcp_async_poll()`. Param/reply helpers:
 `rcp_enc_spi2`/`rcp_dec_spi2`, `rcp_enc_i2c_read`/`rcp_dec_i2c_read`.
 
 ## Stub IP convention

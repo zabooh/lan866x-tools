@@ -43,22 +43,22 @@ Two goals drove this toolset:
    the fastest way to bring up a LAN866x endpoint and prove the link, the firmware and
    the peripherals all work.
 
-2. **A 1:1 template for an MCU port.** Every tool, the RCP layer and the platform stub
-   are written in **plain vanilla C — no C++** (they link without `libstdc++`). The
-   exact same source is meant to be lifted onto a **32-bit microcontroller** (lwIP +
-   FreeRTOS): you swap a *single* platform file (`src/someip_stub_win.c`) and keep all
-   the RCP and application logic. So this PC demo doubles as the reference
-   implementation for embedded firmware. (See [README §9](README.md#9-porting-to-mcu32)
-   and [PORTING.md](PORTING.md).)
+2. **A 1:1 template for an MCU port.** Every tool, the RCP layer and the platform
+   layer are written in **plain vanilla C — no C++** (they link without `libstdc++`),
+   and the design is **single-thread** (a superloop, no RTOS required). The exact same
+   source is meant to be lifted onto a **32-bit microcontroller** (lwIP): you write a
+   *single* platform file (`src/plat_<target>.c`) and keep all the RCP and application
+   logic. So this PC demo doubles as the reference implementation for embedded firmware.
+   (See [README §9](README.md#9-porting-to-mcu32) and [PORTING.md](PORTING.md).)
 
 ```
    PC demo (this toolset)                          MCU target (your firmware)
    ┌───────────────────────────┐                  ┌───────────────────────────┐
    │ tool logic (discovery,     │   identical C    │ tool logic                 │
    │ flashpkg, clickdemo …)     │ ───────────────► │ (unchanged)                │
-   │ rcp.c  (RCP encode/decode) │                  │ rcp.c  (unchanged)         │
+   │ rcp.c + someip_stub.c      │                  │ rcp.c + someip_stub.c      │
    │ libsomeip/src/*.c          │                  │ libsomeip/src/*.c (same)   │
-   │ someip_stub_win.c (Winsock)│   ← swap ONLY →   │ someip_stub_lwip.c (lwIP)  │
+   │ plat_win.c (Winsock)       │   ← write ONLY →  │ plat_lwip.c (lwIP)         │
    └───────────────────────────┘   this one file   └───────────────────────────┘
 ```
 

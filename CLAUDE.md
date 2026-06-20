@@ -43,11 +43,18 @@ That directory should contain (and a developer setting it up should provide):
 ## Architecture
 - Vanilla **C**, no C++/libstdc++. One `.c` per tool: discovery, i2cscan, gpio,
   spi, adc, pwm, boot, flashimg, flashpkg, clickdemo, diag, video, dncpmon, dncpdisc.
+- **Single-thread** (superloop): received UDP is dispatched synchronously from a
+  per-tick poll (`plat_udp_poll()` inside `rcp_poll()`/`rcp_async_poll()`). No
+  threads, no locks, no `volatile` shared state.
 - Shared core built as the `rcpcore` static lib:
   - `src/rcp.c` — RCP-over-SOME/IP wrapper (typed methods + an async API).
-  - `src/someip_stub_win.c` — Win32 platform stub (all `SOMEIP_CB_*`).
+  - `src/someip_stub.c` — platform-neutral `SOMEIP_CB_*`, built on the `plat.h` layer.
+  - `src/plat.h` + `src/plat_win.c` — the narrow platform layer (time, non-blocking
+    UDP, sleep); `plat_win.c` is the Windows (Winsock) implementation.
   - `libepmicrochip/libsomeip/*` — the C SOME/IP stack.
-- **Ports to a 32-bit MCU** (lwIP/FreeRTOS) by swapping only the stub — see PORTING.md.
+- **Port to a 32-bit MCU** (lwIP) by writing one file `src/plat_<target>.c` (the six
+  `plat.h` functions) — see PORTING.md. `someip-cfg.h` is sized MCU-friendly
+  (core static RAM ≈ 15 kB).
 - Wire facts: service `0xFF10`; SD on UDP **30490**; method endpoint on UDP **6800**;
   the endpoint **replies from src port 49153**. Video is RTP/RFC4175 on UDP **5001**.
 
@@ -68,10 +75,11 @@ That directory should contain (and a developer setting it up should provide):
    an address NACK as an error for that call, so absent addresses look "present"
    (phantom devices). I²C is deterministic; if a scan looks "noisy", it's the
    wrong method or host reply-drops, not the bus.
-3. **`SOMEIP_CB_EnterCriticialSection` is a NON-reentrant semaphore**, and the
-   transmit layer (`someip-transmit.c` ReceivedResponse/CheckTimers) calls a
-   buffer's callback **while holding it**. A response/async callback **must not**
-   take that lock again → it self-deadlocks the rx thread and wedges everything.
+3. **Single-thread model:** all `SOMEIP_CB_*` run on one strand, so
+   `SOMEIP_CB_EnterCriticialSection`/`Leave` are no-ops. Response/async callbacks
+   fire **synchronously** from `rcp_poll()`/`rcp_async_poll()` (the transmit layer
+   invokes them inline) — keep callbacks short and **do not** re-enter `rcp_*` from
+   inside them (it would reuse transmit buffers mid-iteration).
 4. **The Windows host drops RCP replies under back-to-back requests** (~60% loss
    at 0 ms gap vs ~1% at ~20 ms). Pace control traffic, batch reads (compound SPI
    `0x1509`), or read sensors sequentially. The **T1S link itself is excellent**
@@ -91,8 +99,8 @@ That directory should contain (and a developer setting it up should provide):
 
 ## Async RCP (non-blocking)
 `rcp_async_request(method, params, len, cb, ctx)` sends and returns; `rcp_async_poll()`
-delivers replies/timeouts; `rcp_set_async_timeout_ms()` sets the deadline. The
-callback runs under the transmit lock (gotcha #3 — keep it short, no rcp_* calls).
+delivers replies/timeouts; `rcp_set_async_timeout_ms()` sets the deadline. The callback
+runs synchronously from `rcp_async_poll()` (single-thread — keep it short, no rcp_* calls).
 Param/reply helpers: `rcp_enc_spi2`/`rcp_dec_spi2`, `rcp_enc_i2c_read`/`rcp_dec_i2c_read`.
 
 ## Method IDs
