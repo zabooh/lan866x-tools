@@ -56,6 +56,21 @@ static struct {
 static uint32_t s_asyncTimeoutMs = 150u;
 static uint16_t s_lastAsyncSid = 0u;   /* SOME/IP session id of the last queued async request */
 
+/* --- event/notification subscription + callbacks ------------------------ *
+ * Off by default (no behaviour change for tools that don't want events).
+ * Single-thread: notifications are decoded and dispatched synchronously from
+ * on_data_received() (inside rcp_poll()/rcp_async_poll()). The decode scratch
+ * is a union (only one notification is in flight per RX). */
+static bool                 s_subscribeEvents = false;
+static rcp_gpio_events_cb   s_gpioEvCb = NULL;  static void *s_gpioEvCtx = NULL;
+static rcp_uart_receive_cb  s_uartRxCb = NULL;  static void *s_uartRxCtx = NULL;
+static rcp_adc_event_cb     s_adcEvCb  = NULL;  static void *s_adcEvCtx  = NULL;
+static union {
+    OnGpioEventsNotification_t  gpio;
+    OnUartReceiveNotification_t uart;
+    OnAdcEventNotification_t    adc;
+} s_notif;
+
 /* --- discovery event callback (mirrors OnSomeIpEvent) ------------------- */
 static void on_event(enum SOMEIP_CB_Event evnt, struct SOMEIP_Server_Client *pSC,
                      struct SOMEIP_IpAddr *pIp, uint16_t receivedInstanceId,
@@ -100,7 +115,45 @@ static enum SOMEIP_ReturnCode on_data_received(const uint8_t *b, uint16_t bLen,
                                              par.retCode, &b[parsed], (uint16_t)(bLen - parsed));
             return SOMEIP_E_OK;
         }
-        return SOMEIP_E_OK;   /* notifications/events not used here */
+        /* Notifications (device -> host): decode + dispatch to the registered
+         * callback. Mirrors the generated client's OnDataReceived routing. */
+        if (par.msgType == MSGTYPE_NOTIFICATION && par.generateEvent && par.retCode == SOMEIP_E_OK) {
+            const uint8_t *pl = &b[parsed];
+            uint16_t pn = (uint16_t)(bLen - parsed), p = 0u, tag = 0u;
+            switch (par.methodId) {
+            case 0x8000u:   /* OnGpioEvents */
+                if (s_gpioEvCb) {
+                    s_notif.gpio.EventsLength = sizeof(s_notif.gpio.Events);
+                    if (SOMEIP_Parser_Read_BLOB(&pl[p], (uint16_t)(pn - p), &tag,
+                            s_notif.gpio.Events, &s_notif.gpio.EventsLength, &p))
+                        s_gpioEvCb(&s_notif.gpio, s_gpioEvCtx);
+                }
+                break;
+            case 0x8010u:   /* OnUartReceive */
+                if (s_uartRxCb) {
+                    s_notif.uart.ReadDataLength = sizeof(s_notif.uart.ReadData);
+                    if (SOMEIP_Parser_Read_UINT16(&pl[p], (uint16_t)(pn - p), &tag, &s_notif.uart.HandleUart, &p) &&
+                        SOMEIP_Parser_Read_UINT32(&pl[p], (uint16_t)(pn - p), &tag, &s_notif.uart.ReadId, &p) &&
+                        SOMEIP_Parser_Read_BLOB(&pl[p], (uint16_t)(pn - p), &tag,
+                            s_notif.uart.ReadData, &s_notif.uart.ReadDataLength, &p))
+                        s_uartRxCb(&s_notif.uart, s_uartRxCtx);
+                }
+                break;
+            case 0x8030u:   /* OnAdcEvent */
+                if (s_adcEvCb) {
+                    if (SOMEIP_Parser_Read_UINT16(&pl[p], (uint16_t)(pn - p), &tag, &s_notif.adc.HandleAdc, &p) &&
+                        SOMEIP_Parser_Read_UINT8 (&pl[p], (uint16_t)(pn - p), &tag, &s_notif.adc.ChannelSelect, &p) &&
+                        SOMEIP_Parser_Read_UINT32(&pl[p], (uint16_t)(pn - p), &tag, &s_notif.adc.EventCounter, &p) &&
+                        SOMEIP_Parser_Read_UINT8 (&pl[p], (uint16_t)(pn - p), &tag, &s_notif.adc.TimestampStatus, &p) &&
+                        SOMEIP_Parser_Read_UINT64(&pl[p], (uint16_t)(pn - p), &tag, &s_notif.adc.Timestamp, &p) &&
+                        SOMEIP_Parser_Read_UINT16(&pl[p], (uint16_t)(pn - p), &tag, &s_notif.adc.Data, &p))
+                        s_adcEvCb(&s_notif.adc, s_adcEvCtx);
+                }
+                break;
+            default: break;
+            }
+        }
+        return SOMEIP_E_OK;
     }
     return SOMEIP_E_OK;
 }
@@ -377,8 +430,14 @@ bool rcp_init(const uint8_t localIfIP[4])
     svc.eventHandlingEnabled = true;
     svc.ipAddr.port = s_port;
     svc.cbData = NULL;
-    return SOMEIP_Client_AddService(&svc, true, false);
+    return SOMEIP_Client_AddService(&svc, true, s_subscribeEvents);
 }
+
+/* --- event/notification API --------------------------------------------- */
+void rcp_enable_event_subscription(bool on) { s_subscribeEvents = on; }
+void rcp_set_gpio_events_cb(rcp_gpio_events_cb cb, void *ctx)   { s_gpioEvCb = cb; s_gpioEvCtx = ctx; }
+void rcp_set_uart_receive_cb(rcp_uart_receive_cb cb, void *ctx) { s_uartRxCb = cb; s_uartRxCtx = ctx; }
+void rcp_set_adc_event_cb(rcp_adc_event_cb cb, void *ctx)       { s_adcEvCb  = cb; s_adcEvCtx  = ctx; }
 
 void rcp_poll(void) { someip_service(); SOMEIP_Transmit_CheckTimers(); }
 bool rcp_is_ready(void) { return s_epCount > 0u; }
@@ -769,6 +828,88 @@ ReturnCode_t rcp_write_pwm(const WritePwmVar_t *in)
           SOMEIP_Generator_Fill_UINT32(2, in->WriteData, &s_scratch[pl], (uint16_t)(MAXP - pl), &pl)))
         return RT_PARAMETER_NOT_VALID;
     return rcp_xfer(0x1804u, s_scratch, pl);
+}
+
+/* ============================== UART =================================== *
+ * Wire layout per the v1.10.0 SDK proto; the *Var_t/*Reply_t structs are the
+ * firmware-verified ones already in lan866x_common.h. Untested on hardware
+ * here - verify on a board. For unsolicited RX, open with Notification=1 and
+ * register rcp_set_uart_receive_cb (event 0x8010) instead of polling. */
+ReturnCode_t rcp_open_uart(const OpenUartVar_t *in, OpenUartReply_t *out)
+{
+    uint16_t pl = 0u, p = 0u, tag = 0u;
+    ReturnCode_t rc;
+    if (!(SOMEIP_Generator_Fill_UINT8 (0,  in->PinIdTx,      &s_scratch[pl], (uint16_t)(MAXP - pl), &pl) &&
+          SOMEIP_Generator_Fill_UINT8 (1,  in->PinIdRx,      &s_scratch[pl], (uint16_t)(MAXP - pl), &pl) &&
+          SOMEIP_Generator_Fill_UINT8 (2,  in->PinIdRts,     &s_scratch[pl], (uint16_t)(MAXP - pl), &pl) &&
+          SOMEIP_Generator_Fill_UINT8 (3,  in->PinIdCts,     &s_scratch[pl], (uint16_t)(MAXP - pl), &pl) &&
+          SOMEIP_Generator_Fill_UINT8 (4,  in->Notification, &s_scratch[pl], (uint16_t)(MAXP - pl), &pl) &&
+          SOMEIP_Generator_Fill_UINT32(5,  in->BaudRate,     &s_scratch[pl], (uint16_t)(MAXP - pl), &pl) &&
+          SOMEIP_Generator_Fill_UINT8 (6,  in->Parity,       &s_scratch[pl], (uint16_t)(MAXP - pl), &pl) &&
+          SOMEIP_Generator_Fill_UINT8 (7,  in->StopBits,     &s_scratch[pl], (uint16_t)(MAXP - pl), &pl) &&
+          SOMEIP_Generator_Fill_UINT8 (8,  in->BitOrder,     &s_scratch[pl], (uint16_t)(MAXP - pl), &pl) &&
+          SOMEIP_Generator_Fill_UINT16(9,  in->RxBufferSize, &s_scratch[pl], (uint16_t)(MAXP - pl), &pl) &&
+          SOMEIP_Generator_Fill_UINT16(10, in->RxThreshold,  &s_scratch[pl], (uint16_t)(MAXP - pl), &pl) &&
+          SOMEIP_Generator_Fill_UINT16(11, in->RxTimeout,    &s_scratch[pl], (uint16_t)(MAXP - pl), &pl)))
+        return RT_PARAMETER_NOT_VALID;
+    rc = rcp_xfer(0x1400u, s_scratch, pl);
+    if (rc != RT_OK) return rc;
+    return SOMEIP_Parser_Read_UINT16(&s_rx[p], s_rxLen - p, &tag, &out->HandleUart, &p) ? RT_OK : RT_MALFORMED_MESSAGE;
+}
+
+ReturnCode_t rcp_write_uart(const WriteUartVar_t *in)
+{
+    uint16_t pl = 0u;
+    if (!(SOMEIP_Generator_Fill_UINT16(0, in->HandleUart, &s_scratch[pl], (uint16_t)(MAXP - pl), &pl) &&
+          SOMEIP_Generator_Fill_UINT32(1, in->WriteId,    &s_scratch[pl], (uint16_t)(MAXP - pl), &pl) &&
+          SOMEIP_Generator_Fill_BLOB(2, in->WriteData, in->WriteDataLength, &s_scratch[pl], (uint16_t)(MAXP - pl), &pl)))
+        return RT_PARAMETER_NOT_VALID;
+    return rcp_xfer(0x1404u, s_scratch, pl);
+}
+
+ReturnCode_t rcp_read_uart(const ReadUartVar_t *in, ReadUartReply_t *out)
+{
+    uint16_t pl = 0u, p = 0u, tag = 0u;
+    ReturnCode_t rc;
+    if (!SOMEIP_Generator_Fill_UINT16(0, in->HandleUart, &s_scratch[pl], (uint16_t)(MAXP - pl), &pl))
+        return RT_PARAMETER_NOT_VALID;
+    rc = rcp_xfer(0x1420u, s_scratch, pl);
+    if (rc != RT_OK) return rc;
+    out->ReadDataLength = sizeof(out->ReadData);
+    return (SOMEIP_Parser_Read_UINT32(&s_rx[p], s_rxLen - p, &tag, &out->ReadId, &p) &&
+            SOMEIP_Parser_Read_BLOB(&s_rx[p], s_rxLen - p, &tag, out->ReadData, &out->ReadDataLength, &p)) ? RT_OK : RT_MALFORMED_MESSAGE;
+}
+
+/* ===================== diagnostics / network ========================== *
+ * Wire layout per the v1.10.0 SDK proto; GetHealthStatusReply_t and
+ * ClearNetworkCountersVar_t were added to lan866x_common.h from that proto and
+ * are UNVERIFIED against V1.3.2/V1.4.0 firmware - test before relying. */
+ReturnCode_t rcp_get_health_status(GetHealthStatusReply_t *out)
+{
+    uint16_t p = 0u, tag = 0u;
+    ReturnCode_t rc = rcp_xfer(0x100Au, NULL, 0u);
+    if (rc != RT_OK) return rc;
+    out->ActiveApplicationLength = sizeof(out->ActiveApplication);
+    return (SOMEIP_Parser_Read_BLOB(&s_rx[p], s_rxLen - p, &tag, out->ActiveApplication, &out->ActiveApplicationLength, &p) &&
+            SOMEIP_Parser_Read_UINT64(&s_rx[p], s_rxLen - p, &tag, &out->Uptime, &p) &&
+            SOMEIP_Parser_Read_UINT64(&s_rx[p], s_rxLen - p, &tag, &out->HealthRecord, &p)) ? RT_OK : RT_MALFORMED_MESSAGE;
+}
+
+ReturnCode_t rcp_clear_network_counters(const ClearNetworkCountersVar_t *in)
+{
+    uint16_t pl = 0u;
+    if (!SOMEIP_Generator_Fill_UINT8(0, in->Category, &s_scratch[pl], (uint16_t)(MAXP - pl), &pl))
+        return RT_PARAMETER_NOT_VALID;
+    return rcp_xfer(0x1605u, s_scratch, pl);
+}
+
+ReturnCode_t rcp_start_td_measurement(const StartTDMeasurementVar_t *in)
+{
+    uint16_t pl = 0u;
+    if (!(SOMEIP_Generator_Fill_UINT8(0, in->Role,     &s_scratch[pl], (uint16_t)(MAXP - pl), &pl) &&
+          SOMEIP_Generator_Fill_UINT8(1, in->Duration, &s_scratch[pl], (uint16_t)(MAXP - pl), &pl)))
+        return RT_PARAMETER_NOT_VALID;
+    return rcp_xfer(0x1602u, s_scratch, pl);
 }
 
 uint16_t rcp_enc_pwm_write(uint8_t *buf, uint16_t cap, uint16_t handle, uint32_t writeId, uint32_t dutyQ31)

@@ -103,6 +103,15 @@ ReturnCode_t rcp_get_network_status(GetNetworkStatusReply_t *out);
 /* PHY/T1S diagnosis data (SQI, fault/short detection, ...): 4 raw 16-byte
  * channel blobs straight from the endpoint. Method 0x1003. */
 ReturnCode_t rcp_read_diagnosis_data(ReadDiagnosisDataReply_t *out);
+/* Module health monitor: running app name, uptime (ns), health record. Method
+ * 0x100A. Layout per v1.10.0 proto - unverified on V1.3.2/V1.4.0 firmware. */
+ReturnCode_t rcp_get_health_status(GetHealthStatusReply_t *out);
+/* Reset network diagnosis counters by category (0=all). Method 0x1605. */
+ReturnCode_t rcp_clear_network_counters(const ClearNetworkCountersVar_t *in);
+/* Start a topology/propagation-delay measurement (Role 0=initiator,1=reference,
+ * 2=measurement). Method 0x1602. The result arrives via GetTDMeasurementResult
+ * (0x1603) or the OnTDMeasurementCompleted event (0x8020). */
+ReturnCode_t rcp_start_td_measurement(const StartTDMeasurementVar_t *in);
 
 /* --- Bootloader / reboot ------------------------------------------------ *
  * Reboot the endpoint into the named image. The name is sent BOM-prefixed
@@ -168,6 +177,29 @@ ReturnCode_t rcp_open_pwm(const OpenPwmVar_t *in, OpenPwmReply_t *out);
 ReturnCode_t rcp_close_pwm(const ClosePwmVar_t *in);
 /* Change the duty cycle of an open PWM (method 0x1804). DutyCycle: 0=0% .. 2^31=100%. */
 ReturnCode_t rcp_write_pwm(const WritePwmVar_t *in);
+
+/* UART (methods 0x1400/0x1404/0x1420). Open returns a handle; Write is a
+ * BasicReply (no payload); Read pulls whatever is buffered on the endpoint.
+ * For unsolicited RX, set OpenUartVar.Notification=1 and register an
+ * rcp_uart_receive_cb (see events below) instead of polling rcp_read_uart. */
+ReturnCode_t rcp_open_uart(const OpenUartVar_t *in, OpenUartReply_t *out);
+ReturnCode_t rcp_write_uart(const WriteUartVar_t *in);
+ReturnCode_t rcp_read_uart(const ReadUartVar_t *in, ReadUartReply_t *out);
+
+/* --- Events / notifications (device -> host) ----------------------------- *
+ * The endpoint can push GPIO edge events, UART RX and ADC threshold events as
+ * SOME/IP notifications instead of being polled. They are NOT received by
+ * default: call rcp_enable_event_subscription(true) BEFORE rcp_init() to join
+ * eventgroup 0x2000, then register the callbacks you want. Decoded payloads are
+ * delivered synchronously from rcp_poll()/rcp_async_poll() on the single strand
+ * (keep callbacks short; do not re-enter rcp_*). ctx is passed back verbatim. */
+void rcp_enable_event_subscription(bool on);
+typedef void (*rcp_gpio_events_cb)(const OnGpioEventsNotification_t *ev, void *ctx);
+typedef void (*rcp_uart_receive_cb)(const OnUartReceiveNotification_t *ev, void *ctx);
+typedef void (*rcp_adc_event_cb)(const OnAdcEventNotification_t *ev, void *ctx);
+void rcp_set_gpio_events_cb(rcp_gpio_events_cb cb, void *ctx);   /* event 0x8000 */
+void rcp_set_uart_receive_cb(rcp_uart_receive_cb cb, void *ctx); /* event 0x8010 */
+void rcp_set_adc_event_cb(rcp_adc_event_cb cb, void *ctx);       /* event 0x8030 */
 
 /* --- Example pin mapping LAN8660 (PA00..PA15 = 0..15) -------------------- */
 #define PIN_PA00  0u

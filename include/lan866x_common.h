@@ -698,6 +698,39 @@ typedef struct
     WriteAndReadSpiElementReply_t *firstElement; ///< First element;
 } WriteAndReadSpiExtenedReply_t;
 
+/* ---------------------------------------------------------------------------
+ * Structs added by lan866x-tools (not in the original older-firmware header).
+ * Layout taken from the LAN866x SOME/IP client SDK v1.10.0 `lan866x.proto`.
+ * UNVERIFIED against the target firmware (V1.3.2/V1.4.0) — confirm on a board
+ * before relying on these. See docs/INTEGRATION_NOTES.md.
+ * ------------------------------------------------------------------------- */
+
+/** @brief Output from GetHealthStatus (method 0x100A). */
+typedef struct
+{
+    uint16_t ActiveApplicationLength;       ///< Bytes used in ActiveApplication.
+    uint8_t ActiveApplication[64];          ///< Name of the running application, e.g. main/app.bin.
+    uint64_t Uptime;                        ///< Uptime in ns.
+    uint64_t HealthRecord;                  ///< Module health record of the module health monitor.
+} GetHealthStatusReply_t;
+
+/** @brief Input to ClearNetworkCounters (method 0x1605). */
+typedef struct
+{
+    uint8_t Category;                       ///< 0=All;1=PHY;2=EthTX;3=EthRX;4=EoUART;5=OASPI diagnosis counters.
+} ClearNetworkCountersVar_t;
+
+/** @brief Notification payload of OnAdcEvent (event 0x8030). */
+typedef struct
+{
+    uint16_t HandleAdc;                     ///< Handle of the opened ADC interface.
+    uint8_t ChannelSelect;                  ///< 0 = Analog input.
+    uint32_t EventCounter;                  ///< Consecutive counter of reported notifications.
+    uint8_t TimestampStatus;                ///< 0=Unsynced;1=Uncertain;2=Certain;3=Invalid.
+    uint64_t Timestamp;                     ///< Timestamp.
+    uint16_t Data;                          ///< Data converted by ADC (12-bit).
+} OnAdcEventNotification_t;
+
 #ifdef __cplusplus
 } // namespace rcp
 } // namespace microchip
