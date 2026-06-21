@@ -94,6 +94,13 @@ int main(int argc, char **argv)
 
     if (tool_select(wantIp, wantEp, 5, "LAN866x UART tool (pure C)") < 0) return 2;
 
+    /* Release the pins first (the running app may hold them), like gpio does. */
+    {
+        ReleaseDigitalPinsVar_t rel; memset(&rel, 0, sizeof(rel));
+        rel.PinIdList[0] = (uint8_t)tx; rel.PinIdList[1] = (uint8_t)rx;
+        rel.PinIdListLength = 2; rcp_release_digital_pins(&rel);
+    }
+
     memset(&ov, 0, sizeof(ov)); memset(&orep, 0, sizeof(orep));
     ov.PinIdTx = (uint8_t)tx; ov.PinIdRx = (uint8_t)rx;
     ov.PinIdRts = 0xFF; ov.PinIdCts = 0xFF;
@@ -105,7 +112,10 @@ int main(int argc, char **argv)
     ov.RxBufferSize = 256;
     ov.RxThreshold = 1;
     ov.RxTimeout = 10;
-    if (rcp_open_uart(&ov, &orep) != RT_OK) { printf("OpenUart failed.\n"); return 3; }
+    {
+        ReturnCode_t orc = rcp_open_uart(&ov, &orep);
+        if (orc != RT_OK) { printf("OpenUart failed (rc=%d).\n", orc); return 3; }
+    }
     printf("UART open: TX=PA%02d RX=PA%02d @ %lu Bd  (handle %u)\n",
            tx, rx, (unsigned long)baud, orep.HandleUart);
 

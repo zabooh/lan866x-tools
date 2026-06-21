@@ -103,9 +103,14 @@ int main(int argc, char **argv)
     ce.NotificationType = 2;   /* Data */
     ce.Trigger = trigger;
     ce.Timestamped = 1;
-    if (rcp_enable_gpio_capture_event(&ce) != RT_OK) {
-        printf("EnableGpioCaptureEvent failed (firmware/config may not support it).\n");
-        return 4;
+    {
+        ReturnCode_t erc = rcp_enable_gpio_capture_event(&ce);
+        if (erc != RT_OK) {
+            printf("EnableGpioCaptureEvent failed (rc=%d)%s.\n", erc,
+                   erc == RT_UNKNOWN_METHOD ? " - not in this firmware build" :
+                   " - firmware/config may not support it");
+            return 4;
+        }
     }
 
     printf("\nWatching PA%02d for %s edge(s). Drive the pin to see events.%s\n\n",
