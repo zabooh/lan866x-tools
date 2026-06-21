@@ -1,0 +1,10 @@
+{
+  "tool": "lan866x-ledscan",
+  "endpoint": "192.168.0.54",
+  "timestamp": "2026-06-20 18:36:23",
+  "blink": { "count": 6, "on_ms": 250, "off_ms": 250 },
+  "results": [
+    { "pin": 14, "name": "PA14", "led": false, "status": "none" }
+  ],
+  "leds_found": []
+}
