@@ -69,8 +69,9 @@ static void print_mac(const char *label, uint64_t mac)
 int main(int argc, char **argv)
 {
     const char *wantIp = NULL;
-    int wantEp = 0, i, probeN = 200, raw = 0, gap = 15;
+    int wantEp = 0, i, probeN = 200, raw = 0, gap = 15, clearCounters = 0, tdRole = -1;
     GetStatusReply_t st;
+    GetHealthStatusReply_t hs;
     GetNetworkStatusReply_t ns;
     ReadDiagnosisDataReply_t dg;
     ReturnCode_t rc;
@@ -81,13 +82,18 @@ int main(int argc, char **argv)
                    "  lan866x-diag [--ip <addr>|--ep <i>] [--probe N] [--gap MS] [--raw]\n\n"
                    "  --probe N : number of round-trip probes for loss/latency (default 200)\n"
                    "  --gap MS  : pause between probes (default 15; use 0 to stress the host rx path)\n"
-                   "  --raw     : also dump raw diagnosis channel bytes\n");
+                   "  --raw     : also dump raw diagnosis channel bytes\n"
+                   "  --clear-counters : reset all network diagnosis counters (0x1605) first\n"
+                   "  --td <0|1|2>     : start a topology/delay measurement (0=initiator,\n"
+                   "                     1=reference, 2=measurement) - needs >=2 coordinated nodes\n");
             return 0;
         } else if (!strcmp(argv[i], "--ip")    && i+1<argc) wantIp = argv[++i];
         else if (!strcmp(argv[i], "--ep")    && i+1<argc) wantEp = atoi(argv[++i]);
         else if (!strcmp(argv[i], "--probe") && i+1<argc) probeN = atoi(argv[++i]);
         else if (!strcmp(argv[i], "--gap")   && i+1<argc) gap = atoi(argv[++i]);
         else if (!strcmp(argv[i], "--raw"))  raw = 1;
+        else if (!strcmp(argv[i], "--clear-counters")) clearCounters = 1;
+        else if (!strcmp(argv[i], "--td")    && i+1<argc) tdRole = atoi(argv[++i]);
     }
     if (probeN < 1) probeN = 1;
 
@@ -103,7 +109,27 @@ int main(int argc, char **argv)
         print_reset_reason(st.StartupInformation);
     } else printf("  GetStatus failed\n");
 
+    /* Module health monitor (method 0x100A). Layout per v1.10.0 proto - may be
+     * absent/different on older firmware; treated as best-effort. */
+    memset(&hs, 0, sizeof(hs));
+    rc = rcp_get_health_status(&hs);
+    if (rc == RT_OK) {
+        printf("  Health app     : %s\n", hs.ActiveApplication);
+        printf("  Health uptime  : %.1f s\n", (double)hs.Uptime / 1e9);
+        printf("  Health record  : 0x%016llX %s\n",
+               (unsigned long long)hs.HealthRecord, hs.HealthRecord ? "(see manual)" : "(all OK)");
+    } else if (rc == RT_UNKNOWN_METHOD) {
+        printf("  Health monitor : not implemented in this firmware build\n");
+    } else printf("  GetHealthStatus failed (rc=%d)\n", rc);
+
     printf("\n================ T1S NETWORK ================\n");
+    if (clearCounters) {
+        ClearNetworkCountersVar_t cc; memset(&cc, 0, sizeof(cc));
+        cc.Category = 0;   /* all */
+        rc = rcp_clear_network_counters(&cc);
+        printf("  Counters reset : %s\n", rc == RT_OK ? "OK (all categories)" :
+               rc == RT_UNKNOWN_METHOD ? "not implemented" : "FAILED");
+    }
     memset(&ns, 0, sizeof(ns));
     rc = rcp_get_network_status(&ns);
     if (rc == RT_OK) {
@@ -121,6 +147,17 @@ int main(int argc, char **argv)
         printf("  OA-SPI bridge  : %s\n", ns.OaspiStatus == 0 ? "disabled" :
                ns.OaspiStatus == 1 ? "link up" : ns.OaspiStatus == 2 ? "link down" : "?");
     } else printf("  GetNetworkStatus failed (rc=%d)\n", rc);
+
+    if (tdRole >= 0) {
+        StartTDMeasurementVar_t td; memset(&td, 0, sizeof(td));
+        printf("\n================ TOPOLOGY/DELAY MEASUREMENT ================\n");
+        td.Role = (uint8_t)tdRole; td.Duration = 10;
+        rc = rcp_start_td_measurement(&td);
+        printf("  StartTDMeasurement(role=%d): %s\n", tdRole,
+               rc == RT_OK ? "started" : rc == RT_UNKNOWN_METHOD ? "not implemented" : "FAILED");
+        printf("  (Needs >=2 coordinated nodes; collect the result on the initiator\n");
+        printf("   via GetTDMeasurementResult or the OnTDMeasurementCompleted event.)\n");
+    }
 
     printf("\n================ PHY DIAGNOSIS (ReadDiagnosisData) ================\n");
     memset(&dg, 0, sizeof(dg));

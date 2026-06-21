@@ -642,6 +642,29 @@ ReturnCode_t rcp_get_gpio(GetGpioReply_t *out)
     return SOMEIP_Parser_Read_BLOB(&s_rx[p], s_rxLen - p, &tag, out->GpioValues, &out->GpioValuesLength, &p) ? RT_OK : RT_MALFORMED_MESSAGE;
 }
 
+/* Arm an open input GPIO to emit OnGpioEvents (0x8000) on edges. Method 0x1356.
+ * Set NotificationType=2 (Data) and Timestamped=1 to receive timestamped edges.
+ * Pair with rcp_enable_event_subscription(true)+rcp_set_gpio_events_cb. */
+ReturnCode_t rcp_enable_gpio_capture_event(const EnableGpioCaptureEventVar_t *in)
+{
+    uint16_t pl = 0u;
+    if (!(SOMEIP_Generator_Fill_UINT16(0, in->HandleGpio,        &s_scratch[pl], (uint16_t)(MAXP - pl), &pl) &&
+          SOMEIP_Generator_Fill_UINT8 (1, in->NotificationType,  &s_scratch[pl], (uint16_t)(MAXP - pl), &pl) &&
+          SOMEIP_Generator_Fill_UINT8 (2, in->Trigger,           &s_scratch[pl], (uint16_t)(MAXP - pl), &pl) &&
+          SOMEIP_Generator_Fill_UINT8 (3, in->Timestamped,       &s_scratch[pl], (uint16_t)(MAXP - pl), &pl)))
+        return RT_PARAMETER_NOT_VALID;
+    return rcp_xfer(0x1356u, s_scratch, pl);
+}
+
+/* Stop event generation on a GPIO handle. Method 0x1360. */
+ReturnCode_t rcp_disable_gpio_event(const DisableGpioEventVar_t *in)
+{
+    uint16_t pl = 0u;
+    if (!SOMEIP_Generator_Fill_UINT16(0, in->HandleGpio, &s_scratch[pl], (uint16_t)(MAXP - pl), &pl))
+        return RT_PARAMETER_NOT_VALID;
+    return rcp_xfer(0x1360u, s_scratch, pl);
+}
+
 ReturnCode_t rcp_open_i2c(const OpenI2CVar_t *in, OpenI2CReply_t *out)
 {
     uint16_t pl = 0u, p = 0u, tag = 0u;

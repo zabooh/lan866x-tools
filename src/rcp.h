@@ -147,6 +147,10 @@ ReturnCode_t rcp_release_digital_pins(const ReleaseDigitalPinsVar_t *in);
 ReturnCode_t rcp_open_gpio(const OpenGpioVar_t *in, OpenGpioReply_t *out);
 ReturnCode_t rcp_set_gpio(const SetGpioVar_t *in);
 ReturnCode_t rcp_get_gpio(GetGpioReply_t *out);
+/* Arm/disarm input-edge events on an open GPIO (methods 0x1356 / 0x1360).
+ * Delivered as OnGpioEvents (0x8000) via rcp_set_gpio_events_cb (see events). */
+ReturnCode_t rcp_enable_gpio_capture_event(const EnableGpioCaptureEventVar_t *in);
+ReturnCode_t rcp_disable_gpio_event(const DisableGpioEventVar_t *in);
 
 /* I2C */
 ReturnCode_t rcp_open_i2c(const OpenI2CVar_t *in, OpenI2CReply_t *out);

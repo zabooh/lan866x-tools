@@ -941,13 +941,14 @@ they speak DNCP on UDP 65526/65527.
 |---|---|
 | `discovery` | GetStatus `0x1002`, GetNetworkStatus `0x1600` |
 | `servicetest` | sends every known method ID with empty params (async); reads the return code (0x03=absent) |
-| `diag` | GetStatus, GetNetworkStatus, ReadDiagnosisData `0x1003` + active probe |
+| `diag` | GetStatus, GetNetworkStatus, ReadDiagnosisData `0x1003`, GetHealthStatus `0x100A`; `--clear-counters` → ClearNetworkCounters `0x1605`; `--td` → StartTDMeasurement `0x1602`; + active probe |
 | `i2cscan` | ReleaseDigitalPins `0x1105`, OpenI2C `0x1200`, ReadI2C `0x1220` |
 | `i2cid` | OpenI2C `0x1200`, WriteAndReadI2C `0x1208` **async**, CloseI2C `0x1202` |
 | `proxmon` | OpenI2C `0x1200`, WriteI2C `0x1204`, WriteAndReadI2C `0x1208` **async** |
 | `lan8680` | OpenI2C `0x1200`, WriteAndReadI2C `0x1208` (read-only), CloseI2C `0x1202` |
 | `proxled` | OpenI2C/WriteAndReadI2C `0x1208` **async** (in) + OpenGpio/SetGpio (out) |
 | `gpio` | OpenGpio `0x1300`, SetGpio `0x1330`, GetGpio `0x1332` |
+| `gpioevents` | OpenGpio `0x1300`, EnableGpioCaptureEvent `0x1356`, DisableGpioEvent `0x1360` + **event** OnGpioEvents `0x8000` (subscription demo) |
 | `ledscan` / `ledblink` | ReleaseDigitalPins `0x1105`, OpenGpio `0x1300`, SetGpio `0x1330` |
 | `ledtoggle` | OpenGpio `0x1300`, SetGpio `0x1330` **async** (`rcp_async_request`/`rcp_async_poll`) |
 | `ledpwm` | OpenPwm `0x1800`, WritePwm `0x1804` **async**, ClosePwm `0x1802` |
@@ -956,6 +957,7 @@ they speak DNCP on UDP 65526/65527.
 | `thumbmon` | OpenSpi `0x1500`, WriteAndReadSpi `0x1508` **async**, CloseSpi `0x1502` |
 | `adc` | OpenAdc `0x1700`, ReadAdc `0x1720` |
 | `pwm` | OpenPwm `0x1800`, WritePwm `0x1804` |
+| `uart` | OpenUart `0x1400`, WriteUart `0x1404`, ReadUart `0x1420`; `--listen` → **event** OnUartReceive `0x8010` |
 | `boot` | Reboot `0x1000`, GetStatus |
 | `flashimg` / `flashpkg` | Reboot, StartUpdate / WriteImage / FinishUpdate, GetStatus |
 | `clickdemo` | OpenSpi/WriteAndReadSpi `0x1509`, OpenI2C/WriteI2C/WriteAndReadI2C `0x1208` (+ RTP/UDP 5001) |
