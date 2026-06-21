@@ -609,7 +609,7 @@ typedef struct
 typedef struct
 {
     uint16_t HandleAdc;       ///< Handle of the opened ADC interface.
-    uint8_t ChannelSelecct;   ///< 0 = Analog input; 1 = Internal temperature;
+    uint8_t ChannelSelect;    ///< 0 = Analog input; 1 = Internal temperature;
     uint8_t VoltageReference; ///< 0 = 3v3 (VDDA33); 1 = 1v1;
 } ReadAdcVar_t;
 

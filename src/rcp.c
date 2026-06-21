@@ -723,7 +723,7 @@ ReturnCode_t rcp_read_adc(const ReadAdcVar_t *in, ReadAdcReply_t *out)
     uint16_t pl = 0u, p = 0u, tag = 0u;
     ReturnCode_t rc;
     if (!(SOMEIP_Generator_Fill_UINT16(0, in->HandleAdc, &s_scratch[pl], (uint16_t)(MAXP - pl), &pl) &&
-          SOMEIP_Generator_Fill_UINT8(1, in->ChannelSelecct, &s_scratch[pl], (uint16_t)(MAXP - pl), &pl) &&
+          SOMEIP_Generator_Fill_UINT8(1, in->ChannelSelect, &s_scratch[pl], (uint16_t)(MAXP - pl), &pl) &&
           SOMEIP_Generator_Fill_UINT8(2, in->VoltageReference, &s_scratch[pl], (uint16_t)(MAXP - pl), &pl)))
         return RT_PARAMETER_NOT_VALID;
     rc = rcp_xfer(0x1720u, s_scratch, pl);

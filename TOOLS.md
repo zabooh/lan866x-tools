@@ -42,6 +42,8 @@ Companion document to the [README](README.md). It covers two things in depth:
    - 4.14 [`lan866x-dncpmon`](#414-lan866x-dncpmon)
    - 4.15 [`lan866x-dncpdisc`](#415-lan866x-dncpdisc)
 5. [Tool ↔ RCP method matrix](#5-tool--rcp-method-matrix)
+6. [Maintenance scripts](#6-maintenance-scripts)
+   - 6.1 [`check_rcp_vs_proto.py` – drift checker](#61-check_rcp_vs_protopy--drift-checker)
 
 ---
 
@@ -959,3 +961,71 @@ they speak DNCP on UDP 65526/65527.
 | `clickdemo` | OpenSpi/WriteAndReadSpi `0x1509`, OpenI2C/WriteI2C/WriteAndReadI2C `0x1208` (+ RTP/UDP 5001) |
 | `video` | — (SOME/IP discovery only; pure RTP/RFC4175 video on UDP 5001) |
 | `dncpmon` / `dncpdisc` | — (DNCP, UDP 65526/65527) |
+
+---
+
+## 6. Maintenance scripts
+
+Host-side developer scripts under [`tools/`](tools/) — not part of the built
+`lan866x-*` toolset, run by hand during maintenance.
+
+### 6.1 `check_rcp_vs_proto.py` – drift checker
+
+Verifies that the hand-written RCP layer still matches the authoritative SOME/IP
+service definition `lan866x.proto`. It **only reports** — it never generates code
+(see [docs/comparision.md](docs/comparision.md) for why a checker, not a generator).
+It compares:
+
+- **method IDs** sent from [`src/rcp.c`](src/rcp.c) (`rcp_xfer` / `rcp_async_request`)
+  against the proto's `method_id`s, and
+- the **`*Var_t` / `*Reply_t` structs** in [`include/lan866x_common.h`](include/lan866x_common.h)
+  against the proto `message` field types.
+
+Findings are tiered: a **type** mismatch on a shared field is dangerous (silently
+breaks WTLV encoding → `E_MALFORMED_MESSAGE`, see INTEGRATION_NOTES gotcha #1) and
+**fails the gate**; field-**set** differences are reported as informational version
+skew (the committed `lan866x_common.h` tracks firmware V1.3.2/V1.4.0, the proto is
+SDK v1.10.0). Method IDs that deliberately diverge for the target firmware (the
+`Close*` methods and the ADC renumber — see
+[docs/INTEGRATION_NOTES.md](docs/INTEGRATION_NOTES.md)) are baselined in
+`KNOWN_EXTRA_IDS` inside the script, so the gate is green until something *new* drifts.
+
+The proto is NDA and lives outside the repo (under `EVB/`), so its path must be
+given. Pass it on **one line** (Windows `cmd`/PowerShell have no `\` line
+continuation):
+
+```bat
+REM cmd.exe / PowerShell - explicit path
+python tools\check_rcp_vs_proto.py --proto "EVB\SOMEIP\lan866x-someip-client-v1.10.0a\generator\lan866x.proto"
+```
+
+Or set the path once via the environment variable and just run the script
+(`-v` also lists proto methods the toolset doesn't use):
+
+```bat
+REM cmd.exe
+set "LAN866X_PROTO=%CD%\EVB\SOMEIP\lan866x-someip-client-v1.10.0a\generator\lan866x.proto"
+python tools\check_rcp_vs_proto.py
+```
+```powershell
+# PowerShell
+$env:LAN866X_PROTO = "$PWD\EVB\SOMEIP\lan866x-someip-client-v1.10.0a\generator\lan866x.proto"
+python tools\check_rcp_vs_proto.py
+```
+```sh
+# bash (Git Bash / Linux) - here the \ continuation does work
+export LAN866X_PROTO="$PWD/EVB/SOMEIP/lan866x-someip-client-v1.10.0a/generator/lan866x.proto"
+python tools/check_rcp_vs_proto.py
+```
+
+Exit code **0** = clean (CI / pre-commit friendly), **1** = new gated drift. Typical
+clean run:
+
+```
+[C1] method IDs: no unknown IDs (all are in the proto or on the known-extras baseline) - OK
+[C1-known] 4 documented firmware-vs-proto divergence(s):
+   . 0x1202 in rcp_close_i2c() - CloseI2C (firmware V1.3.2/V1.4.0; absent from v1.10 proto)
+   ...
+[C2] struct types: every shared field agrees with the proto - OK
+clean (4 known divergence(s), 9 skew note(s))
+```

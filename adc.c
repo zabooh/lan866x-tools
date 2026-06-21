@@ -51,7 +51,7 @@ int main(int argc, char **argv)
     for (n = 0; count == 0 || n < count; ++n) {
         ReadAdcVar_t rv; ReadAdcReply_t rr;
         memset(&rv, 0, sizeof(rv)); memset(&rr, 0, sizeof(rr));
-        rv.HandleAdc = orep.HandleAdc; rv.ChannelSelecct = channel; rv.VoltageReference = vref;
+        rv.HandleAdc = orep.HandleAdc; rv.ChannelSelect = channel; rv.VoltageReference = vref;
         if (rcp_read_adc(&rv, &rr) == RT_OK) {
             if (channel == 1) printf("  raw=%4u  (internal temperature sensor)\n", rr.ReadData);
             else printf("  raw=%4u  =  %.3f V\n", rr.ReadData, (double)rr.ReadData / 4095.0 * vfull);
