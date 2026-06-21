@@ -356,7 +356,7 @@ ReturnCode_t rcp_write_and_read_spi2(uint16_t handle, uint32_t writeId,
 | Function | ID | In | Out | Notes |
 |---|---|---|---|---|
 | `rcp_open_adc` | `0x1700` | `OpenAdcVar_t` | `OpenAdcReply_t` | `PinId` (always 0) → `HandleAdc`. |
-| `rcp_read_adc` | `0x1720` | `ReadAdcVar_t` | `ReadAdcReply_t` | `Handle`, `ChannelSelecct` (0=analog in,1=internal temp), `VoltageReference` (0=3v3,1=1v1) → `Instance`, `ReadData`. (Field name `ChannelSelecct` is spelled as in the vendor header.) |
+| `rcp_read_adc` | `0x1720` | `ReadAdcVar_t` | `ReadAdcReply_t` | `Handle`, `ChannelSelect` (0=analog in,1=internal temp), `VoltageReference` (0=3v3,1=1v1) → `Instance`, `ReadData`. (The old vendor header misspelled this `ChannelSelecct`; the v1.10.0 proto corrects it to `ChannelSelect`, which we follow. Host-side name only — the wire uses WTLV tag 1.) |
 | `rcp_close_adc` | `0x1702` | `CloseAdcVar_t` | — | `HandleAdc`. |
 
 ### 6.8 PWM
@@ -370,6 +370,53 @@ ReturnCode_t rcp_write_and_read_spi2(uint16_t handle, uint32_t writeId,
 > The duty‑cycle wire encoding is `0 = 0% .. 2^31 = 100%`. The CLI tool takes a
 > percent and converts. Opening PWM leaves the signal running on the device after
 > the tool exits (the handle lives on the endpoint).
+
+### 6.9 Firmware methods not wrapped by `rcp.c` (v1.10.0 SDK proto)
+
+The firmware implements more of the `0xFF10` service than `rcp.c` currently wraps.
+The full method surface is defined by the official **LAN866x SOME/IP client SDK
+v1.10.0** (`generator/lan866x.proto`). These have **no `rcp_*` wrapper yet** — to
+use one, send it via `rcp_async_request(methodId, params, …)` (encode params in tag
+order per §8) or add a typed wrapper. IDs are straight from the proto:
+
+| Group | Method | ID | In → Out | Purpose |
+|---|---|---|---|---|
+| Device | Lock | `0x1008` | `LockVar` → — | lock to security mode 1/2/3 |
+| Device | Shutdown | `0x1009` | — | power down (OA 3‑pin); rc=5 if not idle |
+| Device | GetHealthStatus | `0x100A` | — → reply | health‑monitor status |
+| Network | WakeupNetwork | `0x1601` | — | send a network wakeup |
+| Network | StartTDMeasurement | `0x1602` | `StartTDMeasurementVar` | topology / propagation‑delay measurement |
+| Network | GetTDMeasurementResult | `0x1603` | → reply | internal/network delay pulse counts |
+| Network | StartPMATestMode | `0x1604` | `StartPMATestModeVar` | PHY PMA test mode (jitter/droop/PSD/Hi‑Z) |
+| Network | ClearNetworkCounters | `0x1605` | `ClearNetworkCountersVar` | reset network counters |
+| Pins | ConfigDigitalPin | `0x1100` | `ConfigDigitalPinVar` | assign/configure a digital IO pin |
+| I²C | ClearI2CBus | `0x1203` | `ClearI2CBusVar` | "bus clear" for SDA stuck low |
+| I²C | WriteI2CFireAndForget | `0x1206` | `WriteI2CVar` → — | write, no response |
+| GPIO | OpenDebouncedGpio | `0x1301` | `OpenDebouncedGpioVar` → reply | debounced input (not on Rev.A0) |
+| GPIO | SetAndGetGpio | `0x1334` | `SetGpioVar` → reply | set then read in one round‑trip |
+| GPIO | SetGpioFireAndForget | `0x1336` | `SetGpioVar` → — | set, no response |
+| GPIO | GetGpioEvents | `0x1340` | — → reply | poll captured GPIO events |
+| GPIO | EnableGpioPulseEvent | `0x1350` | `EnableGpioPulseEventVar` | arm pulse event |
+| GPIO | EnableGpioCaptureEvent | `0x1356` | `EnableGpioCaptureEventVar` | arm capture event |
+| GPIO | DisableGpioEvent | `0x1360` | `DisableGpioEventVar` | disable a GPIO event |
+| UART | OpenUart / WriteUart / ReadUart | `0x1400` / `0x1404` / `0x1420` | various | (no UART wrapper in `rcp.c` yet) |
+| UART | WriteUartFireAndForget | `0x1406` | `WriteUartFireAndForgetVar` → — | write, no response |
+| SPI | WriteAndReadSpiTimeout | `0x1511` | `…TimeoutVar` → reply | transfer with explicit timeout |
+| ADC | EnableAdcEvent / DisableAdcEvent | `0x1703` / `0x1704` | various | threshold‑event arming |
+| PWM | WritePwmFireAndForget | `0x1806` | `WritePwmVar` → — | write duty, no response |
+
+**Events (device → client)** via SOME/IP eventgroups (subscribe to receive):
+`OnGpioEvents` `0x8000` & `OnUartReceive` `0x8010` & `OnAdcEvent` `0x8030` in
+eventgroup `0x2000`; `OnTDMeasurementCompleted` `0x8020` in eventgroup `0x2001`.
+`rcp.c`'s async poll does not yet subscribe to or dispatch these.
+
+> **ID divergence — ADC + `Close*`.** The v1.10.0 proto defines **`ReadAdc = 0x1702`**
+> (which is the *verified* `rcp_close_adc` ID in §6.7) and has **no `0x1720`** and
+> **no explicit `Close{I2C,Spi,Adc,Pwm,Gpio,Uart}` / `GetCurrentWallclock`**. §6.7's
+> `0x1720`/`0x1702` are what `rcp.c` actually sends and what the tested firmware
+> answers; the proto is the newer SDK line. **Verify on the wire before relying on a
+> proto‑only ID.** Full SDK breakdown: `EVB/SOMEIP/lan866x-someip-client-v1.10.0a.md`,
+> and [INTEGRATION_NOTES.md](INTEGRATION_NOTES.md#additional-method-ids--from-the-v1100-client-sdk-proto).
 
 ---
 

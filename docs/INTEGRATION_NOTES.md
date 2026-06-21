@@ -44,6 +44,45 @@ Authoritative source is the SOME/IP dissector CSV, **not** the manual prose
 → reply `UINT32 ReadId + BLOB`. `WriteAndReadSpiExtended` (0x1509) packs N SPI
 elements into one round-trip (needs config ≥ V1.3.2); great for a 2-axis ADC read.
 
+### Additional method IDs — from the v1.10.0 client SDK proto
+The table above is what `src/rcp.c` wraps and is **verified live**. The official
+**LAN866x SOME/IP client SDK v1.10.0** (`generator/lan866x.proto`, service `0xFF10`,
+`library_version "1.10.0"`) defines more methods the firmware implements but this
+toolset does not yet wrap. IDs taken straight from the proto's `option (cfg) { method_id }`:
+
+| Group | Method | ID | Notes |
+|------|--------|----|-------|
+| Device | GetHealthStatus | 0x100A | health-monitor status reply |
+| Network| ClearNetworkCounters | 0x1605 | reset network counters |
+| I²C | ClearI2CBus | 0x1203 | "bus clear" sequence for SDA stuck low |
+| I²C | WriteI2CFireAndForget | 0x1206 | write, no response (no error either) |
+| GPIO | OpenDebouncedGpio | 0x1301 | debounced input (not on Rev.A0 → rc=5) |
+| GPIO | SetAndGetGpio / SetGpioFireAndForget | 0x1334 / 0x1336 | set+read in one RT / set, no response |
+| GPIO | GetGpioEvents | 0x1340 | poll captured GPIO events |
+| GPIO | EnableGpioPulseEvent / EnableGpioCaptureEvent / DisableGpioEvent | 0x1350 / 0x1356 / 0x1360 | event arming |
+| UART | WriteUartFireAndForget | 0x1406 | write, no response |
+| SPI | WriteAndReadSpiTimeout | 0x1511 | transfer with explicit timeout |
+| ADC | EnableAdcEvent / DisableAdcEvent | 0x1703 / 0x1704 | threshold-event arming |
+| PWM | WritePwmFireAndForget | 0x1806 | write duty, no response |
+
+**Events (device → client, via SOME/IP eventgroups; subscribe to receive):**
+
+| Event | ID | Eventgroup | Fired by |
+|------|----|-----------|---------|
+| OnGpioEvents | 0x8000 | 0x2000 `LAN866X_Events` | EnableGpio{Pulse,Capture}Event |
+| OnUartReceive | 0x8010 | 0x2000 | UART RX |
+| OnTDMeasurementCompleted | 0x8020 | 0x2001 `LAN866X_TDEvents` | StartTDMeasurement |
+| OnAdcEvent | 0x8030 | 0x2000 | EnableAdcEvent |
+
+> **DIVERGENCE — the v1.10.0 proto renumbers ADC and drops the explicit `Close*`
+> methods.** In the proto, **`ReadAdc = 0x1702`** (which is this toolset's *verified*
+> `CloseAdc`), there is **no `0x1720`**, and there are **no `Close{Gpio,I2C,Spi,Uart,
+> Adc,Pwm}` nor `GetCurrentWallclock (0x1007)`** at all. The "verified" table above
+> reflects the firmware `rcp.c` was ported/tested against (C++ client, earlier line);
+> the proto reflects the V1.4.0-era SDK. **Cross-check on the wire before trusting a
+> proto-only ID** — especially anything in the ADC `0x17xx` / Close range. Local copy
+> of the SDK + a full breakdown: `EVB/SOMEIP/lan866x-someip-client-v1.10.0a.md`.
+
 ## Request/response encoding
 Mirror the C++ `LAN866XClientImpl`: `SOMEIP_Generator_Fill_Header`, then one
 `Fill_UINT8/16/32`/`Fill_BLOB` per field with **tagDataId = 0,1,2,…** in field
