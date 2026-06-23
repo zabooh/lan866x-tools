@@ -1,0 +1,29 @@
+{
+    "version": 4,
+    "configurations": [
+        {
+            "name": "Default",
+            "includePath": [
+                "${workspaceFolder:T1S_100BaseT_Bridge.X}/../src",
+                "${workspaceFolder:T1S_100BaseT_Bridge.X}/../src/config/default",
+                "${workspaceFolder:T1S_100BaseT_Bridge.X}/../src/config/default/library",
+                "${workspaceFolder:T1S_100BaseT_Bridge.X}/../src/config/default/library/tcpip/src",
+                "${workspaceFolder:T1S_100BaseT_Bridge.X}/../src/config/default/library/tcpip/src/common",
+                "${workspaceFolder:T1S_100BaseT_Bridge.X}/../src/packs/ATSAME54P20A_DFP",
+                "${workspaceFolder:T1S_100BaseT_Bridge.X}/../src/packs/CMSIS",
+                "${workspaceFolder:T1S_100BaseT_Bridge.X}/../src/packs/CMSIS/CMSIS/Core/Include",
+                "${workspaceFolder:T1S_100BaseT_Bridge.X}/../src/third_party/wolfssl",
+                "${workspaceFolder:T1S_100BaseT_Bridge.X}/../src/third_party/wolfssl/wolfssl",
+                "${workspaceFolder:T1S_100BaseT_Bridge.X}"
+            ],
+            "defines": [
+                "__ATSAME54P20A__",
+                "__XC32__"
+            ],
+            "compilerPath": "",
+            "cStandard": "c99",
+            "cppStandard": "c++17",
+            "intelliSenseMode": "gcc-arm"
+        }
+    ]
+}

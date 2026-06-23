@@ -40,3 +40,7 @@ clickdemo-events*.csv
 
 # Generated preview images (e.g. tools/make_cube_video.py --preview)
 *.preview.png
+
+# Vendored bridge firmware (firmware/t1s_100baset_bridge): regenerable MCC
+# backups + build outputs (out/ and build/ are already covered globally above).
+firmware/**/mcc_backup/

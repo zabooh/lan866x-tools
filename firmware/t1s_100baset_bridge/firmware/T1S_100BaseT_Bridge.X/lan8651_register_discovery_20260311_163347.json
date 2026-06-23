@@ -1,0 +1,242 @@
+{
+  "timestamp": "2026-03-11T16:33:47.196226",
+  "known_registers": {},
+  "mms_scans": {
+    "0": {
+      "mms": 0,
+      "description": "Open Alliance Standard + PHY Clause 22",
+      "accessible_registers": {
+        "0": {
+          "address": "0x00000000",
+          "readable": true,
+          "value": 0,
+          "consistent": false,
+          "error_state": false,
+          "write_capability": {
+            "writable": false,
+            "verified": false,
+            "original_value": 0,
+            "test_values": []
+          }
+        },
+        "1": {
+          "address": "0x00000001",
+          "readable": true,
+          "value": 0,
+          "consistent": false,
+          "error_state": false,
+          "write_capability": {
+            "writable": false,
+            "verified": false,
+            "original_value": 0,
+            "test_values": []
+          }
+        },
+        "2": {
+          "address": "0x00000002",
+          "readable": true,
+          "value": 0,
+          "consistent": false,
+          "error_state": false,
+          "write_capability": {
+            "writable": false,
+            "verified": false,
+            "original_value": 0,
+            "test_values": []
+          }
+        },
+        "3": {
+          "address": "0x00000003",
+          "readable": true,
+          "value": 0,
+          "consistent": false,
+          "error_state": false,
+          "write_capability": {
+            "writable": false,
+            "verified": false,
+            "original_value": 0,
+            "test_values": []
+          }
+        },
+        "4": {
+          "address": "0x00000004",
+          "readable": true,
+          "value": 0,
+          "consistent": false,
+          "error_state": false,
+          "write_capability": {
+            "writable": false,
+            "verified": false,
+            "original_value": 0,
+            "test_values": []
+          }
+        },
+        "5": {
+          "address": "0x00000005",
+          "readable": true,
+          "value": 0,
+          "consistent": false,
+          "error_state": false,
+          "write_capability": {
+            "writable": false,
+            "verified": false,
+            "original_value": 0,
+            "test_values": []
+          }
+        },
+        "6": {
+          "address": "0x00000006",
+          "readable": true,
+          "value": 0,
+          "consistent": false,
+          "error_state": false,
+          "write_capability": {
+            "writable": false,
+            "verified": false,
+            "original_value": 0,
+            "test_values": []
+          }
+        },
+        "7": {
+          "address": "0x00000007",
+          "readable": true,
+          "value": 0,
+          "consistent": false,
+          "error_state": false,
+          "write_capability": {
+            "writable": false,
+            "verified": false,
+            "original_value": 0,
+            "test_values": []
+          }
+        },
+        "8": {
+          "address": "0x00000008",
+          "readable": true,
+          "value": 0,
+          "consistent": false,
+          "error_state": false,
+          "write_capability": {
+            "writable": false,
+            "verified": false,
+            "original_value": 0,
+            "test_values": []
+          }
+        },
+        "9": {
+          "address": "0x00000009",
+          "readable": true,
+          "value": 0,
+          "consistent": true,
+          "error_state": false,
+          "write_capability": {
+            "writable": false,
+            "verified": false,
+            "original_value": 0,
+            "test_values": []
+          }
+        },
+        "10": {
+          "address": "0x0000000A",
+          "readable": true,
+          "value": 0,
+          "consistent": false,
+          "error_state": false,
+          "write_capability": {
+            "writable": false,
+            "verified": false,
+            "original_value": 0,
+            "test_values": []
+          }
+        },
+        "11": {
+          "address": "0x0000000B",
+          "readable": true,
+          "value": 0,
+          "consistent": false,
+          "error_state": false,
+          "write_capability": {
+            "writable": false,
+            "verified": false,
+            "original_value": 0,
+            "test_values": []
+          }
+        },
+        "12": {
+          "address": "0x0000000C",
+          "readable": true,
+          "value": 0,
+          "consistent": false,
+          "error_state": false,
+          "write_capability": {
+            "writable": false,
+            "verified": false,
+            "original_value": 0,
+            "test_values": []
+          }
+        },
+        "13": {
+          "address": "0x0000000D",
+          "readable": true,
+          "value": 0,
+          "consistent": false,
+          "error_state": false,
+          "write_capability": {
+            "writable": false,
+            "verified": false,
+            "original_value": 0,
+            "test_values": []
+          }
+        },
+        "14": {
+          "address": "0x0000000E",
+          "readable": true,
+          "value": 0,
+          "consistent": false,
+          "error_state": false,
+          "write_capability": {
+            "writable": false,
+            "verified": false,
+            "original_value": 0,
+            "test_values": []
+          }
+        },
+        "15": {
+          "address": "0x0000000F",
+          "readable": true,
+          "value": 0,
+          "consistent": false,
+          "error_state": false,
+          "write_capability": {
+            "writable": false,
+            "verified": false,
+            "original_value": 0,
+            "test_values": []
+          }
+        },
+        "16": {
+          "address": "0x00000010",
+          "readable": true,
+          "value": 0,
+          "consistent": false,
+          "error_state": false,
+          "write_capability": {
+            "writable": false,
+            "verified": false,
+            "original_value": 0,
+            "test_values": []
+          }
+        }
+      },
+      "total_tested": 17,
+      "readable_count": 17,
+      "writable_count": 0
+    }
+  },
+  "summary": {
+    "total_registers_tested": 17,
+    "readable_registers": 17,
+    "writable_registers": 0,
+    "known_working": 0
+  }
+}

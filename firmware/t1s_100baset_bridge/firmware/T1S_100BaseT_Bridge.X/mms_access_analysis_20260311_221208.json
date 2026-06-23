@@ -1,0 +1,259 @@
+{
+  "timestamp": "2026-03-11T22:11:59.308675",
+  "hypothesis": "MMS0-4=Direct, MMS5-10=Indirect",
+  "device_info": {
+    "port": "COM8",
+    "baudrate": 115200
+  },
+  "mms_results": {
+    "MMS0": {
+      "mms": 0,
+      "registers": {
+        "OA_ID": {
+          "address": "0x00000000",
+          "direct_value": "0x00000011",
+          "direct_success": true,
+          "direct_consistent": true,
+          "indirect_value": "0x0000",
+          "error_state": false
+        },
+        "CHIP_ID": {
+          "address": "0x00000004",
+          "direct_value": "0x00009226",
+          "direct_success": true,
+          "direct_consistent": true,
+          "indirect_value": "0x0004",
+          "error_state": false
+        },
+        "OA_STATUS0": {
+          "address": "0x00000008",
+          "direct_value": "0x00000051",
+          "direct_success": true,
+          "direct_consistent": true,
+          "indirect_value": "0x0008",
+          "error_state": false
+        },
+        "OA_STATUS1": {
+          "address": "0x0000000C",
+          "direct_value": "0x00000100",
+          "direct_success": true,
+          "direct_consistent": true,
+          "indirect_value": "0x000C",
+          "error_state": false
+        },
+        "OA_BUFSTS": {
+          "address": "0x00000010",
+          "direct_value": "0x00000000",
+          "direct_success": true,
+          "direct_consistent": true,
+          "indirect_value": "0x0000",
+          "error_state": false
+        }
+      },
+      "direct_success_rate": 100.0,
+      "direct_consistency_rate": 100.0,
+      "total_registers": 5
+    },
+    "MMS1": {
+      "mms": 1,
+      "registers": {
+        "MAC_NCR": {
+          "address": "0x00010000",
+          "direct_value": "0x0000000C",
+          "direct_success": true,
+          "direct_consistent": true,
+          "indirect_value": "0x0000",
+          "error_state": false
+        },
+        "MAC_NCFGR": {
+          "address": "0x00010004",
+          "direct_value": "0x00010004",
+          "direct_success": true,
+          "direct_consistent": true,
+          "indirect_value": "0x0004",
+          "error_state": false
+        },
+        "MAC_NSR": {
+          "address": "0x00010008",
+          "direct_value": "0x00000000",
+          "direct_success": true,
+          "direct_consistent": true,
+          "indirect_value": "0x0008",
+          "error_state": false
+        },
+        "MAC_TSR": {
+          "address": "0x0001000C",
+          "direct_value": "0x3FFFFFFF",
+          "direct_success": true,
+          "direct_consistent": true,
+          "indirect_value": "0x000C",
+          "error_state": false
+        },
+        "MAC_RBQP": {
+          "address": "0x00010010",
+          "direct_value": "0x00000000",
+          "direct_success": true,
+          "direct_consistent": true,
+          "indirect_value": "0x0000",
+          "error_state": false
+        }
+      },
+      "direct_success_rate": 100.0,
+      "direct_consistency_rate": 100.0,
+      "total_registers": 5
+    },
+    "MMS2": {
+      "mms": 2,
+      "registers": {
+        "PCS_CTRL": {
+          "address": "0x00020000",
+          "direct_value": "0x00000000",
+          "direct_success": true,
+          "direct_consistent": true,
+          "indirect_value": "0x0000",
+          "error_state": false
+        },
+        "PCS_STATUS": {
+          "address": "0x00020004",
+          "direct_value": "0x00000000",
+          "direct_success": true,
+          "direct_consistent": true,
+          "indirect_value": "0x0004",
+          "error_state": false
+        },
+        "PCS_ID1": {
+          "address": "0x00020008",
+          "direct_value": "0x00000000",
+          "direct_success": true,
+          "direct_consistent": true,
+          "indirect_value": "0x0008",
+          "error_state": false
+        },
+        "PCS_ID2": {
+          "address": "0x0002000C",
+          "direct_value": "0x00000000",
+          "direct_success": true,
+          "direct_consistent": true,
+          "indirect_value": "0x000C",
+          "error_state": false
+        }
+      },
+      "direct_success_rate": 100.0,
+      "direct_consistency_rate": 100.0,
+      "total_registers": 4
+    },
+    "MMS3": {
+      "mms": 3,
+      "registers": {
+        "PMD_CTRL": {
+          "address": "0x00030000",
+          "direct_value": "0x00000000",
+          "direct_success": true,
+          "direct_consistent": true,
+          "indirect_value": "0x0000",
+          "error_state": false
+        },
+        "PMD_STATUS": {
+          "address": "0x00030004",
+          "direct_value": "0x00000000",
+          "direct_success": true,
+          "direct_consistent": true,
+          "indirect_value": "0x0004",
+          "error_state": false
+        },
+        "PMD_ID1": {
+          "address": "0x00030008",
+          "direct_value": "0x00000000",
+          "direct_success": true,
+          "direct_consistent": true,
+          "indirect_value": "0x0008",
+          "error_state": false
+        },
+        "PMD_ID2": {
+          "address": "0x0003000C",
+          "direct_value": "0x00000000",
+          "direct_success": true,
+          "direct_consistent": true,
+          "indirect_value": "0x000C",
+          "error_state": false
+        }
+      },
+      "direct_success_rate": 100.0,
+      "direct_consistency_rate": 100.0,
+      "total_registers": 4
+    },
+    "MMS4": {
+      "mms": 4,
+      "registers": {
+        "VENDOR_CTRL": {
+          "address": "0x00040000",
+          "direct_value": "0x00000000",
+          "direct_success": true,
+          "direct_consistent": true,
+          "indirect_value": "0x0000",
+          "error_state": false
+        },
+        "VENDOR_STATUS": {
+          "address": "0x00040004",
+          "direct_value": "0x00000000",
+          "direct_success": true,
+          "direct_consistent": true,
+          "indirect_value": "0x0004",
+          "error_state": false
+        },
+        "MMD_ADDR_DATA": {
+          "address": "0x000400D8",
+          "direct_value": "0x00000004",
+          "direct_success": true,
+          "direct_consistent": true,
+          "indirect_value": "0x0008",
+          "error_state": false
+        },
+        "MMD_CONTROL": {
+          "address": "0x000400DA",
+          "direct_value": "0x00000008",
+          "direct_success": true,
+          "direct_consistent": false,
+          "indirect_value": "0x000A",
+          "error_state": false
+        }
+      },
+      "direct_success_rate": 100.0,
+      "direct_consistency_rate": 75.0,
+      "total_registers": 4
+    },
+    "MMS10": {
+      "mms": 10,
+      "registers": {
+        "MISC_CTRL": {
+          "address": "0x000A0000",
+          "direct_value": "0x00000001",
+          "direct_success": true,
+          "direct_consistent": true,
+          "indirect_value": null,
+          "error_state": false
+        },
+        "MISC_STATUS": {
+          "address": "0x000A0004",
+          "direct_value": "0x00000000",
+          "direct_success": true,
+          "direct_consistent": true,
+          "indirect_value": null,
+          "error_state": false
+        },
+        "MISC_CONFIG": {
+          "address": "0x000A0008",
+          "direct_value": "0x00000000",
+          "direct_success": true,
+          "direct_consistent": true,
+          "indirect_value": null,
+          "error_state": false
+        }
+      },
+      "direct_success_rate": 100.0,
+      "direct_consistency_rate": 100.0,
+      "total_registers": 3
+    }
+  },
+  "summary": {}
+}

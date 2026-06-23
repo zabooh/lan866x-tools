@@ -1,0 +1,59 @@
+{
+	"folders": [
+		{
+			"path": "../../../T1S_100BaseT_Bridge.X"
+		},
+		{
+			"name": "src",
+			"path": "../.."
+		}
+	],
+	"settings": {
+		"mplab.clangd.compileCommandsDir": "${workspaceFolder}\\_build\\T1S_100BaseT_Bridge\\default",
+		"files.associations": {
+			"*.mc3": "xml",
+			"*.mhc": "yaml"
+		},
+		"memory-inspector.debugTypes": [
+			"arm-debugger",
+			"embedded-debug",
+			"gdb",
+			"mplab-core-da"
+		],
+		"mplab.clangd.path": "c:\\Program Files\\Microchip\\xc32\\v4.60\\bin\\xc32-clangd.exe",
+		"chat.tools.terminal.autoApprove": {
+			"ForEach-Object": true,
+			"Rename-Item": true,
+			"&": true,
+			"Get-PnpDevice": true,
+			"/^cd \"c:\\\\work\\\\ptp\\\\AN1847\\\\t1s_100baset_bridge\\\\firmware\\\\T1S_100BaseT_Bridge\\.X\" ; python setup_boards\\.py$/": {
+				"approve": true,
+				"matchCommandLine": true
+			},
+			"/^python setup_boards\\.py$/": {
+				"approve": true,
+				"matchCommandLine": true
+			},
+			"/^python \"c:\\\\work\\\\ptp\\\\AN1847\\\\t1s_100baset_bridge\\\\firmware\\\\T1S_100BaseT_Bridge\\.X\\\\setup_boards\\.py\"$/": {
+				"approve": true,
+				"matchCommandLine": true
+			},
+			"/^python -c \"\nimport serial, time\n\nser = serial\\.Serial\\('COM10', 115200, timeout=3\\)\ntime\\.sleep\\(0\\.3\\)\nser\\.reset_input_buffer\\(\\)\n\n# Probe available CLI commands / interfaces\nfor cmd in \\['\\\\r\\\\n', 'help', 'netinfo', 'if', 'ipconfig'\\]:\n    ser\\.write\\(\\(cmd \\+ '\\\\r\\\\n'\\)\\.encode\\(\\)\\)\n    time\\.sleep\\(1\\.0\\)\n    resp = b''\n    while ser\\.in_waiting:\n        resp \\+= ser\\.read\\(ser\\.in_waiting\\)\n        time\\.sleep\\(0\\.1\\)\n    print\\(f'CMD \\[\\{cmd!r\\}\\]:'\\)\n    print\\(resp\\.decode\\('utf-8', errors='ignore'\\)\\)\n    print\\('---'\\)\n\nser\\.close\\(\\)\n\"$/": {
+				"approve": true,
+				"matchCommandLine": true
+			},
+			"/^python -c \"\nimport serial, time\n\nser = serial\\.Serial\\('COM8', 115200, timeout=3\\)\ntime\\.sleep\\(0\\.3\\)\nser\\.reset_input_buffer\\(\\)\nser\\.write\\(b'netinfo\\\\r\\\\n'\\)\ntime\\.sleep\\(1\\.0\\)\nresp = b''\nwhile ser\\.in_waiting:\n    resp \\+= ser\\.read\\(ser\\.in_waiting\\)\n    time\\.sleep\\(0\\.1\\)\nprint\\(resp\\.decode\\('utf-8', errors='ignore'\\)\\)\nser\\.close\\(\\)\n\"$/": {
+				"approve": true,
+				"matchCommandLine": true
+			},
+			"/^python -c \"\nimport serial, time\n\nser = serial\\.Serial\\('COM8', 115200, timeout=3\\)\ntime\\.sleep\\(0\\.3\\)\nser\\.reset_input_buffer\\(\\)\nfor cmd in \\['tcpip help', 'tcpip setmac', 'setmac'\\]:\n    ser\\.write\\(\\(cmd \\+ '\\\\r\\\\n'\\)\\.encode\\(\\)\\)\n    time\\.sleep\\(1\\.0\\)\n    resp = b''\n    deadline = time\\.time\\(\\) \\+ 2\n    while time\\.time\\(\\) < deadline:\n        if ser\\.in_waiting: resp \\+= ser\\.read\\(ser\\.in_waiting\\)\n        time\\.sleep\\(0\\.05\\)\n    print\\(f'--- \\{cmd\\} ---'\\)\n    print\\(resp\\.decode\\('utf-8', errors='ignore'\\)\\)\nser\\.close\\(\\)\n\"$/": {
+				"approve": true,
+				"matchCommandLine": true
+			},
+			"/^python -c \"\nimport serial, time\n\n# Nach dem setup_boards\\.py Lauf -- prüfe aktuellen Zustand\nfor port, name in \\[\\('COM8','Follower'\\), \\('COM10','Grandmaster'\\)\\]:\n    ser = serial\\.Serial\\(port, 115200, timeout=3\\)\n    time\\.sleep\\(0\\.2\\)\n    ser\\.reset_input_buffer\\(\\)\n    for cmd in \\['netinfo', 'ptp_status'\\]:\n        ser\\.write\\(\\(cmd \\+ '\\\\r\\\\n'\\)\\.encode\\(\\)\\)\n        time\\.sleep\\(1\\.5\\)\n        resp = b''\n        while ser\\.in_waiting: resp \\+= ser\\.read\\(ser\\.in_waiting\\); time\\.sleep\\(0\\.1\\)\n        print\\(f'\\[\\{name\\}/\\{port\\}\\] \\{cmd\\}:'\\)\n        print\\(resp\\.decode\\('utf-8', errors='ignore'\\)\\)\n    ser\\.close\\(\\)\n\"$/": {
+				"approve": true,
+				"matchCommandLine": true
+			}
+		}
+	}
+}

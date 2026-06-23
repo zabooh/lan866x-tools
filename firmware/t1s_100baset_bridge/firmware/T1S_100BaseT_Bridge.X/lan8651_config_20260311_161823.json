@@ -1,0 +1,74 @@
+{
+  "timestamp": "2026-03-11T16:18:23.930139",
+  "device_info": {
+    "chip_id": 37414,
+    "family": "LAN8650/1",
+    "detected": true,
+    "oa_id": 17,
+    "phy_id2": 49587,
+    "silicon_revision": "Unknown (9226)"
+  },
+  "an1760_config": {
+    "PARAMETER_1": {
+      "address": "0x000400B4",
+      "value": "0x10F0",
+      "description": "Configuration Parameter 1 - VERIFIED"
+    },
+    "PARAMETER_2": {
+      "address": "0x000400F4",
+      "value": "0x0C00",
+      "description": "Configuration Parameter 2 - VERIFIED"
+    },
+    "PARAMETER_3": {
+      "address": "0x000400F5",
+      "value": "0x0280",
+      "description": "Configuration Parameter 3 - VERIFIED"
+    },
+    "PARAMETER_4": {
+      "address": "0x000400F6",
+      "value": "0x0600",
+      "description": "Configuration Parameter 4 - VERIFIED"
+    },
+    "PARAMETER_5": {
+      "address": "0x000400F7",
+      "value": "0x8200",
+      "description": "Configuration Parameter 5 - VERIFIED"
+    },
+    "EMI_CTRL_1": {
+      "address": "0x00040077",
+      "value": "0x0028",
+      "description": "EMI Control Register 1 - VERIFIED"
+    },
+    "EMI_CTRL_2": {
+      "address": "0x00040078",
+      "value": "0x001C",
+      "description": "EMI Control Register 2 - VERIFIED"
+    },
+    "RX_CFG_1": {
+      "address": "0x00040091",
+      "value": "0x9660",
+      "description": "RX Configuration 1 - VERIFIED"
+    },
+    "RX_CFG_2": {
+      "address": "0x00040081",
+      "value": "0x00C0",
+      "description": "RX Configuration 2 - VERIFIED"
+    },
+    "TX_CFG_1": {
+      "address": "0x00040075",
+      "value": "0x0001",
+      "description": "TX Configuration 1 - VERIFIED"
+    },
+    "TX_BOOST": {
+      "address": "0x00040079",
+      "value": "0x1C78",
+      "description": "TX Boost Configuration - VERIFIED"
+    },
+    "BASELINE_CTL": {
+      "address": "0x00040094",
+      "value": "0x0038",
+      "description": "Baseline Control - VERIFIED"
+    }
+  },
+  "tool_version": "1.0"
+}

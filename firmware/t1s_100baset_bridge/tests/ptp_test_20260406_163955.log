@@ -1,0 +1,88 @@
+============================================================
+  PTP Test Agent — T1S 100BaseT Bridge
+============================================================
+Date        : 2026-04-06 16:39:55
+GM Port     : COM10 (192.168.0.20)
+Follower    : COM8 (192.168.0.30)
+From step   : 1
+Connecting to GM  (COM10)…
+  GM  port open: COM10
+Connecting to FOL (COM8)…
+  FOL port open: COM8
+
+--- Step 0: Reset ---
+  [GM ] reset
+  [GM ] ✓ reset command sent
+  [FOL] reset
+  [FOL] ✓ reset command sent
+  Waiting 8 s after reset…
+
+--- Step 1: IP Configuration ---
+  [GM ] setip eth0 192.168.0.20 255.255.255.0
+  [GM ] ✓ IP set
+  [FOL] setip eth0 192.168.0.30 255.255.255.0
+  [FOL] ✓ IP set
+
+--- Step 2: Network Connectivity (GM→FOL, FOL→GM) ---
+  [GM →FOL] ping 192.168.0.30
+    ping 192.168.0.30
+    >
+    >
+    Ping: reply[1] from 192.168.0.
+    30: time = 2ms
+    Ping: reply[2] from 192.168.0.30: time = 2ms
+    Ping: reply[3] from 192.168.0.30: time = 1ms
+    Ping: reply[4] from 192.168.0.30: time = 1ms
+    Ping: done. Sent 4 requests, received 4 replies.
+  [GM →FOL] ✓ Ping done (8.0s)
+  [FOL→GM ] ping 192.168.0.20
+    ping 192.168.0.20
+    >
+    >
+    Ping: reply[1] from 192.168.
+    0.20: time = 2ms
+    Ping: reply[2] from 192.168.0.20: time = 1ms
+    Ping: reply[3] from 192.168.0.20: time = 1ms
+    Ping: reply[4] from 192.168.0.20: time = 2ms
+    Ping: done. Sent 4 requests, received 4 replies.
+  [FOL→GM ] ✓ Ping done (8.1s)
+
+--- Step 3: PTP Start ---
+  [FOL] ptp_mode follower
+  [FOL] ✓ follower mode confirmed
+  [GM ] ptp_mode master
+  [GM ] ✓ grandmaster mode confirmed
+
+--- Step 4: Convergence to FINE state (timeout=30s) ---
+  Milestones: HARD_SYNC@1.5s, MATCHFREQ@3.5s, COARSE@3.8s
+  ✓ FINE reached in 3.9s
+
+--- Step 5: Offset Validation (samples=20, threshold=±100ns) ---
+  sample  1/20: +12 ns
+  sample  2/20: +53 ns
+  sample  3/20: +53 ns
+  sample  4/20: +54 ns
+  sample  5/20: +52 ns
+  sample  6/20: +13 ns
+  sample  7/20: +53 ns
+  sample  8/20: +52 ns
+  sample  9/20: +13 ns
+  sample 10/20: +52 ns
+  sample 11/20: +52 ns
+  sample 12/20: +54 ns
+  sample 13/20: +52 ns
+  sample 14/20: +12 ns
+  sample 15/20: +54 ns
+  sample 16/20: +52 ns
+  sample 17/20: +51 ns
+  sample 18/20: +54 ns
+  sample 19/20: +53 ns
+  sample 20/20: +11 ns
+  Samples : 20
+  Mean    : +42.6 ns
+  Stdev   : 18.0 ns
+  Min     : +11 ns
+  Max     : +54 ns
+  Within ±100ns: 20/20 (100%)
+
+--- PTP Status Check ---

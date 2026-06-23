@@ -1,0 +1,21 @@
+{
+  "timestamp": "2026-03-11T16:46:07.921474",
+  "device_info": {
+    "port": "COM8",
+    "baudrate": 115200
+  },
+  "tests": {
+    "an1760_parameters": {
+      "param1": {
+        "raw_value": 4,
+        "calculated": 4160,
+        "success": true
+      },
+      "param2": {
+        "raw_value": 8,
+        "calculated": 8256,
+        "success": true
+      }
+    }
+  }
+}

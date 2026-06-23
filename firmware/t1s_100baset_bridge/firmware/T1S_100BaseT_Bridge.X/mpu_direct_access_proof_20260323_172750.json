@@ -1,0 +1,89 @@
+{
+  "timestamp": "2026-03-23T17:27:50.538165",
+  "tool": "mpu_direct_access_proof.py",
+  "config": {
+    "mcu_port": "COM8",
+    "mpu_port": "COM9",
+    "mcu_ip": "192.168.0.200",
+    "rate": "2M",
+    "duration_sec": 10,
+    "inject_interval_sec": 0.2,
+    "inject_burst": 1,
+    "inject_start_delay_sec": 1.5,
+    "aggressive_mode": false,
+    "loss_threshold_pct": 3,
+    "link_death_threshold_pct": 40
+  },
+  "cases": [
+    {
+      "name": "A_BASELINE",
+      "description": "iperf 2M/10s",
+      "injections_sent": 0,
+      "duration_sec": 16.5,
+      "server_kpi": {
+        "interval_sec": 10.0,
+        "lost": 0,
+        "total_datagrams": 1786,
+        "loss_percent": 0,
+        "bandwidth_kbps": 2095,
+        "bandwidth_mbps": 2.095
+      },
+      "client_kpi": {},
+      "verdict": "OK",
+      "error": "",
+      "raw": {
+        "mcu_server_start": "iperf -s -u\r\n\r\niperf: Starting session instance 0\r\n---------------------------------------------------------\r\niperf: Server listening on UDP port 5001\r\n>",
+        "mcu_async": "\r\niperf: instance 0 session started ...\r\niperf: - First pkt id = 1 (should be 0)\r\n    - Local  192.168.0.200 port 5001 connected with\r\n    - Remote 192.168.0.5 port 56809\r\n    - [ 0-  1 sec]   0/ 178 ( 0%)    2091 Kbps\r\n    - [ 1-  2 sec]   0/ 178 ( 0%)    2091 Kbps\r\n    - [ 2-  3 sec]   0/ 178 ( 0%)    2091 Kbps\r\n    - [ 3-  4 sec]   0/ 179 ( 0%)    2103 Kbps\r\n    - [ 4-  5 sec]   0/ 178 ( 0%)    2091 Kbps\r\n    - [ 5-  6 sec]   0/ 178 ( 0%)    2091 Kbps\r\n    - [ 6-  7 sec]   0/ 179 ( 0%)    2103 Kbps\r\n    - [ 7-  8 sec]   0/ 178 ( 0%)    2091 Kbps\r\n    - [ 8-  9 sec]   0/ 178 ( 0%)    2091 Kbps\r\n    - [ 9- 10 sec]   0/ 179 ( 0%)    2103 Kbps\r\n    - [0.0- 10.0 sec]   0/ 1786 ( 0%)    2095 Kbps\r\niperf: instance 0 completed ...\r\niperf instance 0: Rx done. Socket closed.\r\niperf instance 0: Ready for the next session.\r\n",
+        "mpu_client_bg": "iperf -u -c 192.168.0.200 -b 2M -t 10 &\r\n# \n"
+      }
+    },
+    {
+      "name": "B_LAN_READ_MPU",
+      "description": "iperf+lan_read/0.2s",
+      "injections_sent": 51,
+      "duration_sec": 16.5,
+      "server_kpi": {
+        "interval_sec": 10.0,
+        "lost": 0,
+        "total_datagrams": 1786,
+        "loss_percent": 0,
+        "bandwidth_kbps": 2095,
+        "bandwidth_mbps": 2.095
+      },
+      "client_kpi": {},
+      "verdict": "OK (kein Effekt)",
+      "error": "",
+      "raw": {
+        "mcu_server_start": "iperf -s -u\r\n\r\niperf: Starting session instance 0\r\n---------------------------------------------------------\r\niperf: Server listening on UDP port 5001\r\n>",
+        "mcu_async": "\r\niperf: instance 0 session started ...\r\niperf: - First pkt id = 1 (should be 0)\r\n    - Local  192.168.0.200 port 5001 connected with\r\n    - Remote 192.168.0.5 port 58691\r\n    - [ 0-  1 sec]   0/ 178 ( 0%)    2091 Kbps\r\n    - [ 1-  2 sec]   0/ 178 ( 0%)    2091 Kbps\r\n    - [ 2-  3 sec]   0/ 178 ( 0%)    2091 Kbps\r\n    - [ 3-  4 sec]   0/ 178 ( 0%)    2091 Kbps\r\n    - [ 4-  5 sec]   0/ 179 ( 0%)    2103 Kbps\r\n    - [ 5-  6 sec]   0/ 178 ( 0%)    2091 Kbps\r\n    - [ 6-  7 sec]   0/ 178 ( 0%)    2091 Kbps\r\n    - [ 7-  8 sec]   0/ 179 ( 0%)    2103 Kbps\r\n    - [ 8-  9 sec]   0/ 178 ( 0%)    2091 Kbps\r\n    - [ 9- 10 sec]   0/ 179 ( 0%)    2103 Kbps\r\n    - [0.0- 10.0 sec]   0/ 1786 ( 0%)    2095 Kbps\r\niperf: instance 0 completed ...\r\niperf instance 0: Rx done. Socket closed.\r\niperf instance 0: Ready for the next session.\r\n",
+        "mpu_client_bg": "iperf -u -c 192.168.0.200 -b 2M -t 10 &\r\n# ------------------------------------------------------------\r\nClient connecting to 192.168.0.200, UDP port 5001\r\nSending 1470 byte datagrams, IPG target: 0.00 us (kalman adjust)\r\nUDP buffer size:  176 KByte (default)\r\n------------------------------------------------------------\r\n[  1] local 192.168.0.5 port 58691 connected with 192.168.0.200 port 5001\r\n\n"
+      }
+    },
+    {
+      "name": "C_CONTROL",
+      "description": "iperf+proc/net/dev/0.2s",
+      "injections_sent": 6,
+      "duration_sec": 8.3,
+      "server_kpi": {},
+      "client_kpi": {},
+      "verdict": "KEIN MESSWERT",
+      "error": "",
+      "raw": {
+        "mcu_server_start": "iperf -s -u\r\n\r\niperf: Starting session instance 0\r\n---------------------------------------------------------\r\niperf: Server listening on UDP port 5001\r\n>",
+        "mcu_async": "",
+        "mpu_client_bg": "iperf -u -c 192.168.0.200 -b 2M -t 10 &\r\n# ------------------------------------------------------------\r\nClient connecting to 192.168.0.200, UDP port 5001\r\nSending 1470 byte datagrams, IPG target: 0.00 us (kalman adjust)\r\nUDP buffer size:  176 KByte (default)\r\n------------------------------------------------------------\r\n[  1] local 192.168.178.20 port 43023 connected with 192.168.0.200 port 5001\r\n\n"
+      }
+    }
+  ],
+  "recovery": {
+    "attempted": true,
+    "ping_before_bounce": 3,
+    "ping_after_bounce": 0,
+    "ping_count": 5,
+    "verdict": "POWER CYCLE ERFORDERLICH  (0/5 \u2014 eth0-Bounce ohne Wirkung)",
+    "ping_before_raw": "ping -c 3 -W 1 192.168.0.200 2>&1\r\nPING 192.168.0.200 (192.168.0.200) 56(84) bytes of data.\r\n64 bytes from 192.168.0.200: icmp_seq=1 ttl=64 time=1.45 ms\r\n64 bytes from 192.168.0.200: icmp_seq=2 ttl=64 time=1.38 ms\r\n64 bytes from 192.168.0.200: icmp_seq=3 ttl=64 time=1.32 ms\r\n\r\n--- 192.168.0.200 ping statistics ---\r\n3 packets transmitted, 3 received, 0% packet loss, time 2003ms\r\nrtt min/avg/max/mdev = 1.320/1.384/1.451/0.053 ms\r\n# ",
+    "ping_after_raw": "ping -c 5 -W 2 192.168.0.200 2>&1\r\nPING 192.168.0.200 (192.168.0.200) 56(84) bytes of data.\r\n",
+    "bounce_raw": "ip link set eth0 down && sleep 2 && ip link set eth0 up\r\n",
+    "error": ""
+  }
+}

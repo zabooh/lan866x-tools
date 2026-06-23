@@ -1,0 +1,32 @@
+{
+  "timestamp": "2026-03-11T16:47:38.501138",
+  "device_info": {
+    "port": "COM8",
+    "baudrate": 115200
+  },
+  "tests": {
+    "direct_vs_indirect": {
+      "OA_ID": {
+        "direct": 17,
+        "indirect": {},
+        "address": 0
+      },
+      "CHIP_ID": {
+        "direct": 37414,
+        "indirect": {
+          "addr_32bit": 4,
+          "offset_only": 4
+        },
+        "address": 4
+      },
+      "OA_STATUS0": {
+        "direct": 80,
+        "indirect": {
+          "addr_32bit": 8,
+          "offset_only": 8
+        },
+        "address": 8
+      }
+    }
+  }
+}

@@ -1,0 +1,99 @@
+*.o
+*.elf
+*.map
+*.d
+
+# MPLAB X IDE files
+**/nbproject/private
+**/nbproject/Makefile-*
+**/nbproject/Package-*
+**/nbproject/project.properties
+**/*.X/debug
+**/*.X/dist
+**/*.X/build
+**/*.X/.generated_files
+
+# IAR IDE files
+**/*.IAR/Debug
+**/*.IAR/settings
+**/*.IAR/*.dep
+**/*.IAR/*.custom_argvars
+
+# VS Code and CMake build files
+.vscode/
+_build/
+build/
+cmake-build-*/
+
+# ClangD Language Server cache
+**/.cache/
+**/clangd/
+**/.clangd/
+
+# CMake generated files
+CMakeCache.txt
+CMakeFiles/
+cmake_install.cmake
+compile_commands.json  
+CTestTestfile.cmake
+Makefile
+**/.generated/
+
+# Ninja build files
+*.ninja
+build.ninja
+
+.generated_files/
+dist/
+nbproject/
+Makefile*
+Package-*
+private/
+!cmake/**/user.cmake
+cmake/**/.generated/*
+cmake/**/CMake*
+out/
+
+# Test reports and temporary files
+*_report_*.json
+*_report_*.txt
+*_Report_*.html
+LAN8651_*Report*.html
+LAN8651_*report*.html
+iperf_*_report_*.json
+iperf_*_report_*.txt
+bandwidth_sweep_report_*.json
+bandwidth_sweep_report_*.txt
+
+# Backup and temporary directories
+Backup/
+*_default/
+*.bak*
+*.mc3.bak*
+diag_out.txt
+config_export.json
+
+# Old test and debug scripts (deleted)
+test_*.py
+quick_*.py
+check_*.py
+check_*.bat
+diagnose_*.py
+auto_*.py
+analyze_help.py
+discover_*.py
+dump_*.py
+debug_*.py
+experimental_*.bat
+harmony_*.bat
+counter_*.py
+critical_*.py
+activate_*.py
+
+# MCC and IDE generated
+MCC_Test.mc3
+MCC_Alternatives.md
+# Python cache
+__pycache__/
+*.pyc
+*.pyo

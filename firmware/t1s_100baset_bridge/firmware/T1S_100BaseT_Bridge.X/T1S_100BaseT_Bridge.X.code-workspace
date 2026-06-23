@@ -1,0 +1,29 @@
+{
+	"folders": [
+		{
+			"path": "."
+		},
+		{
+			"name": "src",
+			"path": "../src"
+		}
+	],
+	"settings": {
+		"mplab.clangd.compileCommandsDir": "${workspaceFolder}\\_build\\T1S_100BaseT_Bridge\\default",
+		"files.associations": {
+			"*.mc3": "xml",
+			"*.mhc": "yaml"
+		},
+		"memory-inspector.debugTypes": [
+			"arm-debugger",
+			"embedded-debug",
+			"gdb",
+			"mplab-core-da"
+		],
+		"mplab.clangd.path": "c:\\Program Files\\Microchip\\xc32\\v4.60\\bin\\xc32-clangd.exe",
+		"chat.tools.terminal.autoApprove": {
+			".\\build_dual.bat": true,
+			"&": true
+		}
+	}
+}

@@ -1,0 +1,217 @@
+digraph PTP_FOL_Architecture {
+    graph [
+        label = "PTP Gesamtarchitektur — T1S 100BaseT Bridge (SAM E54)"
+        labelloc = t
+        fontname = "Helvetica"
+        fontsize = 16
+        rankdir = TB
+        splines = polyline
+        nodesep = 0.6
+        ranksep = 0.7
+        bgcolor = white
+    ]
+    node [fontname="Helvetica" fontsize=11 shape=box style="filled,rounded" margin="0.15,0.08"]
+    edge [fontname="Helvetica" fontsize=10]
+
+    /* ------------------------------------------------------------------ */
+    /* External nodes                                                       */
+    /* ------------------------------------------------------------------ */
+    subgraph cluster_external {
+        label = "Externe Geräte"
+        style = "dashed"
+        color = "#888888"
+        bgcolor = "#f8f8f8"
+        fontsize = 12
+
+        gm [
+            label = "PTP Grandmaster\n(noIP-Projekt, anderes Board)\nSendet Sync + Follow_Up\nEtherType 0x88F7"
+            fillcolor = "#ffd966"
+            color = "#b8860b"
+        ]
+
+        gmac_ext [
+            label = "100BaseT\nEthernet-Netz\n192.168.0.210"
+            fillcolor = "#cfe2f3"
+            color = "#1a6496"
+        ]
+    }
+
+    /* ------------------------------------------------------------------ */
+    /* Physical interfaces                                                  */
+    /* ------------------------------------------------------------------ */
+    subgraph cluster_phy {
+        label = "Physikalische Schnittstellen"
+        style = "filled"
+        fillcolor = "#eeeeee"
+        color = "#aaaaaa"
+        fontsize = 12
+
+        lan865x_phy [
+            label = "LAN8650/1 PHY\n10BASE-T1S Bus\nPLCA Node 7\n192.168.0.200"
+            fillcolor = "#f9cb9c"
+            color = "#cc6600"
+            shape = box
+        ]
+
+        gmac_phy [
+            label = "GMAC\n100BaseT\n192.168.0.210"
+            fillcolor = "#cfe2f3"
+            color = "#1a6496"
+            shape = box
+        ]
+    }
+
+    /* ------------------------------------------------------------------ */
+    /* SAM E54 firmware                                                     */
+    /* ------------------------------------------------------------------ */
+    subgraph cluster_sam {
+        label = "SAM E54 — Bridge-Firmware"
+        style = "filled"
+        fillcolor = "#e8f4e8"
+        color = "#38761d"
+        fontname = "Helvetica"
+        fontsize = 13
+
+        /* ---- TC6 / Driver layer ---- */
+        subgraph cluster_driver {
+            label = "Treiber-Schicht"
+            style = "filled"
+            fillcolor = "#d9ead3"
+            color = "#38761d"
+            fontsize = 11
+
+            tc6 [
+                label = "tc6.c\non_rx_slice():\n  extrahiert 8-Byte rxTimestamp\non_rx_done():\n  TC6_CB_OnRxEthernetPacket()"
+                fillcolor = "#d9ead3"
+                color = "#38761d"
+            ]
+
+            drv_api [
+                label = "drv_lan865x_api.c\n[PATCH]\nTC6_CB_OnRxEthernetPacket()\n→ g_ptp_rx_ts speichern\nDRV_LAN865X_ReadRegister()\nDRV_LAN865X_WriteRegister()\nDRV_LAN865X_SendRawEthFrame()"
+                fillcolor = "#d9ead3"
+                color = "#38761d"
+            ]
+
+            ts_store [
+                label = "g_ptp_rx_ts\n(global)\nrxTimestamp 64-Bit\nvalid-Flag"
+                fillcolor = "#fff2cc"
+                color = "#b8860b"
+                shape = note
+            ]
+        }
+
+        /* ---- TCP/IP Stack ---- */
+        subgraph cluster_tcpip {
+            label = "Harmony TCP/IP Stack (ICMP, TCP, ARP, Telnet)"
+            style = "filled"
+            fillcolor = "#dce8f8"
+            color = "#1a6496"
+            fontsize = 11
+
+            eth0 [
+                label = "eth0 (LAN865x)\n192.168.0.200"
+                fillcolor = "#dce8f8"
+                color = "#1a6496"
+            ]
+
+            eth1 [
+                label = "eth1 (GMAC)\n192.168.0.210"
+                fillcolor = "#cfe2f3"
+                color = "#1a6496"
+            ]
+        }
+
+        /* ---- Application layer ---- */
+        subgraph cluster_app {
+            label = "Applikations-Schicht"
+            style = "filled"
+            fillcolor = "#fce5cd"
+            color = "#cc4400"
+            fontsize = 11
+
+            app [
+                label = "app.c\npktEth0Handler()\nframeType == 0x88F7?\n  → isPTP = true\n  → rxTs aus g_ptp_rx_ts\nfwd_mode (non-PTP frames)"
+                fillcolor = "#fce5cd"
+                color = "#cc4400"
+            ]
+
+            PTP_FOL [
+                label = "PTP_FOL_task.c\nPTP_Task_OnSyncReceived()\nPTP_Task_OnFollowUpReceived()\noffset = t2 − rxTs\nClock-Servo (Filter, Trim)\nPTP_FOL_GetMode()\nPTP_FOL_SetMode()"
+                fillcolor = "#fce5cd"
+                color = "#cc4400"
+            ]
+
+            ptp_gm [
+                label = "ptp_gm_task.c ✦\nPTP_GM_Init()\nPTP_GM_Service()  [1 ms Timer]\n14-State Non-Blocking SM:\n  Send Sync (TSC=1)\n  Read TXMCTL / OA_STATUS0\n  Read OA_TTSCAH/AL\n  Send FollowUp (TSC=0)"
+                fillcolor = "#ead1dc"
+                color = "#880044"
+            ]
+
+            cli [
+                label = "CLI (app.c)\nptp_mode [off|follower|master]\nptp_status\nptp_interval \<ms\>"
+                fillcolor = "#fce5cd"
+                color = "#cc4400"
+                shape = parallelogram
+            ]
+        }
+
+        /* ---- Servo registers ---- */
+        reg_ta [
+            label = "MAC_TA 0x00010076\nEinmalige Phasenkorrektur"
+            fillcolor = "#fff2cc"
+            color = "#b8860b"
+            shape = note
+        ]
+
+        reg_ti [
+            label = "MAC_TI 0x00010077\nFrequenz-Trim"
+            fillcolor = "#fff2cc"
+            color = "#b8860b"
+            shape = note
+        ]
+    }
+
+    /* ================================================================== */
+    /* Edges                                                               */
+    /* ================================================================== */
+
+    /* Physical connections */
+    gm -> lan865x_phy [label="Sync / Follow_Up\n(EtherType 0x88F7)\n10BASE-T1S" color="#cc6600" fontcolor="#cc6600"]
+    gmac_ext -> gmac_phy [label="100BaseT" color="#1a6496" fontcolor="#1a6496"]
+
+    /* RX path: T1S → Firmware */
+    lan865x_phy -> tc6 [label="SPI\n(Data + Footer\nm. rxTimestamp)" color="#cc6600"]
+    tc6 -> drv_api [label="TC6_CB_OnRxEthernetPacket()\npTS = &ts" color="#38761d"]
+    drv_api -> ts_store [label="g_ptp_rx_ts =\n*rxTimestamp" color="#b8860b" style=dashed]
+    drv_api -> eth0 [label="TCPIP_MAC_PACKET\n→ RX-Queue" color="#1a6496"]
+
+    /* Stack → App */
+    eth0 -> app [label="pktEth0Handler()\nframeType callback" color="#cc4400"]
+    ts_store -> app [label="rxTs lesen" color="#b8860b" style=dashed]
+
+    /* App → PTP tasks */
+    app -> PTP_FOL [label="PTP_Task_OnSync()\nPTP_Task_OnFollowUp()\nrxTs übergeben" color="#cc4400"]
+    app -> ptp_gm [label="PTP_GM_Service()\n(1 ms Timer-CB)" color="#880044"]
+
+    /* Servo output */
+    PTP_FOL -> reg_ta [label="WriteRegister()\nPhase" color="#b8860b" style=dashed]
+    PTP_FOL -> reg_ti [label="WriteRegister()\nFreq" color="#b8860b" style=dashed]
+    reg_ta -> drv_api [style=invis]
+    reg_ti -> drv_api [style=invis]
+
+    /* GM TX path */
+    ptp_gm -> drv_api [label="SendRawEthFrame()\ntsc=0x01 (Sync)\ntsc=0x00 (FollowUp)" color="#880044"]
+    drv_api -> lan865x_phy [label="SPI TX\n(Sync / FollowUp)" color="#880044"]
+
+    /* Mode control */
+    cli -> PTP_FOL [label="SetMode()\nGetMode()" color="#cc4400" style=dashed]
+    cli -> ptp_gm [label="Init()\nSetSyncInterval()" color="#880044" style=dashed]
+
+    /* Bridge forwarding */
+    eth0 -> eth1 [label="L2-Bridge\n(non-PTP)" color="#1a6496" style=dashed]
+    eth1 -> gmac_phy [color="#1a6496"]
+    gmac_phy -> gmac_ext [color="#1a6496"]
+
+    /* Timestamp registers read by GM */
+    drv_api -> ptp_gm [label="ReadRegister CB\nOA_TTSCAH/AL\nOA_STATUS0\nTXMCTL" color="#880044" style=dashed]
+}

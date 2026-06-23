@@ -1,0 +1,1190 @@
+
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>T1S Optimal Ping Bandwidth Test Report</title>
+    <style>
+        body { 
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            margin: 40px; 
+            background: linear-gradient(135deg, #f5f7fa 0%, #c3cfe2 100%);
+            line-height: 1.6;
+        }
+        .container { 
+            max-width: 1400px; 
+            margin: 0 auto; 
+            background: white; 
+            padding: 40px; 
+            border-radius: 15px;
+            box-shadow: 0 20px 40px rgba(0,0,0,0.1);
+        }
+        h1 { 
+            color: #2c3e50; 
+            border-bottom: 4px solid #3498db; 
+            padding-bottom: 15px; 
+            font-size: 2.5em;
+            margin-bottom: 30px;
+        }
+        h2 { 
+            color: #34495e; 
+            margin-top: 40px; 
+            font-size: 1.8em;
+            border-left: 5px solid #3498db;
+            padding-left: 15px;
+        }
+        h3 { 
+            color: #2c3e50;
+            font-size: 1.4em;
+            margin-top: 30px;
+        }
+        .header-info { 
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            padding: 25px;
+            border-radius: 10px;
+            margin: 20px 0;
+            font-size: 1.1em;
+        }
+        .optimal-config { 
+            background: linear-gradient(135deg, #11998e 0%, #38ef7d 100%);
+            color: white;
+            border-radius: 12px;
+            padding: 30px;
+            margin: 30px 0;
+            text-align: center;
+        }
+        .optimal-config h2 { 
+            color: white;
+            border: none;
+            margin-top: 0;
+            font-size: 2em;
+        }
+        .ping-command { 
+            background: #2c3e50;
+            color: #ecf0f1;
+            padding: 20px;
+            margin: 15px 0;
+            font-family: 'Fira Code', 'Courier New', monospace;
+            font-size: 16px;
+            border-radius: 8px;
+            border-left: 5px solid #e74c3c;
+            overflow-x: auto;
+        }
+        .stats-grid { 
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+            gap: 20px;
+            margin: 30px 0;
+        }
+        .stat-card { 
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            padding: 25px;
+            border-radius: 10px;
+            text-align: center;
+        }
+        .stat-number { 
+            font-size: 2.5em;
+            font-weight: bold;
+            display: block;
+            margin-bottom: 5px;
+        }
+        table { 
+            width: 100%; 
+            border-collapse: collapse; 
+            margin: 25px 0;
+            box-shadow: 0 5px 15px rgba(0,0,0,0.1);
+            border-radius: 8px;
+            overflow: hidden;
+        }
+        th { 
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            padding: 15px 12px;
+            text-align: left;
+            font-weight: 600;
+        }
+        td { 
+            border: 1px solid #ddd; 
+            padding: 12px; 
+            text-align: left;
+        }
+        tr:nth-child(even) { 
+            background-color: #f8f9fa;
+        }
+        tr:hover { 
+            background-color: #e3f2fd;
+            transition: background-color 0.3s ease;
+        }
+        .metric { 
+            font-size: 1.3em; 
+            font-weight: bold; 
+            color: #2c3e50;
+        }
+        .good { color: #27ae60; font-weight: bold; }
+        .warning { color: #f39c12; font-weight: bold; }
+        .error { color: #e74c3c; font-weight: bold; }
+        .packet-size-section { 
+            margin: 40px 0; 
+            padding: 25px; 
+            border: 2px solid #ecf0f1; 
+            border-radius: 12px;
+            background: #fafbfc;
+        }
+        .analysis-section { 
+            background: linear-gradient(135deg, #ffecd2 0%, #fcb69f 100%);
+            padding: 30px;
+            border-radius: 12px;
+            margin: 30px 0;
+        }
+        .analysis-section h2 { 
+            color: #8b4513;
+            border-left-color: #d35400;
+        }
+        .technical-details { 
+            background: #f8f9fa;
+            border-left: 5px solid #6c757d;
+            padding: 20px;
+            margin: 20px 0;
+            border-radius: 0 8px 8px 0;
+        }
+        .highlight { 
+            background: #fff3cd;
+            padding: 15px;
+            border-left: 5px solid #ffc107;
+            margin: 15px 0;
+            border-radius: 0 5px 5px 0;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>🚀 T1S Optimal Ping Bandwidth Test Report</h1>
+        
+        <div class="header-info">
+            <strong>📅 Test Date:</strong> 2026-03-11 20:17:46<br>
+            <strong>🎯 Target Device:</strong> 192.168.0.200 (T1S Bridge)<br>
+            <strong>🔬 Test Type:</strong> Comprehensive Ping Bandwidth Optimization<br>
+            <strong>📊 Packet Sizes Tested:</strong> 175, 350, 700, 1400, 2800 bytes<br>
+            <strong>🌐 Network Technology:</strong> 10BASE-T1S Single Pair Ethernet with PLCA
+        </div>
+
+        <div class="optimal-config">
+            <h2>🎯 OPTIMAL PING CONFIGURATION</h2>
+            <div class="metric" style="color: white; font-size: 2.2em; margin: 20px 0;">
+                1475969 bps (1.476 Mbps)
+            </div>
+            <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 20px; margin: 20px 0;">
+                <div>
+                    <strong>Packet Size:</strong><br>
+                    <span style="font-size: 1.5em;">1400 bytes</span>
+                </div>
+                <div>
+                    <strong>Packet Rate:</strong><br>
+                    <span style="font-size: 1.5em;">1250 pps</span>
+                </div>
+                <div>
+                    <strong>Packet Loss:</strong><br>
+                    <span style="font-size: 1.5em;">0.0%</span>
+                </div>
+                <div>
+                    <strong>Latency:</strong><br>
+                    <span style="font-size: 1.5em;">7.68 ms</span>
+                </div>
+                <div>
+                    <strong>T1S Efficiency:</strong><br>
+                    <span style="font-size: 1.5em;">14.8%</span>
+                </div>
+                <div>
+                    <strong>System Efficiency:</strong><br>
+                    <span style="font-size: 1.5em;">10.3%</span>
+                </div>
+            </div>
+            
+            <h3 style="color: white; margin-top: 30px;">🚀 Recommended Command:</h3>
+            <div class="ping-command">
+                ping -s 1400 -i 0.0008 -c 1000 192.168.0.200
+            </div>
+        </div>
+
+        <div class="stats-grid">
+            <div class="stat-card">
+                <span class="stat-number">77</span>
+                Total Tests
+            </div>
+            <div class="stat-card">
+                <span class="stat-number">76</span>
+                Zero Loss Configs
+            </div>
+            <div class="stat-card">
+                <span class="stat-number">1475969</span>
+                Max Throughput (bps)
+            </div>
+            <div class="stat-card">
+                <span class="stat-number">69.9%</span>
+                Avg. Efficiency
+            </div>
+        </div>
+
+        <div class="packet-size-section">
+            <h3>📦 Packet Size: 175 bytes</h3>
+            <p><strong>Best Performance:</strong> 803960 bps at 1250 pps 
+            (0.0% loss)</p>
+            
+            <table>
+                <tr>
+                    <th>Packets/Second</th>
+                    <th>Interval (s)</th>
+                    <th>Throughput (bps)</th>
+                    <th>Throughput (Mbps)</th>
+                    <th>Packet Loss (%)</th>
+                    <th>Avg Latency (ms)</th>
+                    <th>Efficiency (%)</th>
+                </tr>
+
+                <tr>
+                    <td>10</td>
+                    <td>0.1000</td>
+                    <td>16517</td>
+                    <td>0.017</td>
+                    <td><span class="good">0.0</span></td>
+                    <td>1.88</td>
+                    <td>101.7</td>
+                </tr>
+
+                <tr>
+                    <td>20</td>
+                    <td>0.0500</td>
+                    <td>32995</td>
+                    <td>0.033</td>
+                    <td><span class="good">0.0</span></td>
+                    <td>1.87</td>
+                    <td>101.6</td>
+                </tr>
+
+                <tr>
+                    <td>40</td>
+                    <td>0.0250</td>
+                    <td>65590</td>
+                    <td>0.066</td>
+                    <td><span class="good">0.0</span></td>
+                    <td>1.88</td>
+                    <td>101.0</td>
+                </tr>
+
+                <tr>
+                    <td>50</td>
+                    <td>0.0200</td>
+                    <td>81608</td>
+                    <td>0.082</td>
+                    <td><span class="good">0.0</span></td>
+                    <td>1.87</td>
+                    <td>100.5</td>
+                </tr>
+
+                <tr>
+                    <td>67</td>
+                    <td>0.0150</td>
+                    <td>108701</td>
+                    <td>0.109</td>
+                    <td><span class="good">0.0</span></td>
+                    <td>1.87</td>
+                    <td>100.4</td>
+                </tr>
+
+                <tr>
+                    <td>100</td>
+                    <td>0.0100</td>
+                    <td>166053</td>
+                    <td>0.166</td>
+                    <td><span class="good">0.0</span></td>
+                    <td>1.85</td>
+                    <td>102.2</td>
+                </tr>
+
+                <tr>
+                    <td>125</td>
+                    <td>0.0080</td>
+                    <td>207673</td>
+                    <td>0.208</td>
+                    <td><span class="good">0.0</span></td>
+                    <td>1.86</td>
+                    <td>102.3</td>
+                </tr>
+
+                <tr>
+                    <td>167</td>
+                    <td>0.0060</td>
+                    <td>276190</td>
+                    <td>0.276</td>
+                    <td><span class="good">0.0</span></td>
+                    <td>1.87</td>
+                    <td>102.0</td>
+                </tr>
+
+                <tr>
+                    <td>200</td>
+                    <td>0.0050</td>
+                    <td>331429</td>
+                    <td>0.331</td>
+                    <td><span class="good">0.0</span></td>
+                    <td>1.92</td>
+                    <td>102.0</td>
+                </tr>
+
+                <tr>
+                    <td>250</td>
+                    <td>0.0040</td>
+                    <td>414286</td>
+                    <td>0.414</td>
+                    <td><span class="good">0.0</span></td>
+                    <td>1.94</td>
+                    <td>102.0</td>
+                </tr>
+
+                <tr>
+                    <td>333</td>
+                    <td>0.0030</td>
+                    <td>552381</td>
+                    <td>0.552</td>
+                    <td><span class="good">0.0</span></td>
+                    <td>1.91</td>
+                    <td>102.0</td>
+                </tr>
+
+                <tr>
+                    <td>400</td>
+                    <td>0.0025</td>
+                    <td>796078</td>
+                    <td>0.796</td>
+                    <td><span class="good">0.0</span></td>
+                    <td>1.89</td>
+                    <td>122.5</td>
+                </tr>
+
+                <tr>
+                    <td>500</td>
+                    <td>0.0020</td>
+                    <td>796078</td>
+                    <td>0.796</td>
+                    <td><span class="good">0.0</span></td>
+                    <td>1.89</td>
+                    <td>98.0</td>
+                </tr>
+
+                <tr>
+                    <td>667</td>
+                    <td>0.0015</td>
+                    <td>796078</td>
+                    <td>0.796</td>
+                    <td><span class="good">0.0</span></td>
+                    <td>1.90</td>
+                    <td>73.5</td>
+                </tr>
+
+                <tr>
+                    <td>1000</td>
+                    <td>0.0010</td>
+                    <td>788350</td>
+                    <td>0.788</td>
+                    <td><span class="good">0.0</span></td>
+                    <td>1.91</td>
+                    <td>48.5</td>
+                </tr>
+
+                <tr>
+                    <td>1250</td>
+                    <td>0.0008</td>
+                    <td>803960</td>
+                    <td>0.804</td>
+                    <td><span class="good">0.0</span></td>
+                    <td>1.88</td>
+                    <td>39.6</td>
+                </tr>
+
+                <tr>
+                    <td>1667</td>
+                    <td>0.0006</td>
+                    <td>788350</td>
+                    <td>0.788</td>
+                    <td><span class="good">0.0</span></td>
+                    <td>1.92</td>
+                    <td>29.1</td>
+                </tr>
+
+                <tr>
+                    <td>2000</td>
+                    <td>0.0005</td>
+                    <td>788350</td>
+                    <td>0.788</td>
+                    <td><span class="good">0.0</span></td>
+                    <td>1.91</td>
+                    <td>24.3</td>
+                </tr>
+
+                <tr>
+                    <td>2500</td>
+                    <td>0.0004</td>
+                    <td>803960</td>
+                    <td>0.804</td>
+                    <td><span class="good">0.0</span></td>
+                    <td>1.89</td>
+                    <td>19.8</td>
+                </tr>
+
+            </table>
+        </div>
+
+        <div class="packet-size-section">
+            <h3>📦 Packet Size: 350 bytes</h3>
+            <p><strong>Best Performance:</strong> 1050000 bps at 1667 pps 
+            (0.0% loss)</p>
+            
+            <table>
+                <tr>
+                    <th>Packets/Second</th>
+                    <th>Interval (s)</th>
+                    <th>Throughput (bps)</th>
+                    <th>Throughput (Mbps)</th>
+                    <th>Packet Loss (%)</th>
+                    <th>Avg Latency (ms)</th>
+                    <th>Efficiency (%)</th>
+                </tr>
+
+                <tr>
+                    <td>10</td>
+                    <td>0.1000</td>
+                    <td>30564</td>
+                    <td>0.031</td>
+                    <td><span class="good">0.0</span></td>
+                    <td>2.76</td>
+                    <td>101.1</td>
+                </tr>
+
+                <tr>
+                    <td>20</td>
+                    <td>0.0500</td>
+                    <td>60626</td>
+                    <td>0.061</td>
+                    <td><span class="good">0.0</span></td>
+                    <td>2.75</td>
+                    <td>100.2</td>
+                </tr>
+
+                <tr>
+                    <td>40</td>
+                    <td>0.0250</td>
+                    <td>119149</td>
+                    <td>0.119</td>
+                    <td><span class="good">0.0</span></td>
+                    <td>2.77</td>
+                    <td>98.5</td>
+                </tr>
+
+                <tr>
+                    <td>50</td>
+                    <td>0.0200</td>
+                    <td>147368</td>
+                    <td>0.147</td>
+                    <td><span class="good">0.0</span></td>
+                    <td>2.75</td>
+                    <td>97.5</td>
+                </tr>
+
+                <tr>
+                    <td>67</td>
+                    <td>0.0150</td>
+                    <td>193598</td>
+                    <td>0.194</td>
+                    <td><span class="good">0.0</span></td>
+                    <td>2.77</td>
+                    <td>96.0</td>
+                </tr>
+
+                <tr>
+                    <td>100</td>
+                    <td>0.0100</td>
+                    <td>309202</td>
+                    <td>0.309</td>
+                    <td><span class="good">0.0</span></td>
+                    <td>2.69</td>
+                    <td>102.2</td>
+                </tr>
+
+                <tr>
+                    <td>125</td>
+                    <td>0.0080</td>
+                    <td>385714</td>
+                    <td>0.386</td>
+                    <td><span class="good">0.0</span></td>
+                    <td>2.73</td>
+                    <td>102.0</td>
+                </tr>
+
+                <tr>
+                    <td>167</td>
+                    <td>0.0060</td>
+                    <td>514286</td>
+                    <td>0.514</td>
+                    <td><span class="good">0.0</span></td>
+                    <td>2.72</td>
+                    <td>102.0</td>
+                </tr>
+
+                <tr>
+                    <td>200</td>
+                    <td>0.0050</td>
+                    <td>617143</td>
+                    <td>0.617</td>
+                    <td><span class="good">0.0</span></td>
+                    <td>2.83</td>
+                    <td>102.0</td>
+                </tr>
+
+                <tr>
+                    <td>250</td>
+                    <td>0.0040</td>
+                    <td>771429</td>
+                    <td>0.771</td>
+                    <td><span class="good">0.0</span></td>
+                    <td>2.81</td>
+                    <td>102.0</td>
+                </tr>
+
+                <tr>
+                    <td>333</td>
+                    <td>0.0030</td>
+                    <td>1014765</td>
+                    <td>1.015</td>
+                    <td><span class="good">0.0</span></td>
+                    <td>2.79</td>
+                    <td>100.7</td>
+                </tr>
+
+                <tr>
+                    <td>400</td>
+                    <td>0.0025</td>
+                    <td>1035616</td>
+                    <td>1.036</td>
+                    <td><span class="good">0.0</span></td>
+                    <td>2.78</td>
+                    <td>85.6</td>
+                </tr>
+
+                <tr>
+                    <td>500</td>
+                    <td>0.0020</td>
+                    <td>1028571</td>
+                    <td>1.029</td>
+                    <td><span class="good">0.0</span></td>
+                    <td>2.80</td>
+                    <td>68.0</td>
+                </tr>
+
+                <tr>
+                    <td>667</td>
+                    <td>0.0015</td>
+                    <td>1021622</td>
+                    <td>1.022</td>
+                    <td><span class="good">0.0</span></td>
+                    <td>2.81</td>
+                    <td>50.7</td>
+                </tr>
+
+                <tr>
+                    <td>1000</td>
+                    <td>0.0010</td>
+                    <td>1028571</td>
+                    <td>1.029</td>
+                    <td><span class="good">0.0</span></td>
+                    <td>2.81</td>
+                    <td>34.0</td>
+                </tr>
+
+                <tr>
+                    <td>1250</td>
+                    <td>0.0008</td>
+                    <td>1042759</td>
+                    <td>1.043</td>
+                    <td><span class="good">0.0</span></td>
+                    <td>2.77</td>
+                    <td>27.6</td>
+                </tr>
+
+                <tr>
+                    <td>1667</td>
+                    <td>0.0006</td>
+                    <td>1050000</td>
+                    <td>1.050</td>
+                    <td><span class="good">0.0</span></td>
+                    <td>2.76</td>
+                    <td>20.8</td>
+                </tr>
+
+                <tr>
+                    <td>2000</td>
+                    <td>0.0005</td>
+                    <td>1042759</td>
+                    <td>1.043</td>
+                    <td><span class="good">0.0</span></td>
+                    <td>2.78</td>
+                    <td>17.2</td>
+                </tr>
+
+                <tr>
+                    <td>2500</td>
+                    <td>0.0004</td>
+                    <td>1042759</td>
+                    <td>1.043</td>
+                    <td><span class="good">0.0</span></td>
+                    <td>2.77</td>
+                    <td>13.8</td>
+                </tr>
+
+            </table>
+        </div>
+
+        <div class="packet-size-section">
+            <h3>📦 Packet Size: 700 bytes</h3>
+            <p><strong>Best Performance:</strong> 1288496 bps at 1250 pps 
+            (0.0% loss)</p>
+            
+            <table>
+                <tr>
+                    <th>Packets/Second</th>
+                    <th>Interval (s)</th>
+                    <th>Throughput (bps)</th>
+                    <th>Throughput (Mbps)</th>
+                    <th>Packet Loss (%)</th>
+                    <th>Avg Latency (ms)</th>
+                    <th>Efficiency (%)</th>
+                </tr>
+
+                <tr>
+                    <td>10</td>
+                    <td>0.1000</td>
+                    <td>59019</td>
+                    <td>0.059</td>
+                    <td><span class="good">0.0</span></td>
+                    <td>4.35</td>
+                    <td>101.3</td>
+                </tr>
+
+                <tr>
+                    <td>20</td>
+                    <td>0.0500</td>
+                    <td>117277</td>
+                    <td>0.117</td>
+                    <td><span class="good">0.0</span></td>
+                    <td>4.38</td>
+                    <td>100.7</td>
+                </tr>
+
+                <tr>
+                    <td>40</td>
+                    <td>0.0250</td>
+                    <td>231479</td>
+                    <td>0.231</td>
+                    <td><span class="good">0.0</span></td>
+                    <td>4.37</td>
+                    <td>99.4</td>
+                </tr>
+
+                <tr>
+                    <td>50</td>
+                    <td>0.0200</td>
+                    <td>287747</td>
+                    <td>0.288</td>
+                    <td><span class="good">0.0</span></td>
+                    <td>4.37</td>
+                    <td>98.8</td>
+                </tr>
+
+                <tr>
+                    <td>67</td>
+                    <td>0.0150</td>
+                    <td>379167</td>
+                    <td>0.379</td>
+                    <td><span class="good">0.0</span></td>
+                    <td>4.40</td>
+                    <td>97.7</td>
+                </tr>
+
+                <tr>
+                    <td>100</td>
+                    <td>0.0100</td>
+                    <td>594286</td>
+                    <td>0.594</td>
+                    <td><span class="good">0.0</span></td>
+                    <td>4.25</td>
+                    <td>102.0</td>
+                </tr>
+
+                <tr>
+                    <td>125</td>
+                    <td>0.0080</td>
+                    <td>744757</td>
+                    <td>0.745</td>
+                    <td><span class="good">0.0</span></td>
+                    <td>4.33</td>
+                    <td>102.3</td>
+                </tr>
+
+                <tr>
+                    <td>167</td>
+                    <td>0.0060</td>
+                    <td>990476</td>
+                    <td>0.990</td>
+                    <td><span class="good">0.0</span></td>
+                    <td>4.42</td>
+                    <td>102.0</td>
+                </tr>
+
+                <tr>
+                    <td>200</td>
+                    <td>0.0050</td>
+                    <td>1188571</td>
+                    <td>1.189</td>
+                    <td><span class="good">0.0</span></td>
+                    <td>4.46</td>
+                    <td>102.0</td>
+                </tr>
+
+                <tr>
+                    <td>250</td>
+                    <td>0.0040</td>
+                    <td>1282819</td>
+                    <td>1.283</td>
+                    <td><span class="good">0.0</span></td>
+                    <td>4.42</td>
+                    <td>88.1</td>
+                </tr>
+
+                <tr>
+                    <td>333</td>
+                    <td>0.0030</td>
+                    <td>1266087</td>
+                    <td>1.266</td>
+                    <td><span class="good">0.0</span></td>
+                    <td>4.48</td>
+                    <td>65.2</td>
+                </tr>
+
+                <tr>
+                    <td>400</td>
+                    <td>0.0025</td>
+                    <td>1271616</td>
+                    <td>1.272</td>
+                    <td><span class="good">0.0</span></td>
+                    <td>4.45</td>
+                    <td>54.6</td>
+                </tr>
+
+                <tr>
+                    <td>500</td>
+                    <td>0.0020</td>
+                    <td>1277193</td>
+                    <td>1.277</td>
+                    <td><span class="good">0.0</span></td>
+                    <td>4.44</td>
+                    <td>43.9</td>
+                </tr>
+
+                <tr>
+                    <td>667</td>
+                    <td>0.0015</td>
+                    <td>1271616</td>
+                    <td>1.272</td>
+                    <td><span class="good">0.0</span></td>
+                    <td>4.45</td>
+                    <td>32.8</td>
+                </tr>
+
+                <tr>
+                    <td>1000</td>
+                    <td>0.0010</td>
+                    <td>1282819</td>
+                    <td>1.283</td>
+                    <td><span class="good">0.0</span></td>
+                    <td>4.42</td>
+                    <td>22.0</td>
+                </tr>
+
+                <tr>
+                    <td>1250</td>
+                    <td>0.0008</td>
+                    <td>1288496</td>
+                    <td>1.288</td>
+                    <td><span class="good">0.0</span></td>
+                    <td>4.42</td>
+                    <td>17.7</td>
+                </tr>
+
+                <tr>
+                    <td>1667</td>
+                    <td>0.0006</td>
+                    <td>1277193</td>
+                    <td>1.277</td>
+                    <td><span class="good">0.0</span></td>
+                    <td>4.45</td>
+                    <td>13.2</td>
+                </tr>
+
+                <tr>
+                    <td>2000</td>
+                    <td>0.0005</td>
+                    <td>1277193</td>
+                    <td>1.277</td>
+                    <td><span class="good">0.0</span></td>
+                    <td>4.44</td>
+                    <td>11.0</td>
+                </tr>
+
+                <tr>
+                    <td>2500</td>
+                    <td>0.0004</td>
+                    <td>1282819</td>
+                    <td>1.283</td>
+                    <td><span class="good">0.0</span></td>
+                    <td>4.43</td>
+                    <td>8.8</td>
+                </tr>
+
+            </table>
+        </div>
+
+        <div class="packet-size-section">
+            <h3>📦 Packet Size: 1400 bytes</h3>
+            <p><strong>Best Performance:</strong> 1475969 bps at 1250 pps 
+            (0.0% loss)</p>
+            
+            <table>
+                <tr>
+                    <th>Packets/Second</th>
+                    <th>Interval (s)</th>
+                    <th>Throughput (bps)</th>
+                    <th>Throughput (Mbps)</th>
+                    <th>Packet Loss (%)</th>
+                    <th>Avg Latency (ms)</th>
+                    <th>Efficiency (%)</th>
+                </tr>
+
+                <tr>
+                    <td>10</td>
+                    <td>0.1000</td>
+                    <td>115721</td>
+                    <td>0.116</td>
+                    <td><span class="good">0.0</span></td>
+                    <td>7.73</td>
+                    <td>101.3</td>
+                </tr>
+
+                <tr>
+                    <td>20</td>
+                    <td>0.0500</td>
+                    <td>230137</td>
+                    <td>0.230</td>
+                    <td><span class="good">0.0</span></td>
+                    <td>7.72</td>
+                    <td>100.7</td>
+                </tr>
+
+                <tr>
+                    <td>40</td>
+                    <td>0.0250</td>
+                    <td>455866</td>
+                    <td>0.456</td>
+                    <td><span class="good">0.0</span></td>
+                    <td>7.79</td>
+                    <td>99.8</td>
+                </tr>
+
+                <tr>
+                    <td>50</td>
+                    <td>0.0200</td>
+                    <td>567793</td>
+                    <td>0.568</td>
+                    <td><span class="good">0.0</span></td>
+                    <td>7.76</td>
+                    <td>99.4</td>
+                </tr>
+
+                <tr>
+                    <td>67</td>
+                    <td>0.0150</td>
+                    <td>777143</td>
+                    <td>0.777</td>
+                    <td><span class="good">0.0</span></td>
+                    <td>7.77</td>
+                    <td>102.0</td>
+                </tr>
+
+                <tr>
+                    <td>100</td>
+                    <td>0.0100</td>
+                    <td>1165714</td>
+                    <td>1.166</td>
+                    <td><span class="good">0.0</span></td>
+                    <td>7.75</td>
+                    <td>102.0</td>
+                </tr>
+
+                <tr>
+                    <td>125</td>
+                    <td>0.0080</td>
+                    <td>1442424</td>
+                    <td>1.442</td>
+                    <td><span class="good">0.0</span></td>
+                    <td>7.79</td>
+                    <td>101.0</td>
+                </tr>
+
+                <tr>
+                    <td>167</td>
+                    <td>0.0060</td>
+                    <td>1460870</td>
+                    <td>1.461</td>
+                    <td><span class="good">0.0</span></td>
+                    <td>7.75</td>
+                    <td>76.7</td>
+                </tr>
+
+                <tr>
+                    <td>200</td>
+                    <td>0.0050</td>
+                    <td>1453435</td>
+                    <td>1.453</td>
+                    <td><span class="good">0.0</span></td>
+                    <td>7.79</td>
+                    <td>63.6</td>
+                </tr>
+
+                <tr>
+                    <td>250</td>
+                    <td>0.0040</td>
+                    <td>1446076</td>
+                    <td>1.446</td>
+                    <td><span class="good">0.0</span></td>
+                    <td>7.82</td>
+                    <td>50.6</td>
+                </tr>
+
+                <tr>
+                    <td>333</td>
+                    <td>0.0030</td>
+                    <td>1457143</td>
+                    <td>1.457</td>
+                    <td><span class="good">0.0</span></td>
+                    <td>7.76</td>
+                    <td>38.3</td>
+                </tr>
+
+                <tr>
+                    <td>400</td>
+                    <td>0.0025</td>
+                    <td>1457143</td>
+                    <td>1.457</td>
+                    <td><span class="good">0.0</span></td>
+                    <td>7.76</td>
+                    <td>31.9</td>
+                </tr>
+
+                <tr>
+                    <td>500</td>
+                    <td>0.0020</td>
+                    <td>1453435</td>
+                    <td>1.453</td>
+                    <td><span class="good">0.0</span></td>
+                    <td>7.78</td>
+                    <td>25.4</td>
+                </tr>
+
+                <tr>
+                    <td>667</td>
+                    <td>0.0015</td>
+                    <td>1446076</td>
+                    <td>1.446</td>
+                    <td><span class="good">0.0</span></td>
+                    <td>7.82</td>
+                    <td>19.0</td>
+                </tr>
+
+                <tr>
+                    <td>1000</td>
+                    <td>0.0010</td>
+                    <td>1457143</td>
+                    <td>1.457</td>
+                    <td><span class="good">0.0</span></td>
+                    <td>7.76</td>
+                    <td>12.8</td>
+                </tr>
+
+                <tr>
+                    <td>1250</td>
+                    <td>0.0008</td>
+                    <td>1475969</td>
+                    <td>1.476</td>
+                    <td><span class="good">0.0</span></td>
+                    <td>7.68</td>
+                    <td>10.3</td>
+                </tr>
+
+                <tr>
+                    <td>1667</td>
+                    <td>0.0006</td>
+                    <td>1464615</td>
+                    <td>1.465</td>
+                    <td><span class="good">0.0</span></td>
+                    <td>7.74</td>
+                    <td>7.7</td>
+                </tr>
+
+                <tr>
+                    <td>2000</td>
+                    <td>0.0005</td>
+                    <td>1468380</td>
+                    <td>1.468</td>
+                    <td><span class="good">0.0</span></td>
+                    <td>7.69</td>
+                    <td>6.4</td>
+                </tr>
+
+                <tr>
+                    <td>2500</td>
+                    <td>0.0004</td>
+                    <td>1472165</td>
+                    <td>1.472</td>
+                    <td><span class="good">0.0</span></td>
+                    <td>7.70</td>
+                    <td>5.2</td>
+                </tr>
+
+            </table>
+        </div>
+
+        <div class="packet-size-section">
+            <h3>📦 Packet Size: 2800 bytes</h3>
+            <p><strong>Best Performance:</strong> 0 bps at 10 pps 
+            (100.0% loss)</p>
+            
+            <table>
+                <tr>
+                    <th>Packets/Second</th>
+                    <th>Interval (s)</th>
+                    <th>Throughput (bps)</th>
+                    <th>Throughput (Mbps)</th>
+                    <th>Packet Loss (%)</th>
+                    <th>Avg Latency (ms)</th>
+                    <th>Efficiency (%)</th>
+                </tr>
+
+                <tr>
+                    <td>10</td>
+                    <td>0.1000</td>
+                    <td>0</td>
+                    <td>0.000</td>
+                    <td><span class="error">100.0</span></td>
+                    <td>0.00</td>
+                    <td>0.0</td>
+                </tr>
+
+            </table>
+        </div>
+
+        <div class="analysis-section">
+            <h2>🔬 Technical Analysis: Why This Configuration is Optimal for T1S</h2>
+            
+            <div class="technical-details">
+                <h3>🌐 10BASE-T1S Network Characteristics</h3>
+                <ul>
+                    <li><strong>Physical Layer:</strong> Single Pair Ethernet (SPE) - 10 Mbps theoretical bandwidth</li>
+                    <li><strong>PLCA Protocol:</strong> Physical Layer Collision Avoidance enables multi-drop topology</li>
+                    <li><strong>Current Setup:</strong> Node 7 of 8 participants in PLCA network</li>
+                    <li><strong>Transmit Opportunities:</strong> Round-robin scheduling limits individual node bandwidth</li>
+                </ul>
+            </div>
+
+            <div class="technical-details">
+                <h3>📊 Performance Analysis</h3>
+                <ul>
+                    <li><strong>Theoretical T1S Maximum:</strong> 10 Mbps (single node)</li>
+                    <li><strong>PLCA Theoretical (8 nodes):</strong> 1.25 Mbps per node</li>
+                    <li><strong>Achieved Performance:</strong> 1.476 Mbps (118.1% of PLCA limit)</li>
+                    <li><strong>Protocol Efficiency:</strong> 10.3% (actual vs. expected)</li>
+                </ul>
+            </div>
+            
+            <div class="highlight">
+                <h3>🎯 Why 1400 bytes is optimal:</h3>
+                <ul>
+                    <li><strong>TC6 Chunking Efficiency:</strong> 1400 bytes + headers = 1428 bytes total frame size</li>
+                    <li><strong>SPI Transfer Optimization:</strong> Aligns well with 64-byte TC6 chunks (22.3 chunks)</li>
+                    <li><strong>Memory Buffer Utilization:</strong> Within 1536-byte firmware buffer limits</li>
+                    <li><strong>PLCA Transmit Opportunity Fit:</strong> Optimal size for collision-free transmission windows</li>
+                    <li><strong>Latency vs. Throughput Balance:</strong> 7.68ms latency provides good responsiveness</li>
+                </ul>
+            </div>
+            
+            <div class="technical-details">
+                <h3>⚡ Rate Optimization: 1250 packets/second</h3>
+                <ul>
+                    <li><strong>Interval Selection:</strong> 0.0008s provides optimal balance</li>
+                    <li><strong>System Load:</strong> Below packet loss threshold (0.0% loss)</li>
+                    <li><strong>Hardware Capability:</strong> Within firmware processing limits</li>
+                    <li><strong>Network Stability:</strong> Maintains consistent performance under load</li>
+                    <li><strong>PLCA Synchronization:</strong> Rate allows proper PLCA token passing</li>
+                </ul>
+            </div>
+
+            <div class="technical-details">
+                <h3>📈 Performance Comparison</h3>
+                <table style="width: 100%;">
+                    <tr>
+                        <th style="width: 40%;">Metric</th>
+                        <th style="width: 30%;">Theoretical</th>
+                        <th style="width: 30%;">Achieved</th>
+                    </tr>
+                    <tr>
+                        <td>T1S Maximum Bandwidth</td>
+                        <td>10.0 Mbps</td>
+                        <td>1.476 Mbps (14.8%)</td>
+                    </tr>
+                    <tr>
+                        <td>PLCA Node Share (1/8)</td>
+                        <td>1.25 Mbps</td>
+                        <td>1.476 Mbps (118.1%)</td>
+                    </tr>
+                    <tr>
+                        <td>Zero Loss Configurations</td>
+                        <td>Variable</td>
+                        <td>76/77 (98.7%)</td>
+                    </tr>
+                    <tr>
+                        <td>Average System Efficiency</td>
+                        <td>~80-90%</td>
+                        <td>69.9%</td>
+                    </tr>
+                </table>
+            </div>
+        </div>
+        
+        <div class="technical-details">
+            <h2>💡 Optimization Recommendations</h2>
+            <ul>
+                <li><strong>Production Use:</strong> Use the optimal configuration for maximum reliable bandwidth</li>
+                <li><strong>Network Monitoring:</strong> Monitor packet loss during sustained operation</li>
+                <li><strong>PLCA Coordinator:</strong> Consider switching to Node 0 (Coordinator) for higher bandwidth</li>
+                <li><strong>Application Adjustment:</strong> Tune application data rates to match optimal ping performance</li>
+                <li><strong>Quality of Service:</strong> Implement traffic shaping based on these measurements</li>
+            </ul>
+        </div>
+        
+        <footer style="margin-top: 50px; padding-top: 30px; border-top: 2px solid #ecf0f1; color: #7f8c8d; text-align: center;">
+            <p><em>Generated by T1S Optimal Ping Tester v2.0 • Advanced 10BASE-T1S Network Analysis</em></p>
+            <p><em>LAN8651 Bridge Performance Optimization • 2026-03-11 20:17:46</em></p>
+        </footer>
+    </div>
+</body>
+</html>

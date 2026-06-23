@@ -1,0 +1,44 @@
+# Python
+.venv/
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.Python
+pip-log.txt
+env/
+
+# Build outputs
+_build/
+out/
+build/
+dist/
+# cmake/ - Keep CMake files for cross-platform builds
+
+# MPLAB X IDE
+.main-meta/
+*.suo
+*.user
+*.sln.docstates
+
+# VS Code
+.vscode/settings.json.bak
+.vscode/settings.json
+
+# Microchip
+*.o
+*.elf
+*.hex
+*.map
+*.lst
+*.sym
+*.d
+
+# CMake
+CMakeCache.txt
+CMakeFiles/
+cmake_install.cmake
+compile_commands.json
+
+# Log files
+*.log

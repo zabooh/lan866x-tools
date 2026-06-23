@@ -1,0 +1,61 @@
+{
+  "timestamp": "2026-03-23T15:22:41.733732",
+  "tool": "mcu_direct_access_proof.py",
+  "config": {
+    "mcu_port": "COM8",
+    "mpu_port": "COM9",
+    "mcu_ip": "192.168.0.200",
+    "rate": "2M",
+    "duration_sec": 10,
+    "inject_interval_sec": 0.2,
+    "inject_start_delay_sec": 1.0,
+    "loss_threshold_pct": 3
+  },
+  "cases": [
+    {
+      "name": "A_BASELINE",
+      "description": "iperf 2M/10s",
+      "injections_sent": 0,
+      "duration_sec": 10.0,
+      "server_kpi": {},
+      "client_kpi": {},
+      "verdict": "KEIN MESSWERT (iperf-Summary fehlt)",
+      "error": "",
+      "raw": {
+        "mcu_server_start": "iperf -s -u\r\n\r\niperf: Starting session instance 0\r\n---------------------------------------------------------\r\niperf: Server listening on UDP port 5001\r\n>",
+        "mcu_async": "\r\niperf: instance 0 session started ...\r\niperf: - First pkt id = 1 (should be 0)\r\n    - Local  192.168.0.200 port 5001 connected with\r\n    - Remote 192.168.0.5 port 41144\r\n    - [ 0-  1 sec]   0/ 178 ( 0%)    2091 Kbps\r\n    - [ 1-  2 sec]   0/ 178 ( 0%)    2091 Kbps\r\n    - [ 2-  3 sec]   0/ 178 ( 0%)    2091 Kbps\r\n    - [ 3-  4 sec]   0/ 179 ( 0%)    2103 Kbps\r\n    - [ 4-  5 sec]   0/ 178 ( 0%)    2091 Kbps\r\n    - [ 5-  6 sec]   0/ 178 ( 0%)    2091 Kbps\r\n    - [ 6-  7 sec]   0/ 179 ( 0%)    2103 Kbps\r\n    - [ 7-  8 sec]   0/ 178 ( 0%)    2091 Kbps\r\n",
+        "mpu_client": "iperf -u -c 192.168.0.200 -b 2M -t 10\r\n------------------------------------------------------------\r\nClient connecting to 192.168.0.200, UDP port 5001\r\nSending 1470 byte datagrams, IPG target: 0.00 us (kalman adjust)\r\nUDP buffer size:  176 KByte (default)\r\n------------------------------------------------------------\r\n[  1] local 192.168.0.5 port 41144 connected with 192.168.0.200 port 5001\r\n"
+      }
+    },
+    {
+      "name": "B_LAN_READ",
+      "description": "iperf + lan_read/0.2s",
+      "injections_sent": 8,
+      "duration_sec": 11.3,
+      "server_kpi": {},
+      "client_kpi": {},
+      "verdict": "KEIN MESSWERT (iperf-Summary fehlt)",
+      "error": "",
+      "raw": {
+        "mcu_server_start": "iperf -s -u\r\n\r\niperf: Starting session instance 0\r\n---------------------------------------------------------\r\niperf: Server listening on UDP port 5001\r\n>",
+        "mcu_async": "\r\niperf: instance 0 session started ...\r\niperf: - First pkt id = 1 (should be 0)\r\n    - Local  192.168.0.200 port 5001 connected with\r\n    - Remote 192.168.0.5 port 57951\r\nlan_read 0x00000000\r\nLAN865X Read initiated for addr=0x00000000\n\r>LAN865X Read: Addr=0x00000000 Value=0x00000011\n\rStatus0.Loss of Framing Error\r\nStatus1.UnknownError\r\nStatus0.Reset Complete\r\nlan_read 0x00000000\r\nLAN865X Read initiated for addr=0x00000000\n\r>LAN865X Read: Addr=0x00000000 Value=0x00000011\n\rStatus0.Loss of Framing Error\r\nStatus1.UnknownError\r\n    - [ 0-  1 sec]   5/ 178 ( 2%)    2032 Kbps\r\nlan_read 0x00000000\r\nLAN865X Read initiated for addr=0x00000000\n\r>LAN865X Read: Addr=0x00000000 Value=0x00000011\n\rlan_read 0x00000000\r\nLAN865X Read initiated for addr=0x00000000\n\r>LAN865X Read: Addr=0x00000000 Value=0x00000011\n\rlan_read 0x00000000\r\nLAN865X Read initiated for addr=0x00000000\n\r>LAN865X Read: Addr=0x00000000 Value=0x00000011\n\rlan_read 0x00000000\r\nLAN865X Read initiated for addr=0x00000000\n\r>LAN865X Read: Addr=0x00000000 Value=0x00000011\n\rlan_read 0x00000000\r\nLAN865X Read initiated for addr=0x00000000\n\r>LAN865X Read: Addr=0x00000000 Value=0x00000011\n\r[skipped 13]\r\nStatus0.Loss of Framing Error\r\nStatus1.UnknownError\r\nStatus0.Reset Complete\r\n    - [ 1-  2 sec]  12/ 178 ( 6%)    1950 Kbps\r\nlan_read 0x00000000\r\nLAN865X Read initiated for addr=0x00000000\n\r>LAN865X Read: Addr=0x00000000 Value=0x00000011\n\rStatus0.Loss of Framing Error\r\nStatus1.UnknownError\r\n    - [ 2-  3 sec]   2/ 178 ( 1%)    2068 Kbps\r\n    - [ 3-  4 sec]   0/ 179 ( 0%)    2103 Kbps\r\n    - [ 4-  5 sec]   0/ 178 ( 0%)    2091 Kbps\r\n    - [ 5-  6 sec]   0/ 178 ( 0%)    2091 Kbps\r\n    - [ 6-  7 sec]   0/ 179 ( 0%)    2103 Kbps\r\n    - [ 7-  8 sec]   0/ 178 ( 0%)    2091 Kbps\r\n",
+        "mpu_client": "iperf -u -c 192.168.0.200 -b 2M -t 10\r\n[  3] WARNING: did not receive ack of last datagram after 10 tries.\r\n# killall iperf 2>/dev/null; true\r\n# iperf -u -c 192.168.0.200 -b 2M -t 10\r\n------------------------------------------------------------\r\nClient connecting to 192.168.0.200, UDP port 5001\r\nSending 1470 byte datagrams, IPG target: 0.00 us (kalman adjust)\r\nUDP buffer size:  176 KByte (default)\r\n------------------------------------------------------------\r\n[  1] local 192.168.0.5 port 57951 connected with 192.168.0.200 port 5001\r\n"
+      }
+    },
+    {
+      "name": "C_CONTROL",
+      "description": "iperf + stats/0.2s",
+      "injections_sent": 7,
+      "duration_sec": 11.1,
+      "server_kpi": {},
+      "client_kpi": {},
+      "verdict": "KEIN MESSWERT (iperf-Summary fehlt)",
+      "error": "",
+      "raw": {
+        "mcu_server_start": "iperf -s -u\r\n\r\niperf: Starting session instance 0\r\n---------------------------------------------------------\r\niperf: Server listening on UDP port 5001\r\n>",
+        "mcu_async": "\r\niperf: instance 0 session started ...\r\niperf: - First pkt id = 1 (should be 0)\r\n    - Local  192.168.0.200 port 5001 connected with\r\n    - Remote 192.168.0.5 port 46631\r\nstats\r\neth0 TX: ok=4 err=0 qFull=0 pend=0\n\reth0 RX: ok=4119 err=0 nobufs=0 pend=0\n\reth1 TX: ok=0 err=16 qFull=0 pend=0\n\reth1 RX: ok=0 err=0 nobufs=0 pend=0\n\r>    - [ 0-  1 sec]   0/ 178 ( 0%)    2091 Kbps\r\nstats\r\neth0 TX: ok=4 err=0 qFull=0 pend=0\n\reth0 RX: ok=4155 err=0 nobufs=0 pend=0\n\reth1 TX: ok=0 err=16 qFull=0 pend=0\n\reth1 RX: ok=0 err=0 nobufs=0 pend=0\n\r>stats\r\neth0 TX: ok=4 err=0 qFull=0 pend=0\n\reth0 RX: ok=4190 err=0 nobufs=0 pend=0\n\reth1 TX: ok=0 err=16 qFull=0 pend=0\n\reth1 RX: ok=0 err=0 nobufs=0 pend=0\n\r>stats\r\neth0 TX: ok=4 err=0 qFull=0 pend=0\n\reth0 RX: ok=4226 err=0 nobufs=0 pend=0\n\reth1 TX: ok=0 err=16 qFull=0 pend=0\n\reth1 RX: ok=0 err=0 nobufs=0 pend=0\n\r>stats\r\neth0 TX: ok=4 err=0 qFull=0 pend=0\n\reth0 RX: ok=4262 err=0 nobufs=0 pend=0\n\reth1 TX: ok=0 err=16 qFull=0 pend=0\n\reth1 RX: ok=0 err=0 nobufs=0 pend=0\n\r>stats\r\neth0 TX: ok=4 err=0 qFull=0 pend=0\n\reth0 RX: ok=4298 err=0 nobufs=0 pend=0\n\reth1 TX: ok=0 err=16 qFull=0 pend=0\n\reth1 RX: ok=0 err=0 nobufs=0 pend=0\n\r>    - [ 1-  2 sec]   0/ 178 ( 0%)    2091 Kbps\r\nstats\r\neth0 TX: ok=4 err=0 qFull=0 pend=0\n\reth0 RX: ok=4333 err=0 nobufs=0 pend=0\n\reth1 TX: ok=0 err=16 qFull=0 pend=0\n\reth1 RX: ok=0 err=0 nobufs=0 pend=0\n\r>    - [ 2-  3 sec]   0/ 178 ( 0%)    2091 Kbps\r\n    - [ 3-  4 sec]   0/ 179 ( 0%)    2103 Kbps\r\n    - [ 4-  5 sec]   0/ 178 ( 0%)    2091 Kbps\r\n    - [ 5-  6 sec]   0/ 178 ( 0%)    2091 Kbps\r\n    - [ 6-  7 sec]   0/ 179 ( 0%)    2103 Kbps\r\n    - [ 7-  8 sec]   0/ 178 ( 0%)    2091 Kbps\r\n",
+        "mpu_client": "iperf -u -c 192.168.0.200 -b 2M -t 10\r\n[  3] WARNING: did not receive ack of last datagram after 10 tries.\r\n# killall iperf 2>/dev/null; true\r\n# iperf -u -c 192.168.0.200 -b 2M -t 10\r\n------------------------------------------------------------\r\nClient connecting to 192.168.0.200, UDP port 5001\r\nSending 1470 byte datagrams, IPG target: 0.00 us (kalman adjust)\r\nUDP buffer size:  176 KByte (default)\r\n------------------------------------------------------------\r\n[  1] local 192.168.0.5 port 46631 connected with 192.168.0.200 port 5001\r\n"
+      }
+    }
+  ]
+}
