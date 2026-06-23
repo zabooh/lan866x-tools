@@ -44,3 +44,9 @@ clickdemo-events*.csv
 # Vendored bridge firmware (firmware/t1s_100baset_bridge): regenerable MCC
 # backups + build outputs (out/ and build/ are already covered globally above).
 firmware/**/mcc_backup/
+# CMake/Ninja working dir from the shell build (build.bat) + its generated DB.
+_build/
+firmware/**/_build/
+firmware/**/compile_commands.json
+# MPLAB MDB trace logs from flash.py
+firmware/**/defmplabxtrace.log*
