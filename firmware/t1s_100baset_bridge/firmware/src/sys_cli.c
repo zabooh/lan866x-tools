@@ -208,7 +208,7 @@ static uint32_t v_seq, v_ssrc;
 static void v_rx(plat_udp_t *s, const uint8_t ip[4], uint16_t port,
                  const uint8_t *buf, uint16_t len, void *tag)
 { (void)s; (void)ip; (void)port; (void)buf; (void)len; (void)tag; }
-static void v_rtp_send(plat_udp_t *s, const uint8_t ip[4])
+static uint16_t v_rtp_send(plat_udp_t *s, const uint8_t ip[4])
 {
     int n = 0, x, y; uint32_t ts = v_seq * 1000u;
     v_pkt[n++] = 0x80; v_pkt[n++] = (uint8_t)(0x80u | 96u);
@@ -227,18 +227,19 @@ static void v_rtp_send(plat_udp_t *s, const uint8_t ip[4])
     }
     plat_udp_send(s, ip, 5001u, v_pkt, (uint16_t)n);
     v_seq++;
+    return (uint16_t)n;   /* bytes sent (RTP UDP payload) - for the bandwidth tally */
 }
 static void cmd_video(SYS_CMD_DEVICE_NODE *pCmdIO, int argc, char **argv)
 {
     rcp_endpoint_t eps[RCP_MAX_ENDPOINTS]; uint8_t ip[4]; plat_udp_t *s; uint16_t port = 0u;
-    uint32_t secs = 20u, fps = 25u, bright = 160u, start, endt, step, tick = 0u;
+    uint32_t secs = 0u, fps = 25u, bright = 160u, start, endt, step, tick = 0u, total = 0u;
     SYS_CONSOLE_HANDLE con = SYS_CONSOLE_HandleGet(SYS_CONSOLE_INDEX_0);
     int aborted = 0, x, y;
     (void)pCmdIO;
     if (argc >= 2) secs   = (uint32_t)strtoul(argv[1], NULL, 10);
     if (argc >= 3) fps    = (uint32_t)strtoul(argv[2], NULL, 10);
     if (argc >= 4) bright = (uint32_t)strtoul(argv[3], NULL, 10);
-    if (secs < 1u) secs = 1u; if (secs > 600u) secs = 600u;
+    if (secs > 3600u) secs = 3600u;   /* 0 (default) = run until Ctrl-C / 'q' */
     if (fps < 1u) fps = 1u; if (fps > 60u) fps = 60u;
     if (bright > 255u) bright = 255u;
     step = 1000u / fps;
@@ -251,10 +252,14 @@ static void cmd_video(SYS_CMD_DEVICE_NODE *pCmdIO, int argc, char **argv)
     if (!s) { SYS_CONSOLE_PRINT("[video] RTP socket failed\r\n"); return; }
     v_seq = 0u; v_ssrc = plat_now_ms();
 
-    SYS_CONSOLE_PRINT("[video] built-in test pattern -> %u.%u.%u.%u RTP :5001, %u fps for %u s ('q' to stop)...\r\n",
-                      ip[0], ip[1], ip[2], ip[3], (unsigned)fps, (unsigned)secs);
+    if (secs == 0u)
+        SYS_CONSOLE_PRINT("[video] built-in test pattern -> %u.%u.%u.%u RTP :5001, %u fps, runs until Ctrl-C or 'q'...\r\n",
+                          ip[0], ip[1], ip[2], ip[3], (unsigned)fps);
+    else
+        SYS_CONSOLE_PRINT("[video] built-in test pattern -> %u.%u.%u.%u RTP :5001, %u fps for %u s ('q' to stop)...\r\n",
+                          ip[0], ip[1], ip[2], ip[3], (unsigned)fps, (unsigned)secs);
     start = plat_now_ms(); endt = start + secs * 1000u;
-    while (!aborted && (int32_t)(plat_now_ms() - endt) < 0) {
+    while (!aborted && (secs == 0u || (int32_t)(plat_now_ms() - endt) < 0)) {
         uint32_t ph = tick;                       /* animate: sweeping rainbow columns */
         for (y = 0; y < VY; ++y) for (x = 0; x < VX; ++x) {
             uint32_t hue = (uint32_t)((x * 13u + y * 7u + ph * 6u)) % 360u;
@@ -271,14 +276,21 @@ static void cmd_video(SYS_CMD_DEVICE_NODE *pCmdIO, int argc, char **argv)
             v_fb[y][x][1] = (uint8_t)(g * bright / 255u);
             v_fb[y][x][2] = (uint8_t)(b * bright / 255u);
         }
-        v_rtp_send(s, ip);
+        total += v_rtp_send(s, ip);
         tick++;
         if (chk_abort(con)) aborted = 1;
         plat_sleep_ms(step);
     }
+    {   /* bandwidth tally over the whole run (RTP UDP payload sent) */
+        uint32_t el = plat_now_ms() - start; if (el == 0u) el = 1u;
+        SYS_CONSOLE_PRINT("\r\n[video] %u frames, %u bytes in %u ms -> %u fps, ~%u kbit/s (RTP UDP payload)\r\n",
+            (unsigned)tick, (unsigned)total, (unsigned)el,
+            (unsigned)(((uint64_t)tick * 1000u) / el),
+            (unsigned)(((uint64_t)total * 8u) / el));
+    }
     memset(v_fb, 0, sizeof(v_fb)); v_rtp_send(s, ip); plat_sleep_ms(30); v_rtp_send(s, ip);
     plat_udp_close(s);
-    SYS_CONSOLE_PRINT("\r\n[video] stopped, displays cleared.\r\n");
+    SYS_CONSOLE_PRINT("[video] stopped, displays cleared.\r\n");
 }
 
 static const SYS_CMD_DESCRIPTOR sys_cmd_tbl[] = {

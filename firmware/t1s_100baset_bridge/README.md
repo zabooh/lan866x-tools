@@ -711,7 +711,7 @@ identically-named PC tool over the same RCP API; **bounded** monitors take a
 | `servicetest [unsafe]` | probe which RCP methods the endpoint implements (0x03 = absent); `unsafe` also probes Reboot/Update |
 | `boot [cycle\|bootloader\|main] [waitS]` | reboot the endpoint between app and bootloader, re-acquire by SD — **link drops briefly, run last** |
 | `uart <tx> <rx> [baud] [text]` | open a UART, optional write (`\r \n \t` escapes), then read once |
-| `video [secs] [fps] [bright]` | stream a **built-in** animated RTP test pattern to the displays (the host tool's ffmpeg+file path is not portable to the MCU) |
+| `video [secs] [fps] [bright]` | stream a **built-in** animated RTP test pattern to the displays (host tool's ffmpeg+file path isn't portable to the MCU). Runs until Ctrl-C/`q` by default (optional `secs` caps it); prints the achieved frames/s + kbit/s on stop |
 
 ### 7.10 `dncp` group (dncpmon / dncpdisc)
 
