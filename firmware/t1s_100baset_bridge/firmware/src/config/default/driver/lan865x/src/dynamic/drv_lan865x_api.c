@@ -680,6 +680,17 @@ TCPIP_MAC_RES DRV_LAN865X_PacketTx(DRV_HANDLE hMac, TCPIP_MAC_PACKET * ptrPacket
     pDrvInst = pClient->pDrvInst;
     SYS_ASSERT(pDrvInst && (LAN865X_MAGIC == pDrvInst->magic), "Driver info pointer is invalid");
     SYS_ASSERT(ptrPacket, "Packet pointer invalid");
+
+    /* T1S->eth1 port mirror (SPAN) for Wireshark: this is the single eth0 egress
+     * point, so every bridge-originated/forwarded frame passes here. The hook
+     * (app.c) is a no-op unless "mirror" is on, and it only clones frames the
+     * bridge itself originates (src MAC == eth0 MAC). Called before the mutex so
+     * it never holds the LAN865x lock while transmitting on eth1/GMAC. */
+    {
+        extern void mirror_eth0_tx_hook(TCPIP_MAC_PACKET *txPkt);
+        mirror_eth0_tx_hook(ptrPacket);
+    }
+
     _Lock(&pDrvInst->drvMutex);
 
     tc6SegCount = TC6_GetRawSegments(pDrvInst->drvTc6, &tc6Seg);

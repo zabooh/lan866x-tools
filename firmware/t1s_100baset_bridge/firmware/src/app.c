@@ -553,32 +553,47 @@ void APP_Tasks(void) {
     }
 }
 
-/* --- eth0 (T1S) -> eth1 (100BASE-T) port mirror (SPAN) for Wireshark --------
- * When mirror_mode is on, every frame received on eth0 is CLONED and sent out
- * eth1, so a PC on eth1 can capture the T1S bus traffic in Wireshark - incl.
- * the SOME/IP replies/offers the endpoint sends in response to a firmware CLI
- * command (which the MAC bridge otherwise delivers locally, not to eth1).
- * The original frame is left untouched for normal local/bridge processing.
- * This mirrors the RX direction (bus -> bridge) only; the bridge's own eth0
- * transmissions are not echoed (a node never receives its own TX). */
+/* --- eth0 (T1S) <-> eth1 (100BASE-T) port mirror (SPAN) for Wireshark -------
+ * When mirror_mode is on, the bridge<->bus conversation is cloned onto eth1 so
+ * a PC on eth1 can capture the T1S traffic in Wireshark. BOTH directions are
+ * mirrored, but each is filtered by the bridge's OWN eth0 MAC so the capture is
+ * duplicate-free:
+ *   - RX (bus -> bridge): only frames addressed TO the bridge (dst == eth0 MAC)
+ *                         - i.e. the endpoint's replies to the firmware.
+ *   - TX (bridge -> bus): only frames the bridge ITSELF originates (src == eth0
+ *                         MAC) - the firmware's own ping/ARP/SOME/IP.
+ * Frames the MAC bridge merely FORWARDS between the PC and the bus keep their
+ * original src/dst MAC and are already carried to/from eth1 natively; mirroring
+ * them would duplicate them at the PC. Broadcast/multicast received on eth0 is
+ * likewise left to the bridge (the PC sees it natively) - only the bridge's own
+ * outgoing broadcast/multicast (src == eth0 MAC) is added by the TX path. */
 static void mirror_pkt_ack(TCPIP_MAC_PACKET *pkt, const void *param)
 {
     (void)param;
     TCPIP_PKT_PacketFree(pkt);
 }
 
-static void mirror_eth0_to_eth1(struct _tag_TCPIP_MAC_PACKET *rxPkt)
+/* eth0 (T1S) interface MAC - the filter reference for both mirror directions. */
+static const uint8_t *eth0_own_mac(void)
 {
-    uint16_t flen = rxPkt->pDSeg->segLen;
+    TCPIP_NET_HANDLE eth0 = TCPIP_STACK_IndexToNet(0);
+    return (eth0 != NULL) ? TCPIP_STACK_NetAddressMac(eth0) : NULL;
+}
+
+/* Clone a complete Ethernet frame onto eth1 for the PC-side capture. The caller
+ * has already applied the own-MAC filter. Single-segment copy (bridge/stack
+ * frames are single-segment); empty/oversize frames are dropped. */
+static void mirror_ethpkt_to_eth1(const uint8_t *frame, uint16_t flen)
+{
     TCPIP_MAC_PACKET *pTx;
     TCPIP_NET_HANDLE  eth1;
 
-    if (flen == 0u || flen > 1518u) return;
+    if (frame == NULL || flen == 0u || flen > 1518u) return;
     pTx = TCPIP_PKT_PacketAlloc(sizeof(TCPIP_MAC_PACKET), flen, 0);   /* flags=0: same as the MAC bridge's own fwd alloc */
     if (pTx == NULL) return;                         /* packet pool busy: drop the mirror copy */
 
     pTx->pMacLayer = pTx->pDSeg->segLoad;
-    memcpy(pTx->pMacLayer, rxPkt->pMacLayer, flen);  /* full Ethernet frame (header + payload) */
+    memcpy(pTx->pMacLayer, frame, flen);             /* full Ethernet frame (header + payload) */
     pTx->pDSeg->segLen = flen;
     pTx->pNetLayer = pTx->pMacLayer + sizeof(TCPIP_MAC_ETHERNET_HEADER);
     pTx->ackFunc   = mirror_pkt_ack;                 /* freed by the MAC driver after TX */
@@ -592,82 +607,35 @@ static void mirror_eth0_to_eth1(struct _tag_TCPIP_MAC_PACKET *rxPkt)
     }
 }
 
-/* --- TX-side mirror: the bridge's OWN eth0 transmissions -------------------
- * The RX mirror above only catches what the bus sends to us. The firmware's
- * own UDP TX (SOME/IP FindService + method requests to the endpoint) leaves on
- * eth0 and is never seen by a packet handler. To complete the T1S picture in
- * Wireshark, plat_udp_send() calls mirror_udp_tx() for every datagram it sends;
- * here we rebuild the Ethernet/IPv4/UDP frame and inject a copy on eth1.
- * Best-effort L2: dst MAC from the ARP cache (unicast) or the IPv4-multicast
- * mapping; broadcast if unresolved - Wireshark dissects the IP/UDP regardless. */
-static uint16_t ip_checksum(const uint8_t *p, uint16_t n)
+/* RX mirror: a frame just arrived on eth0. Mirror it only if it is addressed to
+ * the bridge itself (dst MAC == eth0 MAC). PC-bound unicast and broadcast/
+ * multicast are forwarded to eth1 by the MAC bridge already - mirroring them
+ * would duplicate them at the PC. */
+static void mirror_eth0_rx_to_eth1(struct _tag_TCPIP_MAC_PACKET *rxPkt)
 {
-    uint32_t sum = 0u; uint16_t i;
-    for (i = 0u; (uint16_t)(i + 1u) < n; i += 2u) sum += ((uint32_t)p[i] << 8) | p[i + 1u];
-    if (n & 1u) sum += (uint32_t)p[n - 1u] << 8;
-    while (sum >> 16) sum = (sum & 0xFFFFu) + (sum >> 16);
-    return (uint16_t)~sum;
+    const uint8_t *frame = rxPkt->pMacLayer;
+    const uint8_t *mac   = eth0_own_mac();
+    if (mac == NULL || frame == NULL) return;
+    if (memcmp(frame, mac, 6) != 0) return;          /* dst MAC != eth0 -> not for us, skip */
+    mirror_ethpkt_to_eth1(frame, rxPkt->pDSeg->segLen);
 }
 
-void mirror_udp_tx(uint16_t srcPort, const uint8_t dstIp[4], uint16_t dstPort,
-                   const uint8_t *payload, uint16_t plen)
+/* TX mirror: called from DRV_LAN865X_PacketTx (the single eth0 egress point) for
+ * every frame about to leave on eth0. Mirror it only if the bridge ITSELF
+ * originated it (src MAC == eth0 MAC) - the firmware's own ping/ARP/SOME/IP.
+ * Frames forwarded from eth1 keep their original (PC) src MAC and are skipped;
+ * the PC already has them. Non-static: the LAN865x driver calls it via an
+ * extern declaration. The driver transmits from pDSeg->segLoad. */
+void mirror_eth0_tx_hook(struct _tag_TCPIP_MAC_PACKET *txPkt)
 {
-    TCPIP_NET_HANDLE eth0, eth1;
-    TCPIP_MAC_PACKET *pTx;
-    const uint8_t *srcMac;
-    uint8_t *f;
-    uint32_t srcIp;
-    uint16_t frameLen = (uint16_t)(42u + plen);
-    uint16_t ipTotal  = (uint16_t)(28u + plen);
-    uint16_t udpLen   = (uint16_t)(8u + plen);
-
-    if (!mirror_mode || plen > 1400u) return;
-    eth0 = TCPIP_STACK_IndexToNet(0);
-    eth1 = TCPIP_STACK_IndexToNet(1);
-    if (eth0 == NULL || eth1 == NULL) return;
-    srcMac = TCPIP_STACK_NetAddressMac(eth0);
-    if (srcMac == NULL) return;
-    srcIp = TCPIP_STACK_NetAddress(eth0);
-
-    pTx = TCPIP_PKT_PacketAlloc(sizeof(TCPIP_MAC_PACKET), frameLen, 0);
-    if (pTx == NULL) return;
-    f = pTx->pMacLayer = pTx->pDSeg->segLoad;
-
-    if (dstIp[0] >= 224u && dstIp[0] <= 239u) {        /* IPv4 multicast -> 01:00:5E:xx:xx:xx */
-        f[0]=0x01u; f[1]=0x00u; f[2]=0x5Eu;
-        f[3]=(uint8_t)(dstIp[1] & 0x7Fu); f[4]=dstIp[2]; f[5]=dstIp[3];
-    } else {
-        IPV4_ADDR d; TCPIP_MAC_ADDR mac;
-        d.v[0]=dstIp[0]; d.v[1]=dstIp[1]; d.v[2]=dstIp[2]; d.v[3]=dstIp[3];
-        if (TCPIP_ARP_IsResolved(eth0, &d, &mac)) memcpy(f, mac.v, 6u);
-        else memset(f, 0xFFu, 6u);
-    }
-    memcpy(f + 6, srcMac, 6u);
-    f[12]=0x08u; f[13]=0x00u;                          /* EtherType IPv4 */
-
-    f[14]=0x45u; f[15]=0x00u;                          /* IPv4, IHL 5, TOS 0 */
-    f[16]=(uint8_t)(ipTotal >> 8); f[17]=(uint8_t)ipTotal;
-    f[18]=0u; f[19]=0u;                                /* id */
-    f[20]=0u; f[21]=0u;                                /* flags/frag */
-    f[22]=64u; f[23]=17u;                              /* TTL, proto UDP */
-    f[24]=0u; f[25]=0u;                                /* header checksum (below) */
-    f[26]=(uint8_t)srcIp;        f[27]=(uint8_t)(srcIp >> 8);
-    f[28]=(uint8_t)(srcIp >> 16); f[29]=(uint8_t)(srcIp >> 24);
-    f[30]=dstIp[0]; f[31]=dstIp[1]; f[32]=dstIp[2]; f[33]=dstIp[3];
-    { uint16_t c = ip_checksum(f + 14, 20u); f[24]=(uint8_t)(c >> 8); f[25]=(uint8_t)c; }
-
-    f[34]=(uint8_t)(srcPort >> 8); f[35]=(uint8_t)srcPort;
-    f[36]=(uint8_t)(dstPort >> 8); f[37]=(uint8_t)dstPort;
-    f[38]=(uint8_t)(udpLen >> 8);  f[39]=(uint8_t)udpLen;
-    f[40]=0u; f[41]=0u;                                /* UDP checksum 0 = not computed (valid for IPv4) */
-
-    if (plen) memcpy(f + 42, payload, plen);
-
-    pTx->pDSeg->segLen = frameLen;
-    pTx->pNetLayer = f + sizeof(TCPIP_MAC_ETHERNET_HEADER);
-    pTx->ackFunc   = mirror_pkt_ack;
-    pTx->ackParam  = NULL;
-    (void)DRV_GMAC_PacketTx(((TCPIP_NET_IF*)eth1)->hIfMac, pTx);
+    const uint8_t *frame;
+    const uint8_t *mac;
+    if (!mirror_mode || txPkt == NULL || txPkt->pDSeg == NULL) return;
+    frame = txPkt->pDSeg->segLoad;
+    mac   = eth0_own_mac();
+    if (mac == NULL || frame == NULL) return;
+    if (memcmp(frame + 6, mac, 6) != 0) return;      /* src MAC != eth0 -> forwarded, skip */
+    mirror_ethpkt_to_eth1(frame, txPkt->pDSeg->segLen);
 }
 
 bool pktEth0Handler(TCPIP_NET_HANDLE hNet, struct _tag_TCPIP_MAC_PACKET* rxPkt, uint16_t frameType, const void* hParam) {
@@ -677,7 +645,7 @@ bool pktEth0Handler(TCPIP_NET_HANDLE hNet, struct _tag_TCPIP_MAC_PACKET* rxPkt, 
     packet_counter++;
 
     if (mirror_mode) {
-        mirror_eth0_to_eth1(rxPkt);   /* clone this T1S frame to eth1 for PC-side capture */
+        mirror_eth0_rx_to_eth1(rxPkt);   /* clone endpoint->bridge frames to eth1 (dst-MAC filtered) */
     }
 
     /* NoIP raw test frame (EtherType 0x88B5): increment counter + print, free buffer */

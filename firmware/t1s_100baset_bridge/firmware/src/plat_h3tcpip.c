@@ -41,12 +41,9 @@ static struct plat_udp s_socks[MAX_PLAT_SOCKETS];
 volatile uint32_t g_plat_tx_bytes = 0u;
 volatile uint32_t g_plat_rx_bytes = 0u;
 
-/* TX-side port mirror (app.c): when the "mirror" command is on, also clone the
- * firmware's own outgoing UDP onto eth1 so Wireshark sees the bridge's requests
- * too (the RX mirror in app.c only catches what the bus sends back). */
-extern uint32_t mirror_mode;
-extern void mirror_udp_tx(uint16_t srcPort, const uint8_t dstIp[4], uint16_t dstPort,
-                          const uint8_t *payload, uint16_t plen);
+/* Port mirror (SPAN) lives entirely in app.c now: it hooks the eth0 RX handler
+ * and the LAN865x egress (DRV_LAN865X_PacketTx), so the firmware's own UDP is
+ * mirrored at the MAC layer like any other eth0 frame - no UDP-level hook here. */
 
 /* ===================== 1) time base ===================================== */
 
@@ -155,13 +152,8 @@ bool plat_udp_send(plat_udp_t *s, const uint8_t dstIp[4], uint16_t dstPort,
     if (TCPIP_UDP_ArrayPut(s->sock, buf, len) != len) return false;
     (void)TCPIP_UDP_Flush(s->sock);
     g_plat_tx_bytes += len;
-
-    if (mirror_mode) {                       /* mirror this outgoing datagram to eth1 */
-        UDP_SOCKET_INFO info;
-        uint16_t sport = 0u;
-        if (TCPIP_UDP_SocketInfoGet(s->sock, &info)) sport = (uint16_t)info.localPort;
-        mirror_udp_tx(sport, dstIp, dstPort, buf, len);
-    }
+    /* The outgoing datagram is mirrored to eth1 (when mirror_mode is on) at the
+     * eth0 MAC egress in app.c (DRV_LAN865X_PacketTx hook), not here. */
     return true;
 }
 

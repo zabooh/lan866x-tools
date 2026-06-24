@@ -241,13 +241,13 @@ pattern (handlers write, `APP_Tasks` reads).
 *(Full walkthrough and limitations in [§6](#6-port-mirror-capturing-the-t1s-bus-in-wireshark).)*
 
 `mirror 1` turns on two clone paths so a PC capture on `eth1` sees the full T1S
-picture:
-- **RX mirror** (`mirror_eth0_to_eth1`, app.c): every frame the bus sends to the
-  bridge is cloned to `eth1`.
-- **TX mirror** (`mirror_udp_tx`, called from `plat_udp_send`): the bridge's own
-  outgoing UDP (SOME/IP FindService + RCP requests) is rebuilt as an
-  Ethernet/IPv4/UDP frame and injected on `eth1` — because a node never receives
-  its own transmissions, this is the only way to see the request side.
+picture, each filtered by the bridge's own `eth0` MAC to stay duplicate-free:
+- **RX mirror** (`mirror_eth0_rx_to_eth1`, app.c): frames addressed to the bridge
+  (dst MAC == `eth0`) — the endpoint's replies — are cloned to `eth1`.
+- **TX mirror** (`mirror_eth0_tx_hook`, called from the LAN865x egress
+  `DRV_LAN865X_PacketTx`): frames the bridge itself originates (src MAC == `eth0`)
+  — its `ping`/ARP/SOME/IP — are cloned to `eth1`, protocol-independent. Because a
+  node never receives its own TX, hooking the egress is the only way to see them.
 
 ### CLI command groups
 
@@ -452,38 +452,46 @@ Two things are otherwise invisible to a PC capture on `eth1`:
 1. **The endpoint's replies/offers** arrive on `eth0` and — because they are
    addressed to the bridge itself — are delivered *locally* by the MAC bridge, not
    forwarded onto `eth1`. So a plain `eth1` capture never shows them.
-2. **The SOME/IP client's own requests** (FindService, RCP method calls) are sent
-   *out* of `eth0` by the firmware. A node never receives its own transmissions,
-   so no packet handler ever sees them either.
+2. **The firmware's own requests** (a `ping`, ARP, SOME/IP FindService, RCP method
+   calls) are sent *out* of `eth0` by the bridge. A node never receives its own
+   transmissions, so no RX packet handler ever sees them either.
 
-The mirror reconstructs both directions onto `eth1` for the SOME/IP/RCP case,
-giving a complete picture of that conversation. **Note the asymmetry** between the
-two paths — see the table and the ping example below.
+The mirror reconstructs **both** directions onto `eth1`, protocol-independent, so
+a firmware-originated `ping` to the endpoint — or any RCP exchange — is visible in
+full (request *and* reply).
 
-### 6.2 What gets mirrored (RX and TX paths)
+### 6.2 What gets mirrored (both directions, MAC-filtered)
 
-| Path | Source | Implementation (`app.c` / `plat_h3tcpip.c`) | What it captures |
+Both directions are cloned to `eth1`, but each is **filtered by the bridge's own
+`eth0` MAC** so the capture is **duplicate-free** — frames the MAC bridge merely
+*forwards* between the PC and the bus (which the PC already sees natively on
+`eth1`) are not mirrored.
+
+| Path | Hook (`app.c`) | Filter | What it captures |
 |---|---|---|---|
-| **RX mirror** | bus → bridge | `mirror_eth0_to_eth1()`, called from `pktEth0Handler` | **every** frame received on `eth0`, protocol-independent — SOME/IP offers/replies, ICMP echo replies, ARP, anything the endpoint or another T1S node sends — cloned verbatim onto `eth1` |
-| **TX mirror** | bridge → bus | `mirror_udp_tx()`, called from `plat_udp_send()` | **only** the UDP datagrams the embedded SOME/IP client sends through `plat_udp_send()` (FindService + RCP requests), rebuilt as an Ethernet/IPv4/UDP frame and injected on `eth1` |
+| **RX mirror** | `mirror_eth0_rx_to_eth1()`, from `pktEth0Handler` | dst MAC **==** `eth0` MAC | frames addressed to the bridge itself — the endpoint's unicast replies to the firmware |
+| **TX mirror** | `mirror_eth0_tx_hook()`, from `DRV_LAN865X_PacketTx` (the single `eth0` egress) | src MAC **==** `eth0` MAC | frames the bridge itself originates — the firmware's `ping`/ARP/SOME/IP, regardless of protocol |
 
-The original `eth0` frame is never altered — the RX mirror clones a fresh packet
-for `eth1` and leaves the bus frame for normal local/bridge processing.
+Why this is duplicate-free, given the bridge does transparent L2 forwarding
+(source/destination MACs are preserved):
 
-**The TX path is not symmetric with the RX path.** RX mirroring is total; TX
-mirroring covers *only* the SOME/IP client's own UDP. Any other firmware-
-originated traffic — a stack-generated **`ping` (ICMP)**, ARP requests the bridge
-emits, etc. — does **not** go through `plat_udp_send()`, so its outgoing frames
-are **not** mirrored (and the node can't receive its own TX, so the RX handler
-misses them too).
+- A PC→endpoint frame forwarded onto `eth0` keeps the **PC's** src MAC → TX filter
+  skips it (the PC already sent it).
+- An endpoint→PC frame received on `eth0` carries the **PC's** dst MAC → RX filter
+  skips it (the bridge forwards it to `eth1` natively).
+- Broadcast/multicast received on `eth0` is forwarded to `eth1` by the bridge, so
+  it is **not** mirrored either; only the bridge's *own* outgoing broadcast/
+  multicast (src == `eth0` MAC, e.g. its ARP/SD) is added by the TX path.
 
-> **Worked example — `ping` from the firmware to the endpoint:** the ICMP echo
-> *request* leaves on `eth0` via the TCP/IP stack (not `plat_udp_send()`) → **not
-> mirrored**. The endpoint's echo *reply* arrives on `eth0` → RX-mirrored → shows
-> up on `eth1`. So in Wireshark you see **only the replies**, not the requests.
-> By contrast, `discovery`/`diag` (RCP) show **both** directions, because their
-> requests go out through `plat_udp_send()` (TX mirror) and the replies return via
-> the RX mirror.
+The original `eth0` frame is never altered — the mirror clones a fresh packet for
+`eth1` and leaves the bus frame for normal local/bridge processing.
+
+> **Worked example — `ping` from the firmware to the endpoint (egress on `eth0`):**
+> the ICMP echo *request* leaves through `DRV_LAN865X_PacketTx` with src ==
+> `eth0` MAC → TX-mirrored. The endpoint's echo *reply* arrives on `eth0` with
+> dst == `eth0` MAC → RX-mirrored. So Wireshark on `eth1` shows the **complete**
+> exchange, both request and reply. (A PC-originated ping passing *through* the
+> bridge is not mirrored — the PC already has both halves on `eth1`.)
 
 ### 6.3 Using it
 
@@ -491,8 +499,9 @@ misses them too).
    bridge's `eth1` (RJ45 on the LAN8740 board).
 2. On the board CLI: `mirror 1` (turn it on). `mirror` with no argument shows the
    current state; `mirror 0` turns it off.
-3. Run a command that talks to the endpoint — e.g. `discovery`, `diag`, or any
-   `lan866x` command — and watch the SOME/IP traffic appear in Wireshark.
+3. Run anything that talks to the endpoint — `discovery`, `diag`, any `lan866x`
+   command, or even a `ping 192.168.0.54` — and watch the T1S traffic (both
+   directions) appear in Wireshark.
 4. A useful Wireshark display filter: `udp.port == 30490 || udp.port == 6800`
    (Service Discovery + RCP method endpoint), or `someip` if the dissector is on.
 
@@ -504,18 +513,17 @@ mirror 0        # turn it off when done
 
 ### 6.4 Limitations
 
-- **L2 addressing is best-effort** on the TX mirror: the destination MAC is taken
-  from the ARP cache for unicast, the standard `01:00:5E:xx:xx:xx` mapping for
-  IPv4 multicast, or broadcast if unresolved. Wireshark dissects the IP/UDP
-  payload correctly regardless; only the Ethernet destination may be approximate.
-- **UDP checksum is sent as 0** (not computed) on mirrored TX frames — valid for
-  IPv4, but Wireshark may flag "checksum unverified".
-- **TX coverage is SOME/IP-only:** the TX mirror sees just the UDP sent via
-  `plat_udp_send()`. Firmware-originated ICMP (`ping`), ARP, etc. are not
-  mirrored (see §6.2). RX coverage is complete (all protocols).
-- The TX mirror only handles datagrams up to ~1400 B of payload; the RX mirror
-  copies frames up to the 1518-byte Ethernet MTU.
-- Mirroring adds one cloned `eth1` transmit per relevant frame. It is meant for
+- **Exact L2 frames:** both directions clone the real Ethernet frame verbatim
+  (header + payload), so MACs and checksums are exactly what went on the wire.
+- **The filter relies on transparent bridging:** it assumes the MAC bridge does
+  not rewrite source/destination MACs (it doesn't). The reference is the `eth0`
+  interface MAC; frames carrying it are treated as the bridge's own.
+- **Single-segment copy:** the mirror clones the packet's first data segment.
+  The bridge/stack frames involved are single-segment; a hypothetical
+  multi-segment frame would be truncated.
+- **Broadcast/multicast received on `eth0` is not mirrored** — the bridge already
+  forwards it to `eth1`, where the PC sees it natively (see §6.2).
+- Mirroring adds one cloned `eth1` transmit per matching frame. It is meant for
   diagnostics — leave it **off** for normal bridging to avoid the extra load.
 - Mirror state is a runtime toggle (like the §5.2 CLI settings) and defaults to
   **off** on every boot.
