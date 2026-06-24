@@ -462,13 +462,14 @@ static void cmd_gpiomax(SYS_CMD_DEVICE_NODE *pCmdIO, int argc, char **argv)
 
 static void cmd_clickdemo(SYS_CMD_DEVICE_NODE *pCmdIO, int argc, char **argv)
 {
-    uint32_t seconds = 20u;
+    uint32_t seconds = 0u;   /* default: run until the user aborts (Ctrl-C / 'q') */
     int fps = 50;
     (void)pCmdIO;
     if (argc >= 2) seconds = (uint32_t)strtoul(argv[1], NULL, 10);
     if (argc >= 3) fps     = (int)strtoul(argv[2], NULL, 10);
-    if (seconds < 1u)  seconds = 1u;
-    if (seconds > 600u) seconds = 600u;   /* bounded: must not block the bridge forever */
+    if (seconds > 3600u) seconds = 3600u;   /* optional explicit cap; 0 = unbounded */
+    /* The loop pumps the TCP/IP stack + console each frame (plat_sleep_ms), so the
+     * bridge keeps running and the Ctrl-C/'q' abort key is detected even unbounded. */
     clickdemo_run(seconds, fps, 128, 400, 64);
 }
 

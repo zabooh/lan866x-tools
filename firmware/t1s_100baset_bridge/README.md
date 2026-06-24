@@ -625,14 +625,15 @@ under load — a dropped *reply* doesn't mean a missed toggle — so the on-boar
 ### 7.5 clickdemo
 
 `clickdemo [s] [fps]` — the sensor→display demo; mirrors `lan866x-clickdemo.exe`.
-`s` (run time in seconds) defaults to **20** (clamped **1…600**); `fps` defaults to
-**50** (clamped **1…100**). On a **Lighting** endpoint with two MikroE Click
+By default it **runs until you abort it** with **Ctrl-C** or **`q`** (like the host
+tool); an optional `s` caps the run time in seconds (clamped to **3600**). `fps`
+defaults to **50** (clamped **1…100**). On a **Lighting** endpoint with two MikroE Click
 displays it reads two sensors and renders them as an RTP/RFC4175 video stream
 (UDP 5001):
 
 - **Thumbstick Click** (SPI, MCP3204) → an orange spot on the left 10×10 display;
 - **Proximity 3 Click** (I²C, VCNL4200) → a blue distance bar on the right display.
 
-The run is time-bounded so it never freezes the bridge, and `plat_sleep_ms()`
-keeps the stack alive during the frame cadence. Press **Ctrl-C** or **`q`** to stop
-early.
+`plat_sleep_ms()` pumps the TCP/IP stack **and** the console RX each frame, so the
+bridge keeps running throughout and the abort key is seen even on an unbounded
+run. Press **Ctrl-C** or **`q`** to stop.

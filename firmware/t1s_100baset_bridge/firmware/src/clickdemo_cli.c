@@ -279,8 +279,13 @@ void clickdemo_run(uint32_t seconds, int fps, int bright, int proxMax, int barBl
     s_spi = UINT16_MAX; s_i2c = UINT16_MAX; s_proxInit = 0;
     s_tx = ADC_MAX / 2; s_ty = ADC_MAX / 2; s_prox = 0;
 
-    SYS_CONSOLE_PRINT("[clickdemo] target %u.%u.%u.%u, RTP :%d, %d fps, %u s (Ctrl-C or 'q' to stop)\r\n",
-                      s_ip[0], s_ip[1], s_ip[2], s_ip[3], RTP_PORT, fps, (unsigned)seconds);
+    if (seconds == 0u) {
+        SYS_CONSOLE_PRINT("[clickdemo] target %u.%u.%u.%u, RTP :%d, %d fps, runs until Ctrl-C or 'q'\r\n",
+                          s_ip[0], s_ip[1], s_ip[2], s_ip[3], RTP_PORT, fps);
+    } else {
+        SYS_CONSOLE_PRINT("[clickdemo] target %u.%u.%u.%u, RTP :%d, %d fps, %u s (Ctrl-C or 'q' to stop)\r\n",
+                          s_ip[0], s_ip[1], s_ip[2], s_ip[3], RTP_PORT, fps, (unsigned)seconds);
+    }
 
     /* blocking one-time peripheral setup (generous timeout/retries) */
     rcp_set_timeout_ms(600); rcp_set_retries(2);
@@ -299,7 +304,8 @@ void clickdemo_run(uint32_t seconds, int fps, int bright, int proxMax, int barBl
     {
     SYS_CONSOLE_HANDLE con = SYS_CONSOLE_HandleGet(SYS_CONSOLE_INDEX_0);
     int aborted = 0;
-    while (!aborted && (plat_now_ms() - start) < seconds * 1000u) {
+    /* seconds == 0 -> run until the user aborts (Ctrl-C / 'q'); else time-bounded. */
+    while (!aborted && (seconds == 0u || (plat_now_ms() - start) < seconds * 1000u)) {
         /* Abort on Ctrl-C (0x03) or 'q' typed in the terminal. SYS_CMD_Tasks is
          * not running while we block here, so the bytes sit in the console RX
          * ring (filled by SYS_CONSOLE_Tasks, pumped from plat_sleep_ms); read
