@@ -36,6 +36,11 @@ struct plat_udp {
 
 static struct plat_udp s_socks[MAX_PLAT_SOCKETS];
 
+/* UDP payload byte counters (for the diag bandwidth estimate). Bridge-local on
+ * purpose - kept out of plat.h so the shared host build is unaffected. */
+volatile uint32_t g_plat_tx_bytes = 0u;
+volatile uint32_t g_plat_rx_bytes = 0u;
+
 /* ===================== 1) time base ===================================== */
 
 uint32_t plat_now_ms(void)
@@ -136,6 +141,7 @@ bool plat_udp_send(plat_udp_t *s, const uint8_t dstIp[4], uint16_t dstPort,
 
     if (TCPIP_UDP_ArrayPut(s->sock, buf, len) != len) return false;
     (void)TCPIP_UDP_Flush(s->sock);
+    g_plat_tx_bytes += len;
     return true;
 }
 
@@ -177,6 +183,7 @@ int plat_udp_poll(void)
             (void)TCPIP_UDP_Discard(s->sock);   /* drop any remainder of this datagram */
 
             if (got > 0u) {
+                g_plat_rx_bytes += got;
                 s->rx(s, ip, port, rxbuf, got, s->tag);
                 dispatched++;
             }

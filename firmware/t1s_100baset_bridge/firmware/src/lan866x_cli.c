@@ -237,6 +237,37 @@ static void cmd_diag(SYS_CMD_DEVICE_NODE *pCmdIO, int argc, char **argv)
             (ns.EndpointStatus==2)?"LINK DOWN":
             (probeN && (100u*lost/probeN) < 3u)?"HEALTHY (T1S wire fine)":"DEGRADED - check link");
     }
+
+    SYS_CONSOLE_PRINT("\r\n================ BANDWIDTH (RCP goodput) ================\r\n");
+    {
+        extern volatile uint32_t g_plat_tx_bytes, g_plat_rx_bytes;
+        uint32_t freq = SYS_TIME_FrequencyGet();
+        uint32_t bn = 30u, okb = 0u, kk;
+        uint32_t tx0 = g_plat_tx_bytes, rx0 = g_plat_rx_bytes;
+        uint64_t t0  = SYS_TIME_Counter64Get();
+
+        rcp_set_retries(0); rcp_set_timeout_ms(400);
+        for (kk = 0u; kk < bn; kk++) {           /* back-to-back, no inter-request gap = max rate */
+            GetStatusReply_t s3; memset(&s3, 0, sizeof(s3));
+            if (rcp_get_status(&s3) == RT_OK) okb++;
+        }
+        {
+            uint64_t dt    = SYS_TIME_Counter64Get() - t0;
+            uint32_t ms    = freq ? (uint32_t)((dt * 1000ULL) / freq) : 0u;
+            uint32_t txb   = g_plat_tx_bytes - tx0;
+            uint32_t rxb   = g_plat_rx_bytes - rx0;
+            uint32_t bytes = txb + rxb;
+            uint32_t kbps  = ms ? ((bytes * 8u) / ms) : 0u;   /* bits/ms = kbit/s */
+            uint32_t rtps  = ms ? ((okb * 1000u) / ms) : 0u;
+            SYS_CONSOLE_PRINT("  %u round-trips in %u ms (%u ok), %u UDP payload bytes (tx %u + rx %u)\r\n",
+                (unsigned)bn, (unsigned)ms, (unsigned)okb, (unsigned)bytes, (unsigned)txb, (unsigned)rxb);
+            SYS_CONSOLE_PRINT("  Round-trips/s: %u    RCP goodput: ~%u kbit/s\r\n",
+                (unsigned)rtps, (unsigned)kbps);
+            SYS_CONSOLE_PRINT("  (sequential request/reply bound by RCP latency, not the\r\n");
+            SYS_CONSOLE_PRINT("   10BASE-T1S 10 Mbit/s line rate.)\r\n");
+        }
+    }
+
     rcp_set_timeout_ms(1500); rcp_set_retries(3);
 }
 
