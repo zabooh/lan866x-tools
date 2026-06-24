@@ -18,6 +18,14 @@ A **pure-C** host that remote-controls LAN866x endpoints via the **Remote Contro
 > 🟦 **100 % C — no C++.** Every tool, the RCP wrapper and the platform layer are C; they link **without `libstdc++`**. It is **single-thread** (a superloop, no RTOS required), so the same code base ports to a 32-bit MCU (lwIP) by writing a single platform file — see [chapter 9](#9-porting-to-mcu32).
 >
 > 📦 **Self-contained:** this directory contains **all** sources required to build. Unpack → build, no external paths.
+>
+> 🔌 **Running on real silicon:** a complete MCU port of this toolset ships in
+> [`firmware/t1s_100baset_bridge/`](firmware/t1s_100baset_bridge/) — a
+> **10BASE-T1S ↔ 100BASE-T Layer-2 bridge** on an ATSAME54P20A (MPLAB Harmony 3)
+> that lets a PC reach a LAN866x endpoint through the bridge and runs the host
+> tools (`discovery`, `diag`, `ledblink`, `clickdemo`) as on-board serial
+> commands. See its **[README](firmware/t1s_100baset_bridge/README.md)** and
+> [chapter 9.1](#91-worked-mcu-port-the-t1s--100base-t-bridge-firmware).
 
 ## Table of contents
 
