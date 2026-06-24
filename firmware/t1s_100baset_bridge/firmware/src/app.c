@@ -717,7 +717,6 @@ void DumpMem(uint32_t addr, uint32_t count) {
     int flag = 0;
 
     puc = (uint8_t *) addr;
-    puc = (uint8_t *) addr;
 
     jx = kx = 0;
     for (ix = 0; ix < count; ix++) {
@@ -971,7 +970,7 @@ static size_t cheap_largest_free(size_t cap) {
     return best;
 }
 static void cmd_meminfo(SYS_CMD_DEVICE_NODE* pCmdIO, int argc, char** argv) {
-    size_t total = (size_t)(&_eheap - &_heap);
+    size_t total = (size_t)((uintptr_t)&_eheap - (uintptr_t)&_heap);  /* via uintptr_t: not UB pointer subtraction */
     size_t largest = cheap_largest_free(total);
     TCPIP_STACK_HEAP_HANDLE h;
     (void)pCmdIO; (void)argc; (void)argv;
