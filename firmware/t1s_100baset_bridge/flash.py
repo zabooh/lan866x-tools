@@ -26,10 +26,15 @@ _HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, _HERE)
 from mdb_flash import flash  # noqa: E402
 
-HEX_DEFAULT = os.path.join(
+# Prefer the tracked release HEX (present after a fresh clone, refreshed by
+# build.bat) so the board can be flashed without building; fall back to the
+# raw build output if the release copy is absent.
+HEX_RELEASE = os.path.join(_HERE, "release", "T1S_100BaseT_Bridge.hex")
+HEX_BUILD = os.path.join(
     _HERE,
     "firmware", "T1S_100BaseT_Bridge.X", "out", "T1S_100BaseT_Bridge", "default.hex",
 )
+HEX_DEFAULT = HEX_RELEASE if os.path.isfile(HEX_RELEASE) else HEX_BUILD
 
 
 def _is_microchip_debugger(p):

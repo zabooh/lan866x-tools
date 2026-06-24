@@ -78,8 +78,13 @@ if errorlevel 1 (
 
 echo.
 echo BUILD SUCCESSFUL.
+rem Copy the freshly built HEX into a tracked release dir so a fresh clone can
+rem flash the board via flash.py without building first - out is gitignored.
 if exist "%HEX_PATH%" (
     echo HEX: %HEX_PATH%
+    if not exist "%SCRIPT_DIR%release" mkdir "%SCRIPT_DIR%release"
+    copy /Y "%HEX_PATH%" "%SCRIPT_DIR%release\T1S_100BaseT_Bridge.hex" >nul
+    echo Released: %SCRIPT_DIR%release\T1S_100BaseT_Bridge.hex
 ) else (
     echo WARNING: expected HEX not found at %HEX_PATH%
 )
