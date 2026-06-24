@@ -279,7 +279,7 @@ void clickdemo_run(uint32_t seconds, int fps, int bright, int proxMax, int barBl
     s_spi = UINT16_MAX; s_i2c = UINT16_MAX; s_proxInit = 0;
     s_tx = ADC_MAX / 2; s_ty = ADC_MAX / 2; s_prox = 0;
 
-    SYS_CONSOLE_PRINT("[clickdemo] target %u.%u.%u.%u, RTP :%d, %d fps, %u s\r\n",
+    SYS_CONSOLE_PRINT("[clickdemo] target %u.%u.%u.%u, RTP :%d, %d fps, %u s (Ctrl-C or 'q' to stop)\r\n",
                       s_ip[0], s_ip[1], s_ip[2], s_ip[3], RTP_PORT, fps, (unsigned)seconds);
 
     /* blocking one-time peripheral setup (generous timeout/retries) */
@@ -296,7 +296,17 @@ void clickdemo_run(uint32_t seconds, int fps, int bright, int proxMax, int barBl
 
     rcp_set_async_timeout_ms(70);
     start = plat_now_ms();
-    while ((plat_now_ms() - start) < seconds * 1000u) {
+    {
+    SYS_CONSOLE_HANDLE con = SYS_CONSOLE_HandleGet(SYS_CONSOLE_INDEX_0);
+    int aborted = 0;
+    while (!aborted && (plat_now_ms() - start) < seconds * 1000u) {
+        /* Abort on Ctrl-C (0x03) or 'q' typed in the terminal. SYS_CMD_Tasks is
+         * not running while we block here, so the bytes sit in the console RX
+         * ring (filled by SYS_CONSOLE_Tasks, pumped from plat_sleep_ms); read
+         * them directly. */
+        { char ch; while (SYS_CONSOLE_Read(con, &ch, 1) > 0) {
+              if (ch == 0x03 || ch == 'q' || ch == 'Q') aborted = 1; } }
+
         thumb_spot(s_tx, s_ty, bright);
         prox_bar(s_prox, proxMax, barBlue);
         rtp_send();
@@ -316,6 +326,8 @@ void clickdemo_run(uint32_t seconds, int fps, int bright, int proxMax, int barBl
             }
         }
         plat_sleep_ms(step);
+    }
+    if (aborted) SYS_CONSOLE_PRINT("\r\n[clickdemo] aborted by user\r\n");
     }
 
     /* clear both displays, release peripherals */
