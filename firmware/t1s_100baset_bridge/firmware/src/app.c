@@ -29,6 +29,7 @@
 
 #include "app.h"
 #include <string.h>
+#include <stdlib.h>           /* malloc/free - C-heap largest-free-block probe */
 #include "config/default/system/console/sys_console.h"
 #include "config/default/library/tcpip/tcpip.h"
 #define TCPIP_THIS_MODULE_ID    TCPIP_MODULE_MANAGER
@@ -950,12 +951,51 @@ static void cmd_noip_stat(SYS_CMD_DEVICE_NODE *pCmdIO, int argc, char **argv)
     SYS_CONSOLE_PRINT("[NoIP] TX=%u  RX=%u\r\n", (unsigned)noip_tx_cnt, (unsigned)noip_rx_cnt);
 }
 
+/* meminfo: free memory on BOTH heaps.
+ *  - C-runtime heap: XC32 uses nano-malloc (no mallinfo, and the whole heap is
+ *    sbrk'd up front with free blocks tracked internally), so we report the total
+ *    reserved size (_eheap-_heap) and PROBE the largest allocatable block with a
+ *    non-destructive malloc/free binary search - a real "largest free chunk".
+ *  - TCP/IP stack heap: the DRAM pool where packets/sockets/the MAC bridge
+ *    allocate (same figures as the built-in 'heapinfo'). */
+extern char _heap;            /* linker: C-runtime heap start (absolute symbol)  */
+extern char _eheap;           /* linker: C-runtime heap end (= _heap + heap size) */
+static size_t cheap_largest_free(size_t cap) {
+    size_t lo = 1u, hi = cap, best = 0u;
+    while (lo <= hi) {
+        size_t mid = lo + (hi - lo) / 2u;
+        void *p = malloc(mid);
+        if (p) { free(p); best = mid; lo = mid + 1u; }
+        else   { if (mid == 0u) break; hi = mid - 1u; }
+    }
+    return best;
+}
+static void cmd_meminfo(SYS_CMD_DEVICE_NODE* pCmdIO, int argc, char** argv) {
+    size_t total = (size_t)(&_eheap - &_heap);
+    size_t largest = cheap_largest_free(total);
+    TCPIP_STACK_HEAP_HANDLE h;
+    (void)pCmdIO; (void)argc; (void)argv;
+
+    SYS_CONSOLE_PRINT("C-runtime heap: total=%u  largest free block=%u  (nano-malloc; no exact free count)\r\n",
+        (unsigned)total, (unsigned)largest);
+
+    h = TCPIP_STACK_HeapHandleGet(TCPIP_STACK_HEAP_TYPE_INTERNAL_HEAP, 0);
+    if (h != 0) {
+        SYS_CONSOLE_PRINT("TCP/IP heap:    size=%u  free=%u  maxblock=%u  highwater=%u\r\n",
+            (unsigned)TCPIP_STACK_HEAP_Size(h), (unsigned)TCPIP_STACK_HEAP_FreeSize(h),
+            (unsigned)TCPIP_STACK_HEAP_MaxSize(h), (unsigned)TCPIP_STACK_HEAP_HighWatermark(h));
+    } else {
+        SYS_CONSOLE_PRINT("TCP/IP heap:    (no handle)\r\n");
+    }
+}
+
 const SYS_CMD_DESCRIPTOR msd_cmd_tbl[] = {
     {"help", (SYS_CMD_FNC) test_help, ": show Test group commands"},
     {"timestamp", (SYS_CMD_FNC) show_timestamp, ": show build timestamp"},
     {"ipdump", (SYS_CMD_FNC) my_dump, ": dump rx ip packets (0:off 1:eth0 2:eth1 3:both)"},
     {"mirror", (SYS_CMD_FNC) cmd_mirror, ": mirror eth0(T1S) RX to eth1 for Wireshark (mirror [0|1])"},
     {"stats", (SYS_CMD_FNC) cmd_stats, ": show TX/RX counters for eth0 and eth1"},
+    {"meminfo", (SYS_CMD_FNC) cmd_meminfo, ": free memory on the C-runtime heap and the TCP/IP heap"},
     {"lan_read", (SYS_CMD_FNC) lan_read, ": read LAN865X register (lan_read <addr_hex>)"},
     {"lan_write", (SYS_CMD_FNC) lan_write, ": write LAN865X register (lan_write <addr_hex> <value_hex>)"},
     {"dump", (SYS_CMD_FNC) cmd_mem_dump, ": dump memory (dump <addr_hex> <count>)"},

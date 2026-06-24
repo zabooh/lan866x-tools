@@ -291,6 +291,7 @@ running. Run `discovery` first so a target endpoint is selected.
 | `mirror [0\|1]` | SPAN: copy T1S (eth0) traffic — RX **and** the bridge's own TX — to eth1 for Wireshark |
 | `ipdump [0..3]` | dump RX frames (0=off, 1=eth0, 2=eth1, 3=both) |
 | `stats` | per-interface TX/RX software counters |
+| `meminfo` | free memory: C-runtime heap (total + largest free block) **and** TCP/IP heap (free/maxblock/highwater, like `heapinfo`) |
 | `plca_node [id]` | get/set PLCA node id (0 = coordinator); no arg = show current |
 | `lan_read <addr>` / `lan_write <addr> <val>` | LAN865x register access (hex) |
 | `noip_send <n> [gap_ms]` / `noip_stat` | raw-Ethernet (EtherType 0x88B5) loopback test + counters |
