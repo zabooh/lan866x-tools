@@ -148,8 +148,8 @@ Both bridge interfaces share one `192.168.0.0/24` subnet (gateway
 RJ45 adapter on the same subnet (e.g. `192.168.0.200`).
 
 > **PLCA coordinator.** The bridge is the PLCA coordinator (node id 0). If the
-> T1S side shows no RX, this is the first thing to check — `Test plca_node`
-> reads it back; `Test plca_node 0` re-asserts it.
+> T1S side shows no RX, this is the first thing to check — `plca_node`
+> reads it back; `plca_node 0` re-asserts it.
 
 ### Console and cabling
 
@@ -353,8 +353,8 @@ reset).
 
 1. `setup.bat` → `build.bat` → `python flash.py`.
 2. Open the EDBG COM port at 115200 8N1; you should see the build banner.
-3. `Test stats` — confirm `eth0`/`eth1` exist and counters move.
-4. `Test plca_node` — should report node id **0**.
+3. `stats` — confirm `eth0`/`eth1` exist and counters move.
+4. `plca_node` — should report node id **0**.
 5. From the PC (on `192.168.0.200`): `ping 192.168.0.54` → 0% loss (bridge works).
 6. `discovery` on the CLI **or** `lan866x-discovery.exe` on the PC → the endpoint
    appears. Then `diag`, `ledblink`, `clickdemo` as desired.
