@@ -142,6 +142,20 @@ static void diag_hexdump(const char *label, const uint8_t *p, uint16_t n)
     SYS_CONSOLE_PRINT("%s\r\n", nz ? "" : "(all zero)");
 }
 
+static void diag_reset_reason(uint64_t s)
+{
+    static const char *bits[] = {
+        "Power-On", "Under-voltage VDDC", "Under-voltage VDDA", "BG Error",
+        "External", "Watchdog", "Over-temperature", "Device", "Lock-up"
+    };
+    int i, first = 1;
+    SYS_CONSOLE_PRINT("  Reset reason : ");
+    if (s == 0u) { SYS_CONSOLE_PRINT("(none reported)\r\n"); return; }
+    for (i = 0; i < 9; i++)
+        if (s & (1ULL << i)) { SYS_CONSOLE_PRINT("%s%s", first ? "" : ", ", bits[i]); first = 0; }
+    SYS_CONSOLE_PRINT("  [Security mode %u]\r\n", (unsigned)((s >> 9) & 0x3u));
+}
+
 static void cmd_diag(SYS_CMD_DEVICE_NODE *pCmdIO, int argc, char **argv)
 {
     GetStatusReply_t st;
@@ -169,6 +183,7 @@ static void cmd_diag(SYS_CMD_DEVICE_NODE *pCmdIO, int argc, char **argv)
         SYS_CONSOLE_PRINT("  Running app  : %s\r\n", st.ActiveApplication);
         SYS_CONSOLE_PRINT("  Main app ver : %s\r\n", st.MainApplicationVersion);
         SYS_CONSOLE_PRINT("  Uptime       : %lluh %llum %llus\r\n", up/3600ULL, (up%3600ULL)/60ULL, up%60ULL);
+        diag_reset_reason(st.StartupInformation);
     } else {
         SYS_CONSOLE_PRINT("  GetStatus failed\r\n");
     }
@@ -188,6 +203,8 @@ static void cmd_diag(SYS_CMD_DEVICE_NODE *pCmdIO, int argc, char **argv)
         SYS_CONSOLE_PRINT("  Endpoint IPv4: %u.%u.%u.%u\r\n",
             (unsigned)((ns.EndpointIpV4Address>>24)&0xFF),(unsigned)((ns.EndpointIpV4Address>>16)&0xFF),
             (unsigned)((ns.EndpointIpV4Address>>8)&0xFF),(unsigned)(ns.EndpointIpV4Address&0xFF));
+        SYS_CONSOLE_PRINT("  OA-SPI bridge: %s\r\n", ns.OaspiStatus==0?"disabled":
+                          ns.OaspiStatus==1?"link up":ns.OaspiStatus==2?"link down":"?");
     } else {
         SYS_CONSOLE_PRINT("  GetNetworkStatus failed (rc=%d)\r\n", rc);
     }

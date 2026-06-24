@@ -49,7 +49,7 @@ static void print_reset_reason(uint64_t s)
         "External", "Watchdog", "Over-temperature", "Device", "Lock-up"
     };
     int i, first = 1;
-    printf("  Reset reason   : ");
+    printf("  Reset reason : ");
     if (s == 0) { printf("(none reported)\n"); }
     else {
         for (i = 0; i < 9; ++i)
@@ -69,9 +69,8 @@ static void print_mac(const char *label, uint64_t mac)
 int main(int argc, char **argv)
 {
     const char *wantIp = NULL;
-    int wantEp = 0, i, probeN = 200, raw = 0, gap = 15, clearCounters = 0, tdRole = -1;
+    int wantEp = 0, i, probeN = 20, raw = 0, gap = 15, clearCounters = 0, tdRole = -1;
     GetStatusReply_t st;
-    GetHealthStatusReply_t hs;
     GetNetworkStatusReply_t ns;
     ReadDiagnosisDataReply_t dg;
     ReturnCode_t rc;
@@ -80,7 +79,7 @@ int main(int argc, char **argv)
         if (!strcmp(argv[i], "-h") || !strcmp(argv[i], "--help")) {
             printf("lan866x-diag - read & interpret LAN866x T1S link diagnostics\n\n"
                    "  lan866x-diag [--ip <addr>|--ep <i>] [--probe N] [--gap MS] [--raw]\n\n"
-                   "  --probe N : number of round-trip probes for loss/latency (default 200)\n"
+                   "  --probe N : number of round-trip probes for loss/latency (default 20)\n"
                    "  --gap MS  : pause between probes (default 15; use 0 to stress the host rx path)\n"
                    "  --raw     : also dump raw diagnosis channel bytes\n"
                    "  --clear-counters : reset all network diagnosis counters (0x1605) first\n"
@@ -102,25 +101,13 @@ int main(int argc, char **argv)
     printf("\n================ DEVICE ================\n");
     memset(&st, 0, sizeof(st));
     if (rcp_get_status(&st) == RT_OK) {
-        printf("  Chip           : %s\n", st.ChipIdentifier);
-        printf("  Running app    : %s\n", st.ActiveApplication);
-        printf("  Main app ver   : %s\n", st.MainApplicationVersion);
-        printf("  Uptime         : %.1f s\n", (double)(st.UpTime / 1000000ULL) / 1000.0);
+        unsigned long long up = st.UpTime / 1000000000ULL;
+        printf("  Chip         : %s\n", st.ChipIdentifier);
+        printf("  Running app  : %s\n", st.ActiveApplication);
+        printf("  Main app ver : %s\n", st.MainApplicationVersion);
+        printf("  Uptime       : %lluh %llum %llus\n", up/3600ULL, (up%3600ULL)/60ULL, up%60ULL);
         print_reset_reason(st.StartupInformation);
     } else printf("  GetStatus failed\n");
-
-    /* Module health monitor (method 0x100A). Layout per v1.10.0 proto - may be
-     * absent/different on older firmware; treated as best-effort. */
-    memset(&hs, 0, sizeof(hs));
-    rc = rcp_get_health_status(&hs);
-    if (rc == RT_OK) {
-        printf("  Health app     : %s\n", hs.ActiveApplication);
-        printf("  Health uptime  : %.1f s\n", (double)hs.Uptime / 1e9);
-        printf("  Health record  : 0x%016llX %s\n",
-               (unsigned long long)hs.HealthRecord, hs.HealthRecord ? "(see manual)" : "(all OK)");
-    } else if (rc == RT_UNKNOWN_METHOD) {
-        printf("  Health monitor : not implemented in this firmware build\n");
-    } else printf("  GetHealthStatus failed (rc=%d)\n", rc);
 
     printf("\n================ T1S NETWORK ================\n");
     if (clearCounters) {
@@ -137,14 +124,14 @@ int main(int argc, char **argv)
         const char *arb = ns.ArbitrationMode == 0 ? "CSMA/CD (no PLCA!)" :
                           ns.ArbitrationMode == 1 ? "PLCA" :
                           ns.ArbitrationMode == 2 ? "PLCA (no fallback)" : "?";
-        printf("  Endpoint link  : %s\n", link);
-        printf("  Arbitration    : %s\n", arb);
-        printf("  PLCA node id   : %u\n", ns.PLCANodeId);
+        printf("  Endpoint link: %s\n", link);
+        printf("  Arbitration  : %s\n", arb);
+        printf("  PLCA node id : %u\n", ns.PLCANodeId);
         print_mac("Endpoint MAC ", ns.EndpointAddress);
-        printf("  Endpoint IPv4  : %u.%u.%u.%u\n",
+        printf("  Endpoint IPv4: %u.%u.%u.%u\n",
                (unsigned)((ns.EndpointIpV4Address >> 24) & 0xFF), (unsigned)((ns.EndpointIpV4Address >> 16) & 0xFF),
                (unsigned)((ns.EndpointIpV4Address >> 8) & 0xFF), (unsigned)(ns.EndpointIpV4Address & 0xFF));
-        printf("  OA-SPI bridge  : %s\n", ns.OaspiStatus == 0 ? "disabled" :
+        printf("  OA-SPI bridge: %s\n", ns.OaspiStatus == 0 ? "disabled" :
                ns.OaspiStatus == 1 ? "link up" : ns.OaspiStatus == 2 ? "link down" : "?");
     } else printf("  GetNetworkStatus failed (rc=%d)\n", rc);
 
@@ -159,7 +146,7 @@ int main(int argc, char **argv)
         printf("   via GetTDMeasurementResult or the OnTDMeasurementCompleted event.)\n");
     }
 
-    printf("\n================ PHY DIAGNOSIS (ReadDiagnosisData) ================\n");
+    printf("\n================ PHY DIAGNOSIS ================\n");
     memset(&dg, 0, sizeof(dg));
     rc = rcp_read_diagnosis_data(&dg);
     if (rc == RT_OK) {
@@ -167,67 +154,35 @@ int main(int argc, char **argv)
         hexdump("Channel1", dg.Channel1, dg.Channel1Length);
         hexdump("Channel2", dg.Channel2, dg.Channel2Length);
         hexdump("Channel3", dg.Channel3, dg.Channel3Length);
-        printf("  (raw PHY diagnosis registers - SQI / fault / short detection)\n");
     } else if (rc == RT_UNKNOWN_METHOD) {
-        printf("  Not implemented in this firmware/config build.\n");
-        printf("  SQI and short-circuit diagnosis require a configuration with the\n");
-        printf("  diagnosis feature enabled (this lighting build does not expose it).\n");
-        printf("  -> Link quality below is derived from the measured probe instead.\n");
+        printf("  Not implemented in this firmware/config build (lighting build).\n");
     } else printf("  ReadDiagnosisData failed (rc=%d)\n", rc);
 
-    /* ---- active link probe ---------------------------------------------
-     * Each probe is one RCP round-trip. A no-reply is retried immediately: a
-     * response that only fails on the first try but succeeds on retry is a
-     * HOST-side miss (scheduling / multi-homed NIC), not a lost frame on the
-     * T1S wire. Only a probe that fails every attempt counts as link loss. */
+    /* ---- active link probe: one RCP round-trip each; loss + RTT ---------- */
     printf("\n================ LINK PROBE (%d round-trips) ================\n", probeN);
     timeBeginPeriod(1);
     {
         double per = qpc_ms_per_tick(), sum = 0, mn = 1e9, mx = 0;
-        int ok = 0, lost = 0, slow = 0, k;
+        int ok = 0, lost = 0, k;
         rcp_set_retries(0);
-        rcp_set_timeout_ms(400);                 /* generous: capture true completion time */
+        rcp_set_timeout_ms(400);
         for (k = 0; k < probeN; ++k) {
             long long a = qpc();
             GetStatusReply_t s2; memset(&s2, 0, sizeof(s2));
             if (rcp_get_status(&s2) == RT_OK) {
                 double ms = (double)(qpc() - a) * per;
                 ok++; sum += ms; if (ms < mn) mn = ms; if (ms > mx) mx = ms;
-                if (ms > 25.0) slow++;            /* far above the ~2 ms T1S wire RTT */
             } else lost++;
-            if ((k % 20) == 19) { printf("\r  probing %d/%d ...", k + 1, probeN); fflush(stdout); }
+            printf("\r  probing %d/%d ...", k + 1, probeN); fflush(stdout);
             Sleep(gap);
         }
         rcp_set_retries(3); rcp_set_timeout_ms(1500);
-        printf("\r  probes=%d  completed=%d  lost=%d  loss=%.1f%%          \n",
-               probeN, ok, lost, 100.0 * lost / probeN);
-        if (ok) printf("  end-to-end RTT : min %.1f  avg %.1f  max %.1f ms   (slow >25ms: %.0f%%)\n",
-                       mn, sum / ok, mx, 100.0 * slow / ok);
-
-        printf("\n================ VERDICT ================\n");
-        {
-            double loss = 100.0 * lost / probeN, avg = ok ? sum / ok : 0;
-            if (ns.EndpointStatus == 2) {
-                printf("  T1S link       : LINK DOWN\n");
-            } else if (loss < 3.0) {
-                printf("  T1S link       : HEALTHY  (loss %.1f%%, RTT min %.1f / avg %.1f ms)\n", loss, mn, avg);
-                printf("                   ~%.0f ms is the real 10BASE-T1S round-trip - the wire is fine.\n", mn);
-            } else if (gap > 0) {
-                printf("  T1S link       : DEGRADED  (loss %.1f%% even when paced) - check the\n", loss);
-                printf("                   physical link: stubs/termination/connector. RTT min %.1f ms.\n", mn);
-            } else {
-                printf("  T1S link       : likely OK (RTT min %.1f ms) but probed back-to-back -\n", mn);
-                printf("                   re-run with --gap 15 for a clean link figure.\n");
-            }
-            if (ns.ArbitrationMode == 0) printf("  ! Not using PLCA - collisions likely on a multidrop bus.\n");
-            printf("\n  HOST THROUGHPUT: the PC drops responses when RCP requests are sent faster\n");
-            printf("  than it can service them, even though the wire answers in ~2 ms. Measured\n");
-            printf("  loss climbs steeply with no pacing (e.g. ~60%% at 0 ms gap vs ~1%% at 20 ms).\n");
-            printf("  THIS host-side limit - not the link - is what makes rapid interaction feel\n");
-            printf("  sluggish. Mitigation: pace control traffic / batch reads (compound SPI),\n");
-            printf("  and disable host NICs not on the endpoint subnet.\n");
-            printf("  Note: a packet capture is the authoritative wire reference (host+link here).\n");
-        }
+        printf("\r  probes=%d completed=%d lost=%d loss=%d%%          \n",
+               probeN, ok, lost, (int)(100.0 * lost / probeN));
+        if (ok) printf("  RTT: min %.3f  avg %.3f  max %.3f ms\n", mn, sum / ok, mx);
+        printf("  Verdict: %s\n",
+               (ns.EndpointStatus == 2) ? "LINK DOWN" :
+               (probeN && (100.0 * lost / probeN) < 3.0) ? "HEALTHY (T1S wire fine)" : "DEGRADED - check link");
     }
 
     /* ---- bandwidth: achieved RCP goodput over a tight back-to-back burst ----
@@ -238,14 +193,16 @@ int main(int argc, char **argv)
     {
         extern volatile uint32_t g_plat_tx_bytes, g_plat_rx_bytes;
         double per = qpc_ms_per_tick();
-        int bn = 50, okb = 0, k;
+        int bn = 30, okb = 0, k;
         uint32_t tx0 = g_plat_tx_bytes, rx0 = g_plat_rx_bytes;
         long long t0 = qpc();
         rcp_set_retries(0); rcp_set_timeout_ms(400);
         for (k = 0; k < bn; ++k) {
             GetStatusReply_t s3; memset(&s3, 0, sizeof(s3));
             if (rcp_get_status(&s3) == RT_OK) okb++;     /* no inter-request gap = max rate */
+            if ((k % 10) == 9) { printf("\r  measuring %d/%d ...", k + 1, bn); fflush(stdout); }
         }
+        printf("\r                          \r");
         rcp_set_retries(3); rcp_set_timeout_ms(1500);
         {
             double   ms    = (double)(qpc() - t0) * per;
@@ -256,9 +213,9 @@ int main(int argc, char **argv)
             double   rtps  = ms > 0 ? (okb * 1000.0) / ms : 0;
             printf("  %d round-trips in %.0f ms (%d ok), %u UDP payload bytes (tx %u + rx %u)\n",
                    bn, ms, okb, bytes, txb, rxb);
-            printf("  round-trips/s: %.0f    RCP goodput: ~%.0f kbit/s\n", rtps, kbps);
-            printf("  (sequential request/reply bound by RCP latency + host scheduling,\n");
-            printf("   not the 10BASE-T1S 10 Mbit/s line rate.)\n");
+            printf("  Round-trips/s: %.0f    RCP goodput: ~%.0f kbit/s\n", rtps, kbps);
+            printf("  (sequential request/reply bound by RCP latency, not the\n");
+            printf("   10BASE-T1S 10 Mbit/s line rate.)\n");
         }
     }
 
