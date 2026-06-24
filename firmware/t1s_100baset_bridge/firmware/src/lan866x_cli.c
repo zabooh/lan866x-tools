@@ -361,6 +361,105 @@ static void cmd_ledblink(SYS_CMD_DEVICE_NODE *pCmdIO, int argc, char **argv)
 }
 
 /* clickdemo [seconds] [fps] - run the Thumbstick+Proximity -> RGB demo. */
+/* ====================== gpiomax (max-speed GPIO toggle benchmark) ========== */
+/* Mirrors lan866x-gpiomax.exe: keeps a pipeline of SetGpio requests in flight
+ * and measures the achieved toggle rate. Reply tallies are updated by the async
+ * callback (runs inline from rcp_async_poll(); single-thread - no rcp_* here). */
+static unsigned gm_ok, gm_to, gm_err;
+static int      gm_inflight;
+static void gm_done(void *ctx, ReturnCode_t rc, const uint8_t *rx, uint16_t rxLen)
+{
+    (void)ctx; (void)rx; (void)rxLen;
+    if (rc == RT_OK)            gm_ok++;
+    else if (rc == RT_TIMEOUT)  gm_to++;
+    else                        gm_err++;
+    if (gm_inflight > 0) gm_inflight--;
+}
+
+static void cmd_gpiomax(SYS_CMD_DEVICE_NODE *pCmdIO, int argc, char **argv)
+{
+    uint32_t secs = 3u, start, endt, elapsed, drainEnd;
+    uint8_t  pin  = 2u;        /* PA02 / LD1 */
+    int      depth = 16, value = 0;
+    unsigned sent = 0u;
+    ReleaseDigitalPinsVar_t rel; OpenGpioVar_t ov; OpenGpioReply_t orep;
+    uint16_t handle;
+    (void)pCmdIO;
+
+    if (argc >= 2) secs  = (uint32_t)strtoul(argv[1], NULL, 10);
+    if (argc >= 3) pin   = (uint8_t)strtoul(argv[2], NULL, 10);
+    if (argc >= 4) depth = (int)strtoul(argv[3], NULL, 10);
+    if (secs < 1u)  secs = 1u;
+    if (secs > 10u) secs = 10u;        /* bounded: must not block the bridge too long */
+    if (pin > 15u)  pin  = 2u;
+    if (depth < 1)  depth = 1;
+    if (depth > 16) depth = 16;        /* RCP_ASYNC_MAX */
+
+    if (!sel_first_ep()) {
+        SYS_CONSOLE_PRINT("[lan866x] no endpoint yet - run 'discovery' first\r\n");
+        return;
+    }
+
+    /* Open the pin as a GPIO output (release first, like the host tool). */
+    rcp_set_timeout_ms(800); rcp_set_retries(2);
+    memset(&rel, 0, sizeof(rel)); rel.PinIdList[0] = pin; rel.PinIdListLength = 1;
+    rcp_release_digital_pins(&rel); plat_sleep_ms(20);
+    memset(&ov, 0, sizeof(ov)); memset(&orep, 0, sizeof(orep));
+    ov.PinIdGpio = pin; ov.Direction = 1;            /* output, starts LOW */
+    if (rcp_open_gpio(&ov, &orep) != RT_OK) {
+        SYS_CONSOLE_PRINT("[lan866x] OpenGpio failed on PA%02u - aborting\r\n", (unsigned)pin);
+        rcp_set_timeout_ms(1500); rcp_set_retries(3);
+        return;
+    }
+    handle = orep.HandleGpio; plat_sleep_ms(20);
+
+    gm_ok = gm_to = gm_err = 0u; gm_inflight = 0;
+    rcp_set_async_timeout_ms(100);   /* free a dropped reply's slot quickly */
+
+    SYS_CONSOLE_PRINT("[lan866x] max-speed toggle of PA%02u for %u s (pipeline depth %d)...\r\n",
+                      (unsigned)pin, (unsigned)secs, depth);
+
+    start = plat_now_ms();
+    endt  = start + secs * 1000u;
+    while ((int32_t)(plat_now_ms() - endt) < 0) {
+        while (gm_inflight < depth) {
+            uint8_t p[16];
+            uint16_t n = rcp_enc_gpio_set(p, sizeof(p), handle, (uint8_t)(value ^ 1));
+            if (!n || rcp_async_request(0x1330u, p, n, gm_done, NULL) != RT_OK)
+                break;                               /* slot/buffer busy: drain first */
+            value ^= 1; sent++; gm_inflight++;
+        }
+        rcp_async_poll();
+        plat_sleep_ms(1);   /* pump TCPIP stack + console: UDP flows, bridge keeps running */
+    }
+    /* Drain the last in-flight replies (bounded grace). */
+    drainEnd = plat_now_ms() + 300u;
+    while (gm_inflight > 0 && (int32_t)(plat_now_ms() - drainEnd) < 0) {
+        rcp_async_poll(); plat_sleep_ms(1);
+    }
+
+    elapsed = plat_now_ms() - start;
+    if (elapsed == 0u) elapsed = secs * 1000u;
+    SYS_CONSOLE_PRINT("\r\n============= GPIO TOGGLE BENCHMARK =============\r\n");
+    SYS_CONSOLE_PRINT("  Pin PA%02u   window %u ms   depth %d\r\n",
+                      (unsigned)pin, (unsigned)elapsed, depth);
+    SYS_CONSOLE_PRINT("  Commanded: %u toggles -> %u toggles/s\r\n",
+                      sent, (unsigned)((uint64_t)sent * 1000u / elapsed));
+    SYS_CONSOLE_PRINT("  Confirmed: %u toggles -> %u toggles/s (~%u Hz square wave)\r\n",
+                      gm_ok, (unsigned)((uint64_t)gm_ok * 1000u / elapsed),
+                      (unsigned)((uint64_t)gm_ok * 1000u / elapsed / 2u));
+    SYS_CONSOLE_PRINT("  Reply timeouts: %u  errors: %u", gm_to, gm_err);
+    if (sent) SYS_CONSOLE_PRINT("  (loss %u%%)", (unsigned)((gm_to + gm_err) * 100u / sent));
+    SYS_CONSOLE_PRINT("\r\n================================================\r\n");
+
+    /* Clean up: pin LOW + release, restore defaults. */
+    led_set(handle, 0);
+    memset(&rel, 0, sizeof(rel)); rel.PinIdList[0] = pin; rel.PinIdListLength = 1;
+    rcp_release_digital_pins(&rel); plat_sleep_ms(20);
+    rcp_set_async_timeout_ms(150);
+    rcp_set_timeout_ms(1500); rcp_set_retries(3);
+}
+
 static void cmd_clickdemo(SYS_CMD_DEVICE_NODE *pCmdIO, int argc, char **argv)
 {
     uint32_t seconds = 20u;
@@ -377,6 +476,7 @@ static const SYS_CMD_DESCRIPTOR lan866x_cmd_tbl[] = {
     {"discovery", (SYS_CMD_FNC) cmd_discovery, ": list LAN866x endpoints + full status (like lan866x-discovery.exe)"},
     {"diag",      (SYS_CMD_FNC) cmd_diag,      ": T1S link diagnostics (diag [probeCount])"},
     {"ledblink",  (SYS_CMD_FNC) cmd_ledblink,  ": LED running light PA02/06/10 (ledblink [laps] [ms])"},
+    {"gpiomax",   (SYS_CMD_FNC) cmd_gpiomax,   ": max-speed GPIO toggle benchmark (gpiomax [secs] [pin] [depth])"},
     {"clickdemo", (SYS_CMD_FNC) cmd_clickdemo, ": Thumbstick+Proximity -> RGB displays (clickdemo [s] [fps])"},
 };
 

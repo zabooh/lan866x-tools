@@ -46,7 +46,8 @@ on-board, straight from a serial console.
   - [7.1 discovery](#71-discovery)
   - [7.2 diag](#72-diag)
   - [7.3 ledblink](#73-ledblink)
-  - [7.4 clickdemo](#74-clickdemo)
+  - [7.4 gpiomax](#74-gpiomax)
+  - [7.5 clickdemo](#75-clickdemo)
 
 ---
 
@@ -265,6 +266,7 @@ Two `SYS_CMD` groups; type the command name directly (no group prefix needed).
 | `discovery` | `lan866x-discovery.exe` | list endpoints + full status (run this first) |
 | `diag [probes]` | `lan866x-diag.exe` | T1S link diagnostics + RCP-goodput estimate |
 | `ledblink [laps] [ms]` | `lan866x-ledblink.exe` | LED running light (PA02/06/10) |
+| `gpiomax [secs] [pin] [depth]` | `lan866x-gpiomax.exe` | max-speed GPIO toggle benchmark (toggle rate) |
 | `clickdemo [s] [fps]` | `lan866x-clickdemo.exe` | Thumbstick+Proximity → RGB displays (Ctrl-C/`q` to stop) |
 
 **`Test` group** — bridge / diagnostics / bring-up:
@@ -547,6 +549,7 @@ using the exact same `rcp.c` client the `.exe` tools use. Type the name directly
  *** discovery: list LAN866x endpoints + full status (like lan866x-discovery.exe) ***
  *** diag: T1S link diagnostics (diag [probeCount]) ***
  *** ledblink: LED running light PA02/06/10 (ledblink [laps] [ms]) ***
+ *** gpiomax: max-speed GPIO toggle benchmark (gpiomax [secs] [pin] [depth]) ***
  *** clickdemo: Thumbstick+Proximity -> RGB displays (clickdemo [s] [fps]) ***
 ```
 
@@ -593,7 +596,33 @@ defaults to **20**, clamped to **1…500**. Prints four sections:
 `ms` defaults to **300**. Each step lights one GPIO and clears the others, walking
 the three pins for the requested number of laps.
 
-### 7.4 clickdemo
+### 7.4 gpiomax
+
+`gpiomax [secs] [pin] [depth]` — a **maximum-speed GPIO toggle benchmark**; mirrors
+`lan866x-gpiomax.exe`. It drives one LED GPIO (default **PA02 / LD1**) as fast as
+possible and measures the achieved toggle rate. `secs` (window) defaults to **3**
+(clamped **1…10** so it can't block the bridge too long), `pin` defaults to **2**,
+and `depth` (SetGpio requests kept in flight) defaults to **16** (clamped
+**1…16** = `RCP_ASYNC_MAX`).
+
+Rather than the blocking `rcp_set_gpio()` — which paces itself with a fixed 2 ms
+poll and so caps out around 500 toggles/s — it keeps a **pipeline** of async
+SetGpio requests in flight (`rcp_async_request` / `rcp_async_poll`) and pumps the
+TCP/IP stack between polls so bridging keeps running. It reports:
+
+- **Commanded** — SetGpio requests issued per second (the rate the GPIO is told to
+  toggle; the requests reach the endpoint);
+- **Confirmed** — replies received per second, and the equivalent square-wave
+  frequency (two toggles = one Hz);
+- reply timeouts / loss.
+
+On a clean link the two rates match. Example on real hardware (endpoint over T1S,
+depth 16): ≈ **1370 toggles/s confirmed (~684 Hz), 0 % loss**. (The PC tool through
+the bridge measures similarly, ≈ 1500/s.) On the Windows host the two can diverge
+under load — a dropped *reply* doesn't mean a missed toggle — so the on-board
+`gpiomax` gives the host-drop-free figure. The LED is left **off** on exit.
+
+### 7.5 clickdemo
 
 `clickdemo [s] [fps]` — the sensor→display demo; mirrors `lan866x-clickdemo.exe`.
 `s` (run time in seconds) defaults to **20** (clamped **1…600**); `fps` defaults to

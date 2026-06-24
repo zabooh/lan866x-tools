@@ -81,6 +81,7 @@ The tools (all build to `lan866x-<name>.exe`):
 | 🎓 [`lan866x-ledscan`](ledscan.c) | interactively find which GPIO drives which on-board LED (→ JSON) — [doc](docs/LEDDEMO.md) |
 | 🎓 [`lan866x-ledblink`](ledblink.c) | on-board LED **running light** — the "hello world" demo — [doc](docs/LEDDEMO.md) |
 | 🎓 [`lan866x-ledtoggle`](ledtoggle.c) | toggle one LED **non-blocking** (async RCP) — [doc](docs/LEDDEMO.md) |
+| 🎓 [`lan866x-gpiomax`](gpiomax.c) | **max-speed GPIO toggle benchmark** — pipelined async SetGpio, measures commanded vs confirmed toggle rate |
 | 🎓 [`lan866x-ledpwm`](ledpwm.c) | "breathing" LED via **PWM** (non-blocking; firmware-dependent) — [doc](docs/PWMDEMO.md) |
 | 🎓 [`lan866x-proxled`](proxled.c) | sensor→actuator app: proximity drives the LEDs (no video) — [doc](docs/COMBODEMO.md) |
 | [`lan866x-spi`](spi.c) | SPI transfer (full-duplex) |
@@ -368,6 +369,7 @@ lan866x-tools/
 ├── ledscan.c            interactive GPIO->LED mapper (writes led_map.json)
 ├── ledblink.c           on-board LED running light over SOME/IP ("hello world")
 ├── ledtoggle.c          non-blocking single-LED toggle (async RCP API)
+├── gpiomax.c            max-speed GPIO toggle benchmark (pipelined async SetGpio)
 ├── ledpwm.c             non-blocking "breathing" LED via PWM
 ├── proxled.c            sensor->actuator app: proximity drives the LEDs
 ├── spi.c                SPI transfer
