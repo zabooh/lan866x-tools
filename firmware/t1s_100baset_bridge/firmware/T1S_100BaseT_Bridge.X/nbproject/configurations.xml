@@ -772,6 +772,18 @@
       <itemPath>../src/app.c</itemPath>
       <itemPath>../src/filters.c</itemPath>
       <itemPath>../src/main.c</itemPath>
+      <logicalFolder name="lan866x_someip" displayName="lan866x_someip" projectFiles="true">
+        <itemPath>../src/plat_h3tcpip.c</itemPath>
+        <itemPath>../src/lan866x_cli.c</itemPath>
+        <itemPath>../src/clickdemo_cli.c</itemPath>
+        <itemPath>../../../../src/rcp.c</itemPath>
+        <itemPath>../../../../src/someip_stub.c</itemPath>
+        <itemPath>../../../../libepmicrochip/libsomeip/src/someip-client.c</itemPath>
+        <itemPath>../../../../libepmicrochip/libsomeip/src/someip-gen.c</itemPath>
+        <itemPath>../../../../libepmicrochip/libsomeip/src/someip-pars.c</itemPath>
+        <itemPath>../../../../libepmicrochip/libsomeip/src/someip-timer.c</itemPath>
+        <itemPath>../../../../libepmicrochip/libsomeip/src/someip-transmit.c</itemPath>
+      </logicalFolder>
       <itemPath>../src/config/default/pin_configurations.csv</itemPath>
     </logicalFolder>
   </logicalFolder>
@@ -829,7 +841,7 @@
         <property key="enable-unroll-loops" value="false"/>
         <property key="exclude-floating-point" value="false"/>
         <property key="extra-include-directories"
-                  value="../src;../src/config/default;../src/config/default/library;../src/config/default/library/tcpip/src;../src/config/default/library/tcpip/src/common;../src/packs/ATSAME54P20A_DFP;../src/packs/CMSIS/;../src/packs/CMSIS/CMSIS/Core/Include;../src/third_party/wolfssl;../src/third_party/wolfssl/wolfssl"/>
+                  value="../src;../src/config/default;../src/config/default/library;../src/config/default/library/tcpip/src;../src/config/default/library/tcpip/src/common;../src/packs/ATSAME54P20A_DFP;../src/packs/CMSIS/;../src/packs/CMSIS/CMSIS/Core/Include;../src/third_party/wolfssl;../src/third_party/wolfssl/wolfssl;../../../../src;../../../../include;../../../../libepmicrochip/libsomeip/inc;../../../../libepmicrochip/libsomeip/src;../../../../libepmicrochip/libsomeip/stub"/>
         <property key="generate-16-bit-code" value="false"/>
         <property key="generate-micro-compressed-code" value="false"/>
         <property key="isolate-each-function" value="true"/>
