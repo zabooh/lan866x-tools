@@ -29,9 +29,6 @@
 
 #include "app.h"
 #include <string.h>
-#include "ptp_ts_ipc.h"
-#include "PTP_FOL_task.h"
-#include "ptp_gm_task.h"
 #include "config/default/system/console/sys_console.h"
 #include "config/default/library/tcpip/tcpip.h"
 #define TCPIP_THIS_MODULE_ID    TCPIP_MODULE_MANAGER
@@ -102,21 +99,6 @@ static uint32_t noip_tx_cnt = 0u;
 static uint32_t noip_rx_cnt = 0u;
 SYS_TIME_HANDLE timerHandle;
 
-/* Maximum expected PTP frame size on wire.
- * Sync/FollowUp messages are ≤ 76 bytes; Announce up to ~90 bytes.
- * 128 bytes gives comfortable headroom for all standard PTP message types. */
-#define PTP_MAX_FRAME_SIZE  128u
-
-/* Buffer for a single pending PTP frame received in pktEth0Handler */
-typedef struct {
-    uint8_t  data[PTP_MAX_FRAME_SIZE]; /* buffer for PTP frame payload             */
-    uint16_t length;                   /* frame length in bytes                    */
-    uint64_t rxTimestamp;              /* hardware RX timestamp from LAN865x       */
-    bool     pending;                  /* true when a frame is waiting to be read  */
-} PTP_FRAME_BUFFER;
-
-static PTP_FRAME_BUFFER ptp_rx_buffer = {0};
-
 /* =========================================================
  * Deferred Packet Logging
  * =========================================================
@@ -131,7 +113,6 @@ static PTP_FRAME_BUFFER ptp_rx_buffer = {0};
 
 typedef enum {
     PKT_LOG_NOIP = 0,  /* NoIP (0x88B5) frame from eth0 */
-    PKT_LOG_PTP  = 1,  /* PTP  (0x88F7) frame from eth0 */
     PKT_LOG_ETH0 = 2,  /* generic frame from eth0        */
     PKT_LOG_ETH1 = 3,  /* generic frame from eth1        */
 } pkt_log_type_t;
@@ -139,7 +120,6 @@ typedef enum {
 typedef struct {
     uint64_t       timestamp;    /* SYS_TIME_Counter64Get()                    */
     uint32_t       pkt_counter;  /* per-handler packet counter                 */
-    uint64_t       ptp_ts;       /* hardware PTP RX timestamp                  */
     uint32_t       noip_seq;     /* NoIP sequence number                       */
     uint16_t       frame_type;   /* EtherType                                  */
     uint16_t       length;       /* actual frame length in bytes               */
@@ -259,9 +239,6 @@ static void app_wait_ms(uint32_t ms)
     }
 }
 
-/* Track LAN865x driver ready state to detect reinit-complete while in GM mode */
-static bool lan865x_prev_ready = false;
-
 // LAN865X Register access variables
 volatile bool app_lan_reg_operation_complete = false;
 volatile bool app_lan_reg_operation_success = false;
@@ -316,13 +293,6 @@ static void test_help(SYS_CMD_DEVICE_NODE* pCmdIO, int argc, char** argv) {
     SYS_CONSOLE_PRINT("  lan_write <addr> <value>     - Write LAN865X register (hex addr, hex value)\n\r");
     SYS_CONSOLE_PRINT("  dump <addr> <count>          - Dump memory (hex addr, count)\n\r");
     SYS_CONSOLE_PRINT("  plca_node [id]               - Get/set PLCA node ID (no arg = show current)\n\r");
-    SYS_CONSOLE_PRINT("  ptp_mode [off|follower|master] - Set PTP operating mode\n\r");
-    SYS_CONSOLE_PRINT("  ptp_status                   - Show PTP mode, sync count, offset\n\r");
-    SYS_CONSOLE_PRINT("  ptp_interval <ms>            - Set GM sync interval in ms (default 125)\n\r");
-    SYS_CONSOLE_PRINT("  ptp_dst [multicast|broadcast]- Set PTP destination MAC\n\r");
-    SYS_CONSOLE_PRINT("  ptp_offset                   - Show follower time offset [ns]\n\r");
-    SYS_CONSOLE_PRINT("  ptp_reset                    - Reset PTP follower servo to UNINIT\n\r");
-    SYS_CONSOLE_PRINT("  ptp_regs                     - Dump TX-Match registers (no SPI collision)\n\r");
     SYS_CONSOLE_PRINT("  noip_send <n> [gap_ms]       - Send N raw Ethernet frames (EtherType 0x88B5)\n\r");
     SYS_CONSOLE_PRINT("  noip_stat                    - Show NoIP TX/RX counters\n\r");
     SYS_CONSOLE_PRINT("  logclear                     - Clear deferred packet log buffer\n\r");
@@ -448,7 +418,6 @@ void APP_Tasks(void) {
             TCPIP_STACK_PacketHandlerRegister(eth0_net_hd, pktEth0Handler, MyEth0HandlerParam);
             TCPIP_NET_HANDLE eth1_net_hd = TCPIP_STACK_IndexToNet(1);
             TCPIP_STACK_PacketHandlerRegister(eth1_net_hd, pktEth1Handler, MyEth1HandlerParam);
-            PTP_FOL_Init();
             appData.state = APP_STATE_IDLE;
             break;
         }
@@ -456,8 +425,6 @@ void APP_Tasks(void) {
             /* TODO: implement your application state machine.*/
         case APP_STATE_IDLE:
         {
-            static uint64_t last_gm_tick  = 0u;
-            static uint64_t last_fol_tick = 0u;
             static uint64_t ticks_per_ms  = 0u;
             if (ticks_per_ms == 0u) {
                 ticks_per_ms = (uint64_t)SYS_TIME_FrequencyGet() / 1000ULL;
@@ -536,50 +503,6 @@ void APP_Tasks(void) {
                     break;
             }
 
-            /* === GM Service: call PTP_GM_Service() every 1 ms === */
-            if (PTP_FOL_GetMode() == PTP_MASTER) {
-                if ((current_tick - last_gm_tick) >= ticks_per_ms) {
-                    PTP_GM_Service();
-                    last_gm_tick = current_tick;
-                }
-            }
-
-            if (PTP_FOL_GetMode() == PTP_SLAVE) {
-                if ((current_tick - last_fol_tick) >= ticks_per_ms) {
-                    PTP_FOL_Service();
-                    last_fol_tick = current_tick;
-                }
-            }
-
-            /* === FOL Service: process a buffered PTP frame ===
-             * ptp_rx_buffer.pending is set by pktEth0Handler() and cleared here.
-             * On ARM Cortex-M, aligned bool writes are single-instruction atomic,
-             * so no explicit critical-section is needed for this flag.
-             * All standard PTP message types (Sync, FollowUp, Announce, Delay_Req)
-             * are buffered here; stale frames of any type are overwritten by the
-             * next arrival, which is acceptable because PTP frames arrive at a
-             * maximum rate of once every 125 ms and APP_Tasks() runs far more
-             * frequently than that. */
-            if (PTP_FOL_GetMode() == PTP_SLAVE && ptp_rx_buffer.pending) {
-                ptp_rx_buffer.pending = false;
-                PTP_FOL_OnFrame(ptp_rx_buffer.data,
-                                ptp_rx_buffer.length,
-                                ptp_rx_buffer.rxTimestamp);
-            }
-
-            /* Re-run PTP_GM_Init() if the LAN865x driver recovers from a
-             * reinit (triggered by TC6Error_SyncLost / LOFE) while in GM mode.
-             * The reinit clears all TX-Match registers written by PTP_GM_Init(),
-             * so they must be reprogrammed once the driver is READY again. */
-            bool lan865x_ready = DRV_LAN865X_IsReady(0u);
-            if (!lan865x_prev_ready && lan865x_ready &&
-                (PTP_FOL_GetMode() == PTP_MASTER))
-            {
-                SYS_CONSOLE_PRINT("[PTP-GM] driver ready after reinit - re-applying TX-Match config\r\n");
-                PTP_GM_Init();
-            }
-            lan865x_prev_ready = lan865x_ready;
-
             /* === Deferred packet log output (max 10 entries per APP_Tasks iteration) === */
             if (ticks_per_ms > 0u) {
                 PKT_LOG_ENTRY log_e;
@@ -593,15 +516,6 @@ void APP_Tasks(void) {
                                 log_e.mac_src[0], log_e.mac_src[1], log_e.mac_src[2],
                                 log_e.mac_src[3], log_e.mac_src[4], log_e.mac_src[5],
                                 (int)log_e.length, (unsigned long long)ts_ms);
-                            if (log_e.data_len > 0u) {
-                                DumpMem((uint32_t)&frame_data_pool.pool[log_e.data_offset], log_e.data_len);
-                            }
-                            break;
-                        case PKT_LOG_PTP:
-                            SYS_CONSOLE_PRINT("E0:PTP[0x88F7] len=%u ts=%llu%s\r\n",
-                                (unsigned)log_e.length,
-                                (unsigned long long)log_e.ptp_ts,
-                                log_e.truncated ? " [TRUNC]" : "");
                             if (log_e.data_len > 0u) {
                                 DumpMem((uint32_t)&frame_data_pool.pool[log_e.data_offset], log_e.data_len);
                             }
@@ -784,40 +698,6 @@ bool pktEth0Handler(TCPIP_NET_HANDLE hNet, struct _tag_TCPIP_MAC_PACKET* rxPkt, 
         log_e.log_type    = PKT_LOG_NOIP;
         memcpy(log_e.mac_src, &p[6], 6u);
         PktLog_Write(&log_e, rxPkt->pMacLayer, rxPkt->pDSeg->segLen);
-        TCPIP_PKT_PacketAcknowledge(rxPkt, TCPIP_MAC_PKT_ACK_RX_OK);
-        return true;
-    }
-
-    /* PTP frame (EtherType 0x88F7): buffer for processing in APP_Tasks, do not forward to IP stack */
-    if (frameType == 0x88F7u) {
-        uint64_t rxTs = 0u;
-        if (g_ptp_rx_ts.valid) {
-            rxTs = g_ptp_rx_ts.rxTimestamp;
-            g_ptp_rx_ts.valid = false;
-        }
-        if (ipdump_mode == 1u || ipdump_mode == 3u) {
-            PKT_LOG_ENTRY log_e = {0};
-            log_e.timestamp   = SYS_TIME_Counter64Get();
-            log_e.pkt_counter = packet_counter;
-            log_e.ptp_ts      = rxTs;
-            log_e.frame_type  = frameType;
-            log_e.length      = rxPkt->pDSeg->segLen;
-            log_e.iface       = 0u;
-            log_e.log_type    = PKT_LOG_PTP;
-            memcpy(log_e.mac_src, &rxPkt->pMacLayer[6], 6u);
-            PktLog_Write(&log_e, rxPkt->pMacLayer, rxPkt->pDSeg->segLen);
-        }
-        /* Store the frame for later processing in APP_Tasks().
-         * If a frame is already pending, the older (stale) frame is overwritten
-         * because PTP Sync frames that are not processed promptly become irrelevant. */
-        uint16_t copyLen = rxPkt->pDSeg->segLen;
-        if (copyLen > (uint16_t)sizeof(ptp_rx_buffer.data)) {
-            copyLen = (uint16_t)sizeof(ptp_rx_buffer.data);
-        }
-        memcpy(ptp_rx_buffer.data, rxPkt->pMacLayer, copyLen);
-        ptp_rx_buffer.length      = copyLen;
-        ptp_rx_buffer.rxTimestamp = rxTs;
-        ptp_rx_buffer.pending     = true;
         TCPIP_PKT_PacketAcknowledge(rxPkt, TCPIP_MAC_PKT_ACK_RX_OK);
         return true;
     }
@@ -1055,79 +935,6 @@ static void cmd_plca_node(SYS_CMD_DEVICE_NODE *pCmdIO, int argc, char **argv) {
                       app_lan_value);
 }
 
-static void cmd_ptp_mode(SYS_CMD_DEVICE_NODE *pCmdIO, int argc, char **argv) {
-    if (argc != 2) {
-        SYS_CONSOLE_PRINT("Usage: ptp_mode [off|follower|master]\r\n");
-        return;
-    }
-    if (strcmp(argv[1], "off") == 0) {
-        PTP_GM_Deinit();
-        PTP_FOL_SetMode(PTP_DISABLED);
-        SYS_CONSOLE_PRINT("[PTP] disabled\r\n");
-    } else if (strcmp(argv[1], "follower") == 0) {
-        PTP_FOL_SetMode(PTP_SLAVE);
-        SYS_CONSOLE_PRINT("[PTP] follower mode (PLCA node %u)\r\n", (unsigned)DRV_LAN865X_PLCA_NODE_ID_IDX0);
-    } else if (strcmp(argv[1], "master") == 0) {
-        PTP_GM_Init();
-        PTP_FOL_SetMode(PTP_MASTER);
-        SYS_CONSOLE_PRINT("[PTP] grandmaster mode (PLCA node 0)\r\n");
-    } else {
-        SYS_CONSOLE_PRINT("Unknown mode: %s\r\n", argv[1]);
-    }
-}
-
-static void cmd_ptp_status(SYS_CMD_DEVICE_NODE *pCmdIO, int argc, char **argv) {
-    const char *modeStr[] = {"disabled", "master", "slave"};
-    uint32_t cnt = 0u, state = 0u;
-    PTP_GM_GetStatus(&cnt, &state);
-    SYS_CONSOLE_PRINT("[PTP] mode=%s gmSyncs=%u gmState=%u\r\n",
-                       modeStr[PTP_FOL_GetMode()],
-                       (unsigned)cnt, (unsigned)state);
-}
-
-static void cmd_ptp_interval(SYS_CMD_DEVICE_NODE *pCmdIO, int argc, char **argv) {
-    if (argc != 2) {
-        SYS_CONSOLE_PRINT("Usage: ptp_interval <ms>\r\n");
-        return;
-    }
-    uint32_t ms = (uint32_t)strtoul(argv[1], NULL, 10);
-    PTP_GM_SetSyncInterval(ms);
-    SYS_CONSOLE_PRINT("[PTP-GM] sync interval set to %u ms\r\n", (unsigned)ms);
-}
-
-static void cmd_ptp_dst(SYS_CMD_DEVICE_NODE *pCmdIO, int argc, char **argv) {
-    if (argc != 2) {
-        ptp_gm_dst_mode_t mode = PTP_GM_GetDstMode();
-        SYS_CONSOLE_PRINT("Usage: ptp_dst [multicast|broadcast]\r\n");
-        SYS_CONSOLE_PRINT("[PTP-GM] dst=%s\r\n",
-                          (mode == PTP_GM_DST_BROADCAST) ? "broadcast" : "multicast");
-        return;
-    }
-
-    if (strcmp(argv[1], "multicast") == 0 || strcmp(argv[1], "mc") == 0) {
-        PTP_GM_SetDstMode(PTP_GM_DST_MULTICAST);
-        SYS_CONSOLE_PRINT("[PTP-GM] dst=multicast (01:80:C2:00:00:0E)\r\n");
-    } else if (strcmp(argv[1], "broadcast") == 0 || strcmp(argv[1], "bc") == 0) {
-        PTP_GM_SetDstMode(PTP_GM_DST_BROADCAST);
-        SYS_CONSOLE_PRINT("[PTP-GM] dst=broadcast (FF:FF:FF:FF:FF:FF)\r\n");
-    } else {
-        SYS_CONSOLE_PRINT("Unknown dst mode: %s\r\n", argv[1]);
-    }
-}
-
-static void cmd_ptp_offset(SYS_CMD_DEVICE_NODE *pCmdIO, int argc, char **argv) {
-    int64_t  off     = 0;
-    uint64_t off_abs = 0;
-    PTP_FOL_GetOffset(&off, &off_abs);
-    SYS_CONSOLE_PRINT("[PTP] offset=%lld ns  abs=%llu ns\r\n",
-                      (long long)off, (unsigned long long)off_abs);
-}
-
-static void cmd_ptp_reset(SYS_CMD_DEVICE_NODE *pCmdIO, int argc, char **argv) {
-    PTP_FOL_Reset();
-    SYS_CONSOLE_PRINT("[PTP] follower servo reset to UNINIT\r\n");
-}
-
 uint8_t frame[60];
 
 /* noip_send <n> [gap_ms]  — send N raw Ethernet frames (EtherType 0x88B5) on eth0/T1S */
@@ -1189,16 +996,6 @@ static void cmd_noip_stat(SYS_CMD_DEVICE_NODE *pCmdIO, int argc, char **argv)
     SYS_CONSOLE_PRINT("[NoIP] TX=%u  RX=%u\r\n", (unsigned)noip_tx_cnt, (unsigned)noip_rx_cnt);
 }
 
-static void cmd_ptp_regs(SYS_CMD_DEVICE_NODE *pCmdIO, int argc, char **argv)
-{
-    (void)pCmdIO; (void)argc; (void)argv;
-    /* Triggers a register dump from within PTP_GM_Service (GM_STATE_WAIT_PERIOD).
-     * This avoids injecting TC6 control chunks during active PLCA traffic, which
-     * would cause TC6Error_SyncLost (Loss of Framing Error). */
-    PTP_GM_RequestRegDump();
-    SYS_CONSOLE_PRINT("[PTP] reg dump requested — output follows after next WAIT_PERIOD\r\n");
-}
-
 const SYS_CMD_DESCRIPTOR msd_cmd_tbl[] = {
     {"help", (SYS_CMD_FNC) test_help, ": show Test group commands"},
     {"timestamp", (SYS_CMD_FNC) show_timestamp, ": show build timestamp"},
@@ -1210,13 +1007,6 @@ const SYS_CMD_DESCRIPTOR msd_cmd_tbl[] = {
     {"lan_write", (SYS_CMD_FNC) lan_write, ": write LAN865X register (lan_write <addr_hex> <value_hex>)"},
     {"dump", (SYS_CMD_FNC) cmd_mem_dump, ": dump memory (dump <addr_hex> <count>)"},
     {"plca_node",    (SYS_CMD_FNC) cmd_plca_node,    ": get/set PLCA node ID (plca_node [id], no arg: show current)"},
-    {"ptp_mode",     (SYS_CMD_FNC) cmd_ptp_mode,     ": set PTP mode (off|follower|master)"},
-    {"ptp_status",   (SYS_CMD_FNC) cmd_ptp_status,   ": show PTP mode, sync count, offset"},
-    {"ptp_interval", (SYS_CMD_FNC) cmd_ptp_interval, ": set GM Sync interval in ms (default 125)"},
-    {"ptp_dst",      (SYS_CMD_FNC) cmd_ptp_dst,      ": set PTP DST MAC (multicast|broadcast)"},
-    {"ptp_offset",   (SYS_CMD_FNC) cmd_ptp_offset,   ": show follower time offset [ns]"},
-    {"ptp_reset",    (SYS_CMD_FNC) cmd_ptp_reset,    ": reset PTP follower servo to UNINIT"},
-    {"ptp_regs",    (SYS_CMD_FNC) cmd_ptp_regs,    ": dump TX-Match registers via GM state machine (no SPI collision)"},
     {"noip_send",    (SYS_CMD_FNC) cmd_noip_send,    ": send N raw Ethernet frames bypassing TCP stack (noip_send <n> [gap_ms])"},
     {"noip_stat",    (SYS_CMD_FNC) cmd_noip_stat,    ": show NoIP TX/RX counters"},
     {"logclear",     (SYS_CMD_FNC) cmd_logclear,     ": clear deferred packet log buffer"},
