@@ -14,12 +14,14 @@
 #include <stdbool.h>
 #include <stdint.h>
 #include <string.h>
+#include <stdlib.h>
 
 #include "definitions.h"
 #include "system/command/sys_command.h"
 #include "config/default/system/console/sys_console.h"
 #include "lan866x_cli.h"
 #include "rcp.h"
+#include "plat.h"     /* plat_sleep_ms(): pumps the stack while pacing control traffic */
 
 /* SD multicast group the SOME/IP stack joins / sends FindService to. The stack
  * references this symbol from the application (each host tool defines it too). */
@@ -122,8 +124,194 @@ static void cmd_discovery(SYS_CMD_DEVICE_NODE *pCmdIO, int argc, char **argv)
     rcp_set_retries(3);
 }
 
+/* Select the first discovered endpoint as the RCP target; false if none yet. */
+static bool sel_first_ep(void)
+{
+    rcp_endpoint_t eps[RCP_MAX_ENDPOINTS];
+    if (!s_rcp_inited) return false;
+    if (rcp_get_endpoints(eps, RCP_MAX_ENDPOINTS) == 0u) return false;
+    return rcp_select_endpoint(0u);
+}
+
+/* ====================== diag (mirrors lan866x-diag.exe) ==================== */
+static void diag_hexdump(const char *label, const uint8_t *p, uint16_t n)
+{
+    uint16_t i; int nz = 0;
+    SYS_CONSOLE_PRINT("    %s (%u B): ", label, (unsigned)n);
+    for (i = 0u; i < n; i++) { SYS_CONSOLE_PRINT("%02X ", p[i]); if (p[i]) nz = 1; }
+    SYS_CONSOLE_PRINT("%s\r\n", nz ? "" : "(all zero)");
+}
+
+static void cmd_diag(SYS_CMD_DEVICE_NODE *pCmdIO, int argc, char **argv)
+{
+    GetStatusReply_t st;
+    GetNetworkStatusReply_t ns;
+    ReadDiagnosisDataReply_t dg;
+    ReturnCode_t rc;
+    uint32_t probeN = 20u;
+    (void)pCmdIO;
+
+    if (argc >= 2) probeN = (uint32_t)strtoul(argv[1], NULL, 10);
+    if (probeN < 1u)   probeN = 1u;
+    if (probeN > 500u) probeN = 500u;
+
+    if (!sel_first_ep()) {
+        SYS_CONSOLE_PRINT("[lan866x] no endpoint yet - run 'discovery' first\r\n");
+        return;
+    }
+    rcp_set_timeout_ms(1000); rcp_set_retries(1);
+
+    SYS_CONSOLE_PRINT("\r\n================ DEVICE ================\r\n");
+    memset(&st, 0, sizeof(st));
+    if (rcp_get_status(&st) == RT_OK) {
+        unsigned long long up = st.UpTime / 1000000000ULL;
+        SYS_CONSOLE_PRINT("  Chip         : %s\r\n", st.ChipIdentifier);
+        SYS_CONSOLE_PRINT("  Running app  : %s\r\n", st.ActiveApplication);
+        SYS_CONSOLE_PRINT("  Main app ver : %s\r\n", st.MainApplicationVersion);
+        SYS_CONSOLE_PRINT("  Uptime       : %lluh %llum %llus\r\n", up/3600ULL, (up%3600ULL)/60ULL, up%60ULL);
+    } else {
+        SYS_CONSOLE_PRINT("  GetStatus failed\r\n");
+    }
+
+    SYS_CONSOLE_PRINT("\r\n================ T1S NETWORK ================\r\n");
+    memset(&ns, 0, sizeof(ns));
+    rc = rcp_get_network_status(&ns);
+    if (rc == RT_OK) {
+        uint64_t mac = ns.EndpointAddress;
+        SYS_CONSOLE_PRINT("  Endpoint link: %s\r\n", ns.EndpointStatus==1?"UP":ns.EndpointStatus==2?"DOWN":"?");
+        SYS_CONSOLE_PRINT("  Arbitration  : %s\r\n", ns.ArbitrationMode==0?"CSMA/CD (no PLCA!)":
+                          ns.ArbitrationMode==1?"PLCA":ns.ArbitrationMode==2?"PLCA (no fallback)":"?");
+        SYS_CONSOLE_PRINT("  PLCA node id : %u\r\n", ns.PLCANodeId);
+        SYS_CONSOLE_PRINT("  Endpoint MAC : %02X:%02X:%02X:%02X:%02X:%02X\r\n",
+            (unsigned)((mac>>40)&0xFF),(unsigned)((mac>>32)&0xFF),(unsigned)((mac>>24)&0xFF),
+            (unsigned)((mac>>16)&0xFF),(unsigned)((mac>>8)&0xFF),(unsigned)(mac&0xFF));
+        SYS_CONSOLE_PRINT("  Endpoint IPv4: %u.%u.%u.%u\r\n",
+            (unsigned)((ns.EndpointIpV4Address>>24)&0xFF),(unsigned)((ns.EndpointIpV4Address>>16)&0xFF),
+            (unsigned)((ns.EndpointIpV4Address>>8)&0xFF),(unsigned)(ns.EndpointIpV4Address&0xFF));
+    } else {
+        SYS_CONSOLE_PRINT("  GetNetworkStatus failed (rc=%d)\r\n", rc);
+    }
+
+    SYS_CONSOLE_PRINT("\r\n================ PHY DIAGNOSIS ================\r\n");
+    memset(&dg, 0, sizeof(dg));
+    rc = rcp_read_diagnosis_data(&dg);
+    if (rc == RT_OK) {
+        diag_hexdump("Channel0", dg.Channel0, dg.Channel0Length);
+        diag_hexdump("Channel1", dg.Channel1, dg.Channel1Length);
+        diag_hexdump("Channel2", dg.Channel2, dg.Channel2Length);
+        diag_hexdump("Channel3", dg.Channel3, dg.Channel3Length);
+    } else if (rc == RT_UNKNOWN_METHOD) {
+        SYS_CONSOLE_PRINT("  Not implemented in this firmware/config build (lighting build).\r\n");
+    } else {
+        SYS_CONSOLE_PRINT("  ReadDiagnosisData failed (rc=%d)\r\n", rc);
+    }
+
+    SYS_CONSOLE_PRINT("\r\n================ LINK PROBE (%u round-trips) ================\r\n", (unsigned)probeN);
+    {
+        uint32_t freq = SYS_TIME_FrequencyGet();
+        uint32_t ok = 0u, lost = 0u, k;
+        uint64_t sumus = 0u, mnus = 0xFFFFFFFFFFFFFFFFULL, mxus = 0u;
+        rcp_set_retries(0); rcp_set_timeout_ms(400);
+        for (k = 0u; k < probeN; k++) {
+            GetStatusReply_t s2;
+            uint64_t a = SYS_TIME_Counter64Get();
+            memset(&s2, 0, sizeof(s2));
+            if (rcp_get_status(&s2) == RT_OK) {
+                uint64_t us = freq ? (((SYS_TIME_Counter64Get() - a) * 1000000ULL) / freq) : 0u;
+                ok++; sumus += us; if (us < mnus) mnus = us; if (us > mxus) mxus = us;
+            } else {
+                lost++;
+            }
+            plat_sleep_ms(10);   /* small pace; pumps the stack so the bridge keeps running */
+        }
+        SYS_CONSOLE_PRINT("  probes=%u completed=%u lost=%u loss=%u%%\r\n",
+            (unsigned)probeN, (unsigned)ok, (unsigned)lost, (unsigned)(100u*lost/probeN));
+        if (ok) {
+            uint64_t avg = sumus/ok;
+            SYS_CONSOLE_PRINT("  RTT: min %u.%03u  avg %u.%03u  max %u.%03u ms\r\n",
+                (unsigned)(mnus/1000u),(unsigned)(mnus%1000u),
+                (unsigned)(avg/1000u), (unsigned)(avg%1000u),
+                (unsigned)(mxus/1000u),(unsigned)(mxus%1000u));
+        }
+        SYS_CONSOLE_PRINT("  Verdict: %s\r\n",
+            (ns.EndpointStatus==2)?"LINK DOWN":
+            (probeN && (100u*lost/probeN) < 3u)?"HEALTHY (T1S wire fine)":"DEGRADED - check link");
+    }
+    rcp_set_timeout_ms(1500); rcp_set_retries(3);
+}
+
+/* ====================== ledblink (mirrors lan866x-ledblink.exe) ============ */
+static bool led_set(uint16_t handle, int value)
+{
+    SetGpioVar_t sv; memset(&sv, 0, sizeof(sv));
+    sv.GpioValues[0] = (uint8_t)(handle >> 8);
+    sv.GpioValues[1] = (uint8_t)(handle & 0xFF);
+    sv.GpioValues[2] = (uint8_t)(value ? 1 : 0);
+    sv.GpioValuesLength = 3;
+    return rcp_set_gpio(&sv) == RT_OK;
+}
+
+static void cmd_ledblink(SYS_CMD_DEVICE_NODE *pCmdIO, int argc, char **argv)
+{
+    static const uint8_t LEDS[3] = { 2u, 6u, 10u };  /* PA02/PA06/PA10 = LD1/LD2/LD3 */
+    uint16_t handle[3];
+    uint32_t laps = 3u, beat = 300u, lap;
+    int i;
+    (void)pCmdIO;
+
+    if (argc >= 2) laps = (uint32_t)strtoul(argv[1], NULL, 10);
+    if (argc >= 3) beat = (uint32_t)strtoul(argv[2], NULL, 10);
+    if (laps < 1u)    laps = 1u;
+    if (laps > 50u)   laps = 50u;     /* bounded: must not freeze the bridge superloop forever */
+    if (beat < 20u)   beat = 20u;
+    if (beat > 2000u) beat = 2000u;
+
+    if (!sel_first_ep()) {
+        SYS_CONSOLE_PRINT("[lan866x] no endpoint yet - run 'discovery' first\r\n");
+        return;
+    }
+    rcp_set_timeout_ms(800); rcp_set_retries(2);
+
+    /* Open each LED pin as a GPIO output (release first, like the host tool). */
+    for (i = 0; i < 3; i++) {
+        ReleaseDigitalPinsVar_t rel; OpenGpioVar_t ov; OpenGpioReply_t orep;
+        memset(&rel, 0, sizeof(rel)); rel.PinIdList[0] = LEDS[i]; rel.PinIdListLength = 1;
+        rcp_release_digital_pins(&rel); plat_sleep_ms(20);
+        memset(&ov, 0, sizeof(ov)); memset(&orep, 0, sizeof(orep));
+        ov.PinIdGpio = LEDS[i]; ov.Direction = 1;   /* output, starts LOW */
+        if (rcp_open_gpio(&ov, &orep) != RT_OK) {
+            SYS_CONSOLE_PRINT("[lan866x] OpenGpio failed on PA%02u - aborting\r\n", (unsigned)LEDS[i]);
+            rcp_set_timeout_ms(1500); rcp_set_retries(3);
+            return;
+        }
+        handle[i] = orep.HandleGpio; plat_sleep_ms(20);
+    }
+
+    SYS_CONSOLE_PRINT("[lan866x] running light PA02/PA06/PA10: %u laps, %u ms/step\r\n",
+                      (unsigned)laps, (unsigned)beat);
+    for (lap = 0u; lap < laps; lap++) {
+        for (i = 0; i < 3; i++) {
+            led_set(handle[i], 1);
+            plat_sleep_ms(beat);
+            led_set(handle[i], 0);
+        }
+    }
+
+    /* Clean up: LEDs off + release pins. */
+    for (i = 0; i < 3; i++) {
+        ReleaseDigitalPinsVar_t rel;
+        led_set(handle[i], 0);
+        memset(&rel, 0, sizeof(rel)); rel.PinIdList[0] = LEDS[i]; rel.PinIdListLength = 1;
+        rcp_release_digital_pins(&rel); plat_sleep_ms(20);
+    }
+    SYS_CONSOLE_PRINT("[lan866x] done, LEDs off.\r\n");
+    rcp_set_timeout_ms(1500); rcp_set_retries(3);
+}
+
 static const SYS_CMD_DESCRIPTOR lan866x_cmd_tbl[] = {
-    {"discovery", (SYS_CMD_FNC) cmd_discovery, ": list LAN866x endpoints seen via SOME/IP SD"},
+    {"discovery", (SYS_CMD_FNC) cmd_discovery, ": list LAN866x endpoints + full status (like lan866x-discovery.exe)"},
+    {"diag",      (SYS_CMD_FNC) cmd_diag,      ": T1S link diagnostics (diag [probeCount])"},
+    {"ledblink",  (SYS_CMD_FNC) cmd_ledblink,  ": LED running light PA02/06/10 (ledblink [laps] [ms])"},
 };
 
 void LAN866X_CLI_Init(void)
