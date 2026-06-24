@@ -93,6 +93,7 @@ bool Command_Init(void);
 
 uint32_t ipdump_mode = 0;
 uint32_t fwd_mode = 0;
+uint32_t mirror_mode = 0;     /* eth0 (T1S) -> eth1 (100BASE-T) port mirror for Wireshark */
 uint32_t my_delay_time = 0;
 
 /* --- NoIP raw Ethernet test (EtherType 0x88B5 = IEEE 802 Local Experimental) --- */
@@ -309,6 +310,7 @@ static void test_help(SYS_CMD_DEVICE_NODE* pCmdIO, int argc, char** argv) {
     SYS_CONSOLE_PRINT("  timestamp                    - Show build timestamp\n\r");
     SYS_CONSOLE_PRINT("  ipdump <mode>                - Dump RX IP packets (0=off, 1=eth0, 2=eth1, 3=both)\n\r");
     SYS_CONSOLE_PRINT("  fwd [mode]                   - Set forwarding (0=off, 1=on)\n\r");
+    SYS_CONSOLE_PRINT("  mirror [0|1]                 - Mirror eth0(T1S) RX to eth1 for Wireshark\n\r");
     SYS_CONSOLE_PRINT("  stats                        - Show TX/RX software counters for eth0 and eth1\n\r");
     SYS_CONSOLE_PRINT("  lan_read  <addr>             - Read  LAN865X register (hex address)\n\r");
     SYS_CONSOLE_PRINT("  lan_write <addr> <value>     - Write LAN865X register (hex addr, hex value)\n\r");
@@ -639,11 +641,54 @@ void APP_Tasks(void) {
     }
 }
 
+/* --- eth0 (T1S) -> eth1 (100BASE-T) port mirror (SPAN) for Wireshark --------
+ * When mirror_mode is on, every frame received on eth0 is CLONED and sent out
+ * eth1, so a PC on eth1 can capture the T1S bus traffic in Wireshark - incl.
+ * the SOME/IP replies/offers the endpoint sends in response to a firmware CLI
+ * command (which the MAC bridge otherwise delivers locally, not to eth1).
+ * The original frame is left untouched for normal local/bridge processing.
+ * This mirrors the RX direction (bus -> bridge) only; the bridge's own eth0
+ * transmissions are not echoed (a node never receives its own TX). */
+static void mirror_pkt_ack(TCPIP_MAC_PACKET *pkt, const void *param)
+{
+    (void)param;
+    TCPIP_PKT_PacketFree(pkt);
+}
+
+static void mirror_eth0_to_eth1(struct _tag_TCPIP_MAC_PACKET *rxPkt)
+{
+    uint16_t flen = rxPkt->pDSeg->segLen;
+    TCPIP_MAC_PACKET *pTx;
+    TCPIP_NET_HANDLE  eth1;
+
+    if (flen == 0u || flen > 1518u) return;
+    pTx = TCPIP_PKT_PacketAlloc(sizeof(TCPIP_MAC_PACKET), flen, 0);   /* flags=0: same as the MAC bridge's own fwd alloc */
+    if (pTx == NULL) return;                         /* packet pool busy: drop the mirror copy */
+
+    pTx->pMacLayer = pTx->pDSeg->segLoad;
+    memcpy(pTx->pMacLayer, rxPkt->pMacLayer, flen);  /* full Ethernet frame (header + payload) */
+    pTx->pDSeg->segLen = flen;
+    pTx->pNetLayer = pTx->pMacLayer + sizeof(TCPIP_MAC_ETHERNET_HEADER);
+    pTx->ackFunc   = mirror_pkt_ack;                 /* freed by the MAC driver after TX */
+    pTx->ackParam  = NULL;
+
+    eth1 = TCPIP_STACK_IndexToNet(1);
+    if (eth1 != NULL) {
+        (void)DRV_GMAC_PacketTx(((TCPIP_NET_IF*)eth1)->hIfMac, pTx);
+    } else {
+        TCPIP_PKT_PacketFree(pTx);
+    }
+}
+
 bool pktEth0Handler(TCPIP_NET_HANDLE hNet, struct _tag_TCPIP_MAC_PACKET* rxPkt, uint16_t frameType, const void* hParam) {
     static uint32_t packet_counter = 0;
     bool ret_val = false;
 
     packet_counter++;
+
+    if (mirror_mode) {
+        mirror_eth0_to_eth1(rxPkt);   /* clone this T1S frame to eth1 for PC-side capture */
+    }
 
     /* NoIP raw test frame (EtherType 0x88B5): increment counter + print, free buffer */
     if (frameType == NOIP_ETHERTYPE) {
@@ -828,6 +873,20 @@ static void my_fwd(SYS_CMD_DEVICE_NODE* pCmdIO, int argc, char** argv) {
         SYS_CONSOLE_PRINT("Forward mode set to on\n\r");
     }
 
+}
+
+/* mirror [0|1] - copy every eth0 (T1S) RX frame out eth1 so a PC on eth1 can
+ * sniff the T1S bus with Wireshark (e.g. the endpoint's SOME/IP replies to a
+ * firmware CLI command). No argument shows the current state. */
+static void cmd_mirror(SYS_CMD_DEVICE_NODE* pCmdIO, int argc, char** argv) {
+    if (argc >= 2) {
+        mirror_mode = strtoul(argv[1], NULL, 0);
+    }
+    SYS_CONSOLE_PRINT("eth0(T1S)->eth1 mirror: %s\n\r", mirror_mode ? "ON" : "OFF");
+    if (mirror_mode) {
+        SYS_CONSOLE_PRINT("  Capture on the PC (eth1) in Wireshark to see the T1S bus RX traffic\n\r");
+        SYS_CONSOLE_PRINT("  (endpoint frames: SOME/IP offers/replies, ARP, ...). Bridge TX not mirrored.\n\r");
+    }
 }
 
 // Memory dump command: dump <address> <count>
@@ -1067,6 +1126,7 @@ const SYS_CMD_DESCRIPTOR msd_cmd_tbl[] = {
     {"timestamp", (SYS_CMD_FNC) show_timestamp, ": show build timestamp"},
     {"ipdump", (SYS_CMD_FNC) my_dump, ": dump rx ip packets (0:off 1:eth0 2:eth1 3:both)"},
     {"fwd", (SYS_CMD_FNC) my_fwd, ": fwd (0:off 1:on default:on)"},
+    {"mirror", (SYS_CMD_FNC) cmd_mirror, ": mirror eth0(T1S) RX to eth1 for Wireshark (mirror [0|1])"},
     {"stats", (SYS_CMD_FNC) cmd_stats, ": show TX/RX counters for eth0 and eth1"},
     {"lan_read", (SYS_CMD_FNC) lan_read, ": read LAN865X register (lan_read <addr_hex>)"},
     {"lan_write", (SYS_CMD_FNC) lan_write, ": write LAN865X register (lan_write <addr_hex> <value_hex>)"},
