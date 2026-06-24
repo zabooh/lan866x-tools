@@ -1,5 +1,0 @@
-[1/3] Building C object CMakeFiles/T1S_100BaseT_Bridge_default_default_XC32_compile.dir/C_/work/ptp/AN1847/temp/t1s_100baset_bridge/firmware/src/config/default/initialization.c.o
-[2/3] Linking C executable default.elf; Copying elf to out location
-
-Info: Loading file: ./C:/Users/M91221/.mchp_packs/Microchip/SAME54_DFP/3.8.234/xc32/ATSAME54P20A/ATSAME54P20A.ld
-[3/3] Convert build file to .hex
