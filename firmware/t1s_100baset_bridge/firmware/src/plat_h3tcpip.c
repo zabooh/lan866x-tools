@@ -240,6 +240,11 @@ void plat_sleep_ms(uint32_t ms)
     uint32_t start = plat_now_ms();
     do {
         TCPIP_STACK_Task(sysObj.tcpip);
+        /* Also drain the console output so a CLI command's live progress (the
+         * single-line '\r' updates in diag) is actually transmitted while the
+         * handler is blocked in an RCP round-trip - otherwise it would all
+         * flush only after the command returns. */
+        SYS_CONSOLE_Tasks(sysObj.sysConsole0);
     } while ((plat_now_ms() - start) < ms);
 }
 

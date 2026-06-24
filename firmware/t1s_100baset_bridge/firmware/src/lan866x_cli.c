@@ -222,9 +222,10 @@ static void cmd_diag(SYS_CMD_DEVICE_NODE *pCmdIO, int argc, char **argv)
             } else {
                 lost++;
             }
-            plat_sleep_ms(10);   /* small pace; pumps the stack so the bridge keeps running */
+            SYS_CONSOLE_PRINT("\r  probing %u/%u ...", (unsigned)(k + 1u), (unsigned)probeN);
+            plat_sleep_ms(10);   /* small pace; pumps stack + console (live progress) */
         }
-        SYS_CONSOLE_PRINT("  probes=%u completed=%u lost=%u loss=%u%%\r\n",
+        SYS_CONSOLE_PRINT("\r  probes=%u completed=%u lost=%u loss=%u%%          \r\n",
             (unsigned)probeN, (unsigned)ok, (unsigned)lost, (unsigned)(100u*lost/probeN));
         if (ok) {
             uint64_t avg = sumus/ok;
@@ -250,7 +251,10 @@ static void cmd_diag(SYS_CMD_DEVICE_NODE *pCmdIO, int argc, char **argv)
         for (kk = 0u; kk < bn; kk++) {           /* back-to-back, no inter-request gap = max rate */
             GetStatusReply_t s3; memset(&s3, 0, sizeof(s3));
             if (rcp_get_status(&s3) == RT_OK) okb++;
+            if ((kk % 10u) == 9u)
+                SYS_CONSOLE_PRINT("\r  measuring %u/%u ...", (unsigned)(kk + 1u), (unsigned)bn);
         }
+        SYS_CONSOLE_PRINT("\r                          \r");   /* clear progress line */
         {
             uint64_t dt    = SYS_TIME_Counter64Get() - t0;
             uint32_t ms    = freq ? (uint32_t)((dt * 1000ULL) / freq) : 0u;
