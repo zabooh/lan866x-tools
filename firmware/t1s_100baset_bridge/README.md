@@ -84,7 +84,6 @@ Bridge / diagnostic commands (`Test` group, type the name directly):
 | Command | Description |
 |---|---|
 | `mirror [0\|1]` | SPAN: copy T1S (eth0) traffic — RX **and** the bridge's own TX — to eth1 for Wireshark |
-| `fwd [0\|1]` | manual eth0→eth1 forward (the stack MAC bridge does L2 bridging anyway) |
 | `ipdump [0..3]` | dump RX frames (1=eth0, 2=eth1, 3=both) |
 | `plca_node [id]` | get/set PLCA node id (0 = coordinator) |
 | `stats` | per-interface TX/RX counters |

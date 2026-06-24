@@ -89,7 +89,6 @@ void DumpMem(uint32_t addr, uint32_t count);
 bool Command_Init(void);
 
 uint32_t ipdump_mode = 0;
-uint32_t fwd_mode = 0;
 uint32_t mirror_mode = 0;     /* eth0 (T1S) -> eth1 (100BASE-T) port mirror for Wireshark */
 uint32_t my_delay_time = 0;
 
@@ -286,7 +285,6 @@ static void test_help(SYS_CMD_DEVICE_NODE* pCmdIO, int argc, char** argv) {
     SYS_CONSOLE_PRINT("  help                         - Show this help\n\r");
     SYS_CONSOLE_PRINT("  timestamp                    - Show build timestamp\n\r");
     SYS_CONSOLE_PRINT("  ipdump <mode>                - Dump RX IP packets (0=off, 1=eth0, 2=eth1, 3=both)\n\r");
-    SYS_CONSOLE_PRINT("  fwd [mode]                   - Set forwarding (0=off, 1=on)\n\r");
     SYS_CONSOLE_PRINT("  mirror [0|1]                 - Mirror eth0(T1S) RX to eth1 for Wireshark\n\r");
     SYS_CONSOLE_PRINT("  stats                        - Show TX/RX software counters for eth0 and eth1\n\r");
     SYS_CONSOLE_PRINT("  lan_read  <addr>             - Read  LAN865X register (hex address)\n\r");
@@ -714,14 +712,8 @@ bool pktEth0Handler(TCPIP_NET_HANDLE hNet, struct _tag_TCPIP_MAC_PACKET* rxPkt, 
         PktLog_Write(&log_e, rxPkt->pMacLayer, rxPkt->pDSeg->segLen);
     }
 
-    if ( fwd_mode == 1) {
-        /* Raw IP Packet received from eth0 (T1S) is send to eth1 (100BaseT)*/
-        TCPIP_NET_HANDLE NetHdl = TCPIP_STACK_IndexToNet(1);
-        DRV_GMAC_PacketTx(((TCPIP_NET_IF*) NetHdl)->hIfMac, rxPkt);
-        ret_val = true;
-    }
-
-    /* a return value of true, tell the TCP stack not to handle this packet */
+    /* eth0<->eth1 L2 bridging is done by the Harmony MAC bridge, not here.
+     * Return false so the frame goes to normal stack/bridge processing. */
     return ret_val;
 }
 
@@ -818,17 +810,6 @@ static void my_dump(SYS_CMD_DEVICE_NODE* pCmdIO, int argc, char** argv) {
         SYS_CONSOLE_PRINT("IP Layer Dump activated on eth0 and eth1\n\r");
     } else {
         SYS_CONSOLE_PRINT("Parameter out of range\n\r");
-    }
-
-}
-
-static void my_fwd(SYS_CMD_DEVICE_NODE* pCmdIO, int argc, char** argv) {
-
-    fwd_mode = strtoul(argv[1], NULL, 16);
-    if (fwd_mode == 0) {
-        SYS_CONSOLE_PRINT("Forward mode set to off\n\r");
-    } else if (fwd_mode == 1) {
-        SYS_CONSOLE_PRINT("Forward mode set to on\n\r");
     }
 
 }
@@ -1000,7 +981,6 @@ const SYS_CMD_DESCRIPTOR msd_cmd_tbl[] = {
     {"help", (SYS_CMD_FNC) test_help, ": show Test group commands"},
     {"timestamp", (SYS_CMD_FNC) show_timestamp, ": show build timestamp"},
     {"ipdump", (SYS_CMD_FNC) my_dump, ": dump rx ip packets (0:off 1:eth0 2:eth1 3:both)"},
-    {"fwd", (SYS_CMD_FNC) my_fwd, ": fwd (0:off 1:on default:on)"},
     {"mirror", (SYS_CMD_FNC) cmd_mirror, ": mirror eth0(T1S) RX to eth1 for Wireshark (mirror [0|1])"},
     {"stats", (SYS_CMD_FNC) cmd_stats, ": show TX/RX counters for eth0 and eth1"},
     {"lan_read", (SYS_CMD_FNC) lan_read, ": read LAN865X register (lan_read <addr_hex>)"},
