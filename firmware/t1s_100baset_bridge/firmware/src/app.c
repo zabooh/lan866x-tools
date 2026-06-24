@@ -680,6 +680,84 @@ static void mirror_eth0_to_eth1(struct _tag_TCPIP_MAC_PACKET *rxPkt)
     }
 }
 
+/* --- TX-side mirror: the bridge's OWN eth0 transmissions -------------------
+ * The RX mirror above only catches what the bus sends to us. The firmware's
+ * own UDP TX (SOME/IP FindService + method requests to the endpoint) leaves on
+ * eth0 and is never seen by a packet handler. To complete the T1S picture in
+ * Wireshark, plat_udp_send() calls mirror_udp_tx() for every datagram it sends;
+ * here we rebuild the Ethernet/IPv4/UDP frame and inject a copy on eth1.
+ * Best-effort L2: dst MAC from the ARP cache (unicast) or the IPv4-multicast
+ * mapping; broadcast if unresolved - Wireshark dissects the IP/UDP regardless. */
+static uint16_t ip_checksum(const uint8_t *p, uint16_t n)
+{
+    uint32_t sum = 0u; uint16_t i;
+    for (i = 0u; (uint16_t)(i + 1u) < n; i += 2u) sum += ((uint32_t)p[i] << 8) | p[i + 1u];
+    if (n & 1u) sum += (uint32_t)p[n - 1u] << 8;
+    while (sum >> 16) sum = (sum & 0xFFFFu) + (sum >> 16);
+    return (uint16_t)~sum;
+}
+
+void mirror_udp_tx(uint16_t srcPort, const uint8_t dstIp[4], uint16_t dstPort,
+                   const uint8_t *payload, uint16_t plen)
+{
+    TCPIP_NET_HANDLE eth0, eth1;
+    TCPIP_MAC_PACKET *pTx;
+    const uint8_t *srcMac;
+    uint8_t *f;
+    uint32_t srcIp;
+    uint16_t frameLen = (uint16_t)(42u + plen);
+    uint16_t ipTotal  = (uint16_t)(28u + plen);
+    uint16_t udpLen   = (uint16_t)(8u + plen);
+
+    if (!mirror_mode || plen > 1400u) return;
+    eth0 = TCPIP_STACK_IndexToNet(0);
+    eth1 = TCPIP_STACK_IndexToNet(1);
+    if (eth0 == NULL || eth1 == NULL) return;
+    srcMac = TCPIP_STACK_NetAddressMac(eth0);
+    if (srcMac == NULL) return;
+    srcIp = TCPIP_STACK_NetAddress(eth0);
+
+    pTx = TCPIP_PKT_PacketAlloc(sizeof(TCPIP_MAC_PACKET), frameLen, 0);
+    if (pTx == NULL) return;
+    f = pTx->pMacLayer = pTx->pDSeg->segLoad;
+
+    if (dstIp[0] >= 224u && dstIp[0] <= 239u) {        /* IPv4 multicast -> 01:00:5E:xx:xx:xx */
+        f[0]=0x01u; f[1]=0x00u; f[2]=0x5Eu;
+        f[3]=(uint8_t)(dstIp[1] & 0x7Fu); f[4]=dstIp[2]; f[5]=dstIp[3];
+    } else {
+        IPV4_ADDR d; TCPIP_MAC_ADDR mac;
+        d.v[0]=dstIp[0]; d.v[1]=dstIp[1]; d.v[2]=dstIp[2]; d.v[3]=dstIp[3];
+        if (TCPIP_ARP_IsResolved(eth0, &d, &mac)) memcpy(f, mac.v, 6u);
+        else memset(f, 0xFFu, 6u);
+    }
+    memcpy(f + 6, srcMac, 6u);
+    f[12]=0x08u; f[13]=0x00u;                          /* EtherType IPv4 */
+
+    f[14]=0x45u; f[15]=0x00u;                          /* IPv4, IHL 5, TOS 0 */
+    f[16]=(uint8_t)(ipTotal >> 8); f[17]=(uint8_t)ipTotal;
+    f[18]=0u; f[19]=0u;                                /* id */
+    f[20]=0u; f[21]=0u;                                /* flags/frag */
+    f[22]=64u; f[23]=17u;                              /* TTL, proto UDP */
+    f[24]=0u; f[25]=0u;                                /* header checksum (below) */
+    f[26]=(uint8_t)srcIp;        f[27]=(uint8_t)(srcIp >> 8);
+    f[28]=(uint8_t)(srcIp >> 16); f[29]=(uint8_t)(srcIp >> 24);
+    f[30]=dstIp[0]; f[31]=dstIp[1]; f[32]=dstIp[2]; f[33]=dstIp[3];
+    { uint16_t c = ip_checksum(f + 14, 20u); f[24]=(uint8_t)(c >> 8); f[25]=(uint8_t)c; }
+
+    f[34]=(uint8_t)(srcPort >> 8); f[35]=(uint8_t)srcPort;
+    f[36]=(uint8_t)(dstPort >> 8); f[37]=(uint8_t)dstPort;
+    f[38]=(uint8_t)(udpLen >> 8);  f[39]=(uint8_t)udpLen;
+    f[40]=0u; f[41]=0u;                                /* UDP checksum 0 = not computed (valid for IPv4) */
+
+    if (plen) memcpy(f + 42, payload, plen);
+
+    pTx->pDSeg->segLen = frameLen;
+    pTx->pNetLayer = f + sizeof(TCPIP_MAC_ETHERNET_HEADER);
+    pTx->ackFunc   = mirror_pkt_ack;
+    pTx->ackParam  = NULL;
+    (void)DRV_GMAC_PacketTx(((TCPIP_NET_IF*)eth1)->hIfMac, pTx);
+}
+
 bool pktEth0Handler(TCPIP_NET_HANDLE hNet, struct _tag_TCPIP_MAC_PACKET* rxPkt, uint16_t frameType, const void* hParam) {
     static uint32_t packet_counter = 0;
     bool ret_val = false;
@@ -884,8 +962,8 @@ static void cmd_mirror(SYS_CMD_DEVICE_NODE* pCmdIO, int argc, char** argv) {
     }
     SYS_CONSOLE_PRINT("eth0(T1S)->eth1 mirror: %s\n\r", mirror_mode ? "ON" : "OFF");
     if (mirror_mode) {
-        SYS_CONSOLE_PRINT("  Capture on the PC (eth1) in Wireshark to see the T1S bus RX traffic\n\r");
-        SYS_CONSOLE_PRINT("  (endpoint frames: SOME/IP offers/replies, ARP, ...). Bridge TX not mirrored.\n\r");
+        SYS_CONSOLE_PRINT("  Capture on the PC (eth1) in Wireshark to see the T1S bus traffic:\n\r");
+        SYS_CONSOLE_PRINT("  RX (endpoint -> bridge: offers/replies/ARP) AND the bridge's own UDP TX.\n\r");
     }
 }
 
