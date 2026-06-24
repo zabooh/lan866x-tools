@@ -48,13 +48,19 @@ static int i2c_open(uint8_t sda, uint8_t scl, uint8_t speed, uint16_t *h)
 }
 static void i2c_close(uint16_t h) { CloseI2CVar_t c; c.HandleI2C = h; rcp_close_i2c(&c); }
 
+/* WriteAndReadI2C/WriteI2C carry a WriteId that the endpoint uses for write
+ * de-duplication: a repeated WriteId is treated as a retransmission and the
+ * write is NOT re-executed. So every call MUST advance it, else only the first
+ * read in a loop works (proxmon/lan8680 would otherwise show nothing). */
+static uint32_t s_i2cwid = 0u;
+
 /* blocking 16-bit register read (write reg addr, repeated-start read 2 bytes) */
 static int i2c_rd16(uint16_t h, uint16_t addr, uint8_t reg, int msbFirst, uint16_t *out)
 {
     WriteAndReadI2CVar_t rq; ReadI2CReply_t rp;
     memset(&rq, 0, sizeof(rq)); memset(&rp, 0, sizeof(rp));
     rq.HandleI2C = h; rq.DeviceAddress = addr; rq.ReadDataLength = 2;
-    rq.WriteId = 0; rq.WriteDataLength = 1; rq.WriteData[0] = reg;
+    rq.WriteId = s_i2cwid++; rq.WriteDataLength = 1; rq.WriteData[0] = reg;
     if (rcp_write_and_read_i2c(&rq, &rp) != RT_OK || rp.ReadDataLength < 2) return 0;
     *out = msbFirst ? (uint16_t)((rp.ReadData[0] << 8) | rp.ReadData[1])
                     : (uint16_t)(rp.ReadData[0] | (rp.ReadData[1] << 8));
@@ -64,7 +70,7 @@ static int i2c_rd16(uint16_t h, uint16_t addr, uint8_t reg, int msbFirst, uint16
 static int vcnl_cfg(uint16_t h, uint8_t reg, uint8_t lo, uint8_t hi)
 {
     WriteI2CVar_t w; memset(&w, 0, sizeof(w));
-    w.HandleI2C = h; w.DeviceAddress = VCNL4200_ADDR; w.WriteId = 0;
+    w.HandleI2C = h; w.DeviceAddress = VCNL4200_ADDR; w.WriteId = s_i2cwid++;
     w.WriteData[0] = reg; w.WriteData[1] = lo; w.WriteData[2] = hi; w.WriteDataLength = 3;
     return rcp_write_i2c(&w) == RT_OK;
 }
