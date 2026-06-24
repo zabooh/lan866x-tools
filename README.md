@@ -398,6 +398,7 @@ lan866x-tools/
 ├── third-party/
 │   └── minizip/         bundled ZIP reader (only lan866x-flashpkg uses it)
 ├── tools/               analysis helpers (plot_timing.py — clickdemo timing diagram)
+├── wireshark/           Wireshark add-ons: SOME/IP dissector config + DNCP/RTP Lua + install guide
 ├── docs/
 │   ├── img/             board photos + timing diagrams used by the docs
 │   ├── INTEGRATION_NOTES.md  RCP-on-libsomeip protocol/stack know-how
@@ -418,6 +419,10 @@ lan866x-tools/
 > `libepmicrochip/` also still contains Microchip's C++ vendor sources (`liblan866x`, `librtp`, `someip-stub.cpp`). They are **not built** — this toolset uses only the C `libsomeip` core. They can be deleted for a strictly C-only tree.
 
 The build produces a shared static lib **`rcpcore`** (rcp.c + someip_stub.c + plat_win.c + libsomeip/src/\*.c) that each SOME/IP tool links; the DNCP tools link only Winsock.
+
+> 🔎 **Protocol analysis in Wireshark:** to decode the captured traffic — SOME/IP
+> (RCP `0xFF10`) with named fields, plus DNCP and the RTP/RFC4175 video — install
+> the add-ons in [`wireshark/`](wireshark/); see **[wireshark/README.md](wireshark/README.md)**.
 
 ---
 
