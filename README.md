@@ -13,7 +13,7 @@
 > [`release/`](release/) (statically linked `.exe`, plus the demo firmware package). Just
 > run them from there. Building (below) is optional — only needed if you change the source.
 
-A **pure-C** host that remote-controls LAN866x endpoints via the **Remote Control Protocol (RCP)** on top of the **C SOME/IP stack (`libsomeip`)**. Access is via the **T1S-USB adapter** (EVB-LAN8670-USB) as an Ethernet bridge.
+A **pure-C** host that remote-controls LAN866x endpoints via the **Remote Control Protocol (RCP)** on top of the **C SOME/IP stack (`libsomeip`)**. Access is via the **T1S-USB adapter** (EVB-LAN8670-USB) as an Ethernet bridge — **or** via the on-board **T1S↔100BASE-T bridge firmware** in [`firmware/t1s_100baset_bridge/`](firmware/t1s_100baset_bridge/), which lets the PC reach the endpoint over plain RJ45 (and runs the tools on the board itself). See [chapter 9.1](#91-worked-mcu-port-the-t1s--100base-t-bridge-firmware).
 
 > 🟦 **100 % C — no C++.** Every tool, the RCP wrapper and the platform layer are C; they link **without `libstdc++`**. It is **single-thread** (a superloop, no RTOS required), so the same code base ports to a 32-bit MCU (lwIP) by writing a single platform file — see [chapter 9](#9-porting-to-mcu32).
 >
