@@ -38,6 +38,7 @@ Microchip or any third party.
 
 #include <stdbool.h>
 #include <stdint.h>
+#include <stddef.h>   /* size_t (SOMEIP_CB_Calloc); on Windows pulled in transitively */
 #include "someip-cfg.h"
 
 // DOM-IGNORE-BEGIN

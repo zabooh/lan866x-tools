@@ -42,6 +42,7 @@
 #include "config/default/driver/lan865x/drv_lan865x.h"
 #include "system/command/sys_command.h"
 #include "tcpip_manager_control.h"
+#include "lan866x_cli.h"
 
 
 // *****************************************************************************
@@ -399,6 +400,7 @@ void APP_Initialize(void) {
     SYS_TIME_TimerStart(timerHandle);
 
     Command_Init();
+    LAN866X_CLI_Init();   /* register the "lan866x" SOME/IP client commands */
     /* TODO: Initialize your application's state machine and other
      * parameters.
      */
@@ -459,6 +461,9 @@ void APP_Tasks(void) {
                 ticks_per_ms = (uint64_t)SYS_TIME_FrequencyGet() / 1000ULL;
             }
             uint64_t current_tick = SYS_TIME_Counter64Get();
+
+            /* === LAN866x SOME/IP client: drive SD + replies once per tick === */
+            LAN866X_CLI_Task();
 
             /* === Manual LAN865x register access service (Test commands) === */
             switch (app_lan_state) {

@@ -104,3 +104,34 @@ endfunction()
 
 message(STATUS "Using portable include paths from user.cmake")
 message(STATUS "Project source root: ${PROJECT_SOURCE_ROOT}")
+
+# ---------------------------------------------------------------------------
+# LAN866x SOME/IP client (host toolset stack) wired into the firmware build.
+# The platform-neutral stack lives in the parent lan866x-tools repo; this
+# bridge is vendored under firmware/t1s_100baset_bridge. PROJECT_SOURCE_ROOT
+# is the .X dir, so the repo root is 4 levels up. The per-target platform file
+# (plat_h3tcpip.c, the six plat.h functions over Harmony TCPIP_UDP_*) lives in
+# this project's firmware/src. See PORTING.md.
+# ---------------------------------------------------------------------------
+get_filename_component(LAN866X_ROOT "${PROJECT_SOURCE_ROOT}/../../../.." ABSOLUTE)
+
+set(LAN866X_STACK_SRCS
+    "${LAN866X_ROOT}/libepmicrochip/libsomeip/src/someip-client.c"
+    "${LAN866X_ROOT}/libepmicrochip/libsomeip/src/someip-gen.c"
+    "${LAN866X_ROOT}/libepmicrochip/libsomeip/src/someip-pars.c"
+    "${LAN866X_ROOT}/libepmicrochip/libsomeip/src/someip-timer.c"
+    "${LAN866X_ROOT}/libepmicrochip/libsomeip/src/someip-transmit.c"
+    "${LAN866X_ROOT}/src/someip_stub.c"
+    "${LAN866X_ROOT}/src/rcp.c"
+    "${PROJECT_SOURCE_ROOT}/../src/plat_h3tcpip.c"
+    "${PROJECT_SOURCE_ROOT}/../src/lan866x_cli.c")
+
+target_sources(T1S_100BaseT_Bridge_default_default_XC32_compile PRIVATE ${LAN866X_STACK_SRCS})
+target_include_directories(T1S_100BaseT_Bridge_default_default_XC32_compile PRIVATE
+    "${LAN866X_ROOT}/src"
+    "${LAN866X_ROOT}/include"
+    "${LAN866X_ROOT}/libepmicrochip/libsomeip/inc"
+    "${LAN866X_ROOT}/libepmicrochip/libsomeip/src"
+    "${LAN866X_ROOT}/libepmicrochip/libsomeip/stub")
+
+message(STATUS "LAN866x SOME/IP stack root: ${LAN866X_ROOT}")
