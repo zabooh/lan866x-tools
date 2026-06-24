@@ -46,6 +46,19 @@ def _is_microchip_debugger(p):
     return "microchip" in mfr or "atmel" in mfr
 
 
+def _config_serial():
+    """Return the board serial saved by setup_flasher.py, or None."""
+    cfg = os.path.join(_HERE, "setup_flasher.config")
+    if not os.path.isfile(cfg):
+        return None
+    try:
+        import json
+        with open(cfg, "r", encoding="utf-8") as f:
+            return (json.load(f).get("board") or {}).get("serial") or None
+    except (OSError, ValueError):
+        return None
+
+
 def _autodetect_serial():
     """Return the serial of the single connected debugger, or None/ambiguous."""
     try:
@@ -78,9 +91,14 @@ def main():
 
     serial = args.serial
     if serial is None:
-        serial, err = _autodetect_serial()
+        serial = _config_serial()           # setup_flasher.config (run setup_flasher.py)
+        if serial:
+            print(f"[INFO] Programmer from setup_flasher.config: {serial}")
+    if serial is None:
+        serial, err = _autodetect_serial()  # fall back to auto-detection
         if serial is None:
             print(f"[ERROR] {err}")
+            print("        Run 'python setup_flasher.py' or pass --serial.")
             return 1
         print(f"[INFO] Auto-detected programmer: {serial}")
 
