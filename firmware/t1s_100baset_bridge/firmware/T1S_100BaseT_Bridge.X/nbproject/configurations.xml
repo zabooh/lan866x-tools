@@ -670,6 +670,25 @@
           <itemPath>../src/config/default/exceptions.c</itemPath>
         </logicalFolder>
       </logicalFolder>
+      <logicalFolder name="lan866x_someip"
+                     displayName="lan866x_someip"
+                     projectFiles="true">
+        <itemPath>../src/plat_h3tcpip.c</itemPath>
+        <itemPath>../src/lan866x_cli.c</itemPath>
+        <itemPath>../src/clickdemo_cli.c</itemPath>
+        <itemPath>../src/gpio_cli.c</itemPath>
+        <itemPath>../src/i2c_cli.c</itemPath>
+        <itemPath>../src/spi_cli.c</itemPath>
+        <itemPath>../src/sys_cli.c</itemPath>
+        <itemPath>../src/dncp_cli.c</itemPath>
+        <itemPath>../../../../src/rcp.c</itemPath>
+        <itemPath>../../../../src/someip_stub.c</itemPath>
+        <itemPath>../../../../libepmicrochip/libsomeip/src/someip-client.c</itemPath>
+        <itemPath>../../../../libepmicrochip/libsomeip/src/someip-gen.c</itemPath>
+        <itemPath>../../../../libepmicrochip/libsomeip/src/someip-pars.c</itemPath>
+        <itemPath>../../../../libepmicrochip/libsomeip/src/someip-timer.c</itemPath>
+        <itemPath>../../../../libepmicrochip/libsomeip/src/someip-transmit.c</itemPath>
+      </logicalFolder>
       <logicalFolder name="wolfcrypt" displayName="wolfcrypt" projectFiles="true">
         <logicalFolder name="port" displayName="port" projectFiles="true">
           <itemPath>../src/third_party/wolfssl/wolfssl/wolfcrypt/src/port/pic32/crypt_aes_u2238.c</itemPath>
@@ -772,18 +791,6 @@
       <itemPath>../src/app.c</itemPath>
       <itemPath>../src/filters.c</itemPath>
       <itemPath>../src/main.c</itemPath>
-      <logicalFolder name="lan866x_someip" displayName="lan866x_someip" projectFiles="true">
-        <itemPath>../src/plat_h3tcpip.c</itemPath>
-        <itemPath>../src/lan866x_cli.c</itemPath>
-        <itemPath>../src/clickdemo_cli.c</itemPath>
-        <itemPath>../../../../src/rcp.c</itemPath>
-        <itemPath>../../../../src/someip_stub.c</itemPath>
-        <itemPath>../../../../libepmicrochip/libsomeip/src/someip-client.c</itemPath>
-        <itemPath>../../../../libepmicrochip/libsomeip/src/someip-gen.c</itemPath>
-        <itemPath>../../../../libepmicrochip/libsomeip/src/someip-pars.c</itemPath>
-        <itemPath>../../../../libepmicrochip/libsomeip/src/someip-timer.c</itemPath>
-        <itemPath>../../../../libepmicrochip/libsomeip/src/someip-transmit.c</itemPath>
-      </logicalFolder>
       <itemPath>../src/config/default/pin_configurations.csv</itemPath>
     </logicalFolder>
   </logicalFolder>

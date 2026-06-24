@@ -263,7 +263,11 @@ picture, each filtered by the bridge's own `eth0` MAC to stay duplicate-free:
 
 ### CLI command groups
 
-Two `SYS_CMD` groups; type the command name directly (no group prefix needed).
+Several `SYS_CMD` groups; type the command name directly (no group prefix needed).
+Every `lan866x-*` host tool except `lan866x-flashimg`/`lan866x-flashpkg` has an
+on-board equivalent. Long-running monitors/demos are **bounded** (`[secs]`) and
+abort on **Ctrl-C / `q`**; their loop pumps the stack + console so bridging keeps
+running. Run `discovery` first so a target endpoint is selected.
 
 **`lan866x` group** — mirrors the host tools against the endpoint over T1S:
 
@@ -288,6 +292,56 @@ Two `SYS_CMD` groups; type the command name directly (no group prefix needed).
 | `dump <addr> <count>` | memory dump (hex) |
 | `logstat` / `logclear` | deferred packet-log statistics / clear |
 | `timestamp` | firmware build timestamp |
+
+**`gpio` group** (mirrors `gpio`/`gpioevents`/`ledtoggle`/`ledpwm`):
+
+| Command | Description |
+|---|---|
+| `gpio <pin> <0\|1\|get>` | set or read one GPIO |
+| `gpioevents <pin> [edge] [secs]` | live GPIO edge events (edge 0=fall 1=rise 2=both) |
+| `ledtoggle [pin] [beat_ms] [secs]` | bounded async LED toggle |
+| `ledpwm [pin] [freqHz] [breathMs] [secs]` | breathing LED via PWM (PWM-pin/build dependent) |
+
+**`i2c` group** (mirrors `i2cscan`/`i2cid`/`proxmon`/`lan8680`/`proxled`):
+
+| Command | Description |
+|---|---|
+| `i2cscan [sda] [scl] [speed]` | scan the I²C bus (pins default 8/9) |
+| `i2cid [addr] [reg] [sda] [scl] [speed]` | read a device ID (default VCNL4200 @0x51) |
+| `proxmon [secs] [sda] [scl]` | monitor VCNL4200 proximity |
+| `lan8680 [sda] [scl]` | read the LAN8680 SBC, read-only (auto-probes buses) |
+| `proxled [max] [secs]` | proximity drives LD1..LD3 as a level meter |
+
+**`spi` group** (mirrors `spi`/`spiid`/`thumbmon`/`adc`/`pwm`):
+
+| Command | Description |
+|---|---|
+| `spi <txhex> [mode] [speedHz]` | SPI full-duplex transfer (pins 12/13/14/15) |
+| `spiid` | identify the Thumbstick MCP3204 over SPI |
+| `thumbmon [secs]` | monitor the thumbstick axes |
+| `adc [channel 0\|1] [vref 0\|1]` | read the on-chip ADC (build-dependent) |
+| `pwm <pin> [freqHz] [dutyPct] [holdSecs]` | drive a PWM output |
+
+**`sys` group** (mirrors `servicetest`/`boot`/`uart`/`video`):
+
+| Command | Description |
+|---|---|
+| `servicetest [unsafe]` | probe which RCP methods the endpoint implements |
+| `boot [cycle\|bootloader\|main] [waitS]` | reboot endpoint between app and bootloader |
+| `uart <tx> <rx> [baud] [text]` | open a UART, optional write, read once |
+| `video [secs] [fps] [bright]` | stream a **built-in** animated RTP test pattern to the displays |
+
+**`dncp` group** (mirrors `dncpmon`/`dncpdisc`; raw UDP, not SOME/IP):
+
+| Command | Description |
+|---|---|
+| `dncpmon [secs]` | passive DNCP monitor on UDP 65526/65527 |
+| `dncpdisc [channel] [rounds] [timeoutS]` | active DNCP discovery (temporary server; use only when no other DNCP server is active) |
+
+> `boot` reboots the endpoint (link drops briefly) — run it last. `adc`/`pwm`/`uart`
+> are firmware/pin-dependent and report cleanly if the method isn't implemented on
+> the running build. `video` replaces the host tool's ffmpeg+file pipeline with a
+> self-generated pattern (no filesystem on the MCU); `ledscan` is host-only (JSON).
 
 Harmony stack commands (`netinfo`, `bridge`, `ping`, etc.) are also available.
 

@@ -371,6 +371,11 @@ void APP_Initialize(void) {
 
     Command_Init();
     LAN866X_CLI_Init();   /* register the "lan866x" SOME/IP client commands */
+    GPIO_CLI_Init();      /* gpio, gpioevents, ledtoggle, ledpwm */
+    I2C_CLI_Init();       /* i2cscan, i2cid, proxmon, lan8680, proxled */
+    SPI_CLI_Init();       /* spi, spiid, thumbmon, adc, pwm */
+    SYS_CLI_Init();       /* servicetest, boot, uart, video */
+    DNCP_CLI_Init();      /* dncpmon, dncpdisc */
     /* TODO: Initialize your application's state machine and other
      * parameters.
      */

@@ -8,8 +8,25 @@
 #ifndef LAN866X_CLI_H
 #define LAN866X_CLI_H
 
+#include <stdbool.h>
+#include <stdint.h>
+
 /* Register the "lan866x" SYS_CMD command group. Call once from APP_Initialize. */
 void LAN866X_CLI_Init(void);
+
+/* Shared helpers for the peripheral command files (gpio_cli/i2c_cli/spi_cli/...).
+ * Select the first discovered endpoint as the RCP target; false if none yet. */
+bool sel_first_ep(void);
+/* Blocking SetGpio on an open GPIO handle (value 0/1); true on RT_OK. */
+bool led_set(uint16_t handle, int value);
+
+/* Register the additional peripheral/system/DNCP command groups. Each is called
+ * once from APP_Initialize, alongside LAN866X_CLI_Init(). */
+void GPIO_CLI_Init(void);   /* gpio, gpioevents, ledtoggle, ledpwm */
+void I2C_CLI_Init(void);    /* i2cscan, i2cid, proxmon, lan8680, proxled */
+void SPI_CLI_Init(void);    /* spi, spiid, thumbmon, adc, pwm */
+void SYS_CLI_Init(void);    /* servicetest, boot, uart, video */
+void DNCP_CLI_Init(void);   /* dncpmon, dncpdisc */
 
 /* Drive the SOME/IP client: lazily runs rcp_init() once an interface is up,
  * then pumps rcp_poll() each call. Call once per superloop iteration from

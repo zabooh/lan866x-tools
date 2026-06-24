@@ -124,8 +124,9 @@ static void cmd_discovery(SYS_CMD_DEVICE_NODE *pCmdIO, int argc, char **argv)
     rcp_set_retries(3);
 }
 
-/* Select the first discovered endpoint as the RCP target; false if none yet. */
-static bool sel_first_ep(void)
+/* Select the first discovered endpoint as the RCP target; false if none yet.
+ * Shared with the peripheral command files (declared in lan866x_cli.h). */
+bool sel_first_ep(void)
 {
     rcp_endpoint_t eps[RCP_MAX_ENDPOINTS];
     if (!s_rcp_inited) return false;
@@ -293,7 +294,7 @@ static void cmd_diag(SYS_CMD_DEVICE_NODE *pCmdIO, int argc, char **argv)
 }
 
 /* ====================== ledblink (mirrors lan866x-ledblink.exe) ============ */
-static bool led_set(uint16_t handle, int value)
+bool led_set(uint16_t handle, int value)
 {
     SetGpioVar_t sv; memset(&sv, 0, sizeof(sv));
     sv.GpioValues[0] = (uint8_t)(handle >> 8);

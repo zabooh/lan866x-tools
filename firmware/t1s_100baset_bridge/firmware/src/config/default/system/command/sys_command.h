@@ -143,7 +143,7 @@
     None.
 
 */
-#define         MAX_CMD_GROUP   8
+#define         MAX_CMD_GROUP   16   /* raised from 8: the bridge adds gpio/i2c/spi/sys/dncp command groups on top of the stack's (tcpip/iperf) + Test/lan866x. Preserve after MCC regen. */
 
 
 // *****************************************************************************

@@ -107,11 +107,20 @@ side is real, not hypothetical. Full docs: `firmware/t1s_100baset_bridge/README.
   `plat.h` functions over Harmony `TCPIP_UDP_*`). `rcp.c`, `someip_stub.c` and
   `libepmicrochip/libsomeip/*` are **byte-for-byte the same** as the host build.
   Blocking RCP works because `plat_sleep_ms()` pumps `TCPIP_STACK_Task()`+console.
-- **On-board CLI** (type names directly, no group prefix): `lan866x` group —
-  `discovery`, `diag`, `ledblink`, `gpiomax` (max-speed GPIO toggle benchmark),
-  `clickdemo` (runs until Ctrl-C/`q`); `Test` group — `mirror`, `ipdump`, `stats`,
-  `plca_node`, `lan_read/lan_write`, `noip_send/noip_stat`, `logstat`. These mirror
-  the host `lan866x-*` tools (`lan866x_cli.c`, `clickdemo_cli.c`).
+- **On-board CLI** (type names directly, no group prefix): **every** `lan866x-*`
+  host tool except `flashimg`/`flashpkg` (and `ledscan`, host-only) has an on-board
+  command, grouped across files: `lan866x` (`discovery`, `diag`, `ledblink`,
+  `gpiomax`, `clickdemo`), `gpio` (`gpio`, `gpioevents`, `ledtoggle`, `ledpwm` →
+  `gpio_cli.c`), `i2c` (`i2cscan`, `i2cid`, `proxmon`, `lan8680`, `proxled` →
+  `i2c_cli.c`), `spi` (`spi`, `spiid`, `thumbmon`, `adc`, `pwm` → `spi_cli.c`),
+  `sys` (`servicetest`, `boot`, `uart`, `video` (built-in RTP test pattern) →
+  `sys_cli.c`), `dncp` (`dncpmon`, `dncpdisc` over raw `plat_udp_*` → `dncp_cli.c`),
+  and `Test` (`mirror`, `ipdump`, `stats`, `plca_node`, `lan_read/lan_write`,
+  `noip_send/noip_stat`, `logstat`). Each `*_cli.c` registers its group from
+  `APP_Initialize`; long-runners are bounded (`[secs]`) + Ctrl-C/`q`. Shared
+  helpers `sel_first_ep()`/`led_set()` live in `lan866x_cli.h`. Two preserved
+  generated-file edits: the `DRV_LAN865X_PacketTx` mirror hook **and**
+  `MAX_CMD_GROUP` raised 8→16 in `system/command/sys_command.h` (re-apply after MCC).
 - **Port mirror (SPAN):** `mirror 1` clones the bridge↔bus conversation to `eth1`
   for Wireshark, **symmetric + MAC-filtered + duplicate-free**: RX mirrors frames
   with dst==eth0 MAC (`pktEth0Handler`), TX mirrors frames with src==eth0 MAC from
