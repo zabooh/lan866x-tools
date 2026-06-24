@@ -16,4 +16,9 @@ void LAN866X_CLI_Init(void);
  * APP_Tasks (cooperative single-thread - do NOT block the superloop). */
 void LAN866X_CLI_Task(void);
 
+/* clickdemo (clickdemo_cli.c): drive the two RGB displays from the Thumbstick
+ * (SPI) + Proximity (I2C) for `seconds`, streaming RTP video to the endpoint.
+ * Bounded so it never freezes the bridge superloop. */
+void clickdemo_run(uint32_t seconds, int fps, int bright, int proxMax, int barBlue);
+
 #endif /* LAN866X_CLI_H */

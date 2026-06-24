@@ -360,10 +360,24 @@ static void cmd_ledblink(SYS_CMD_DEVICE_NODE *pCmdIO, int argc, char **argv)
     rcp_set_timeout_ms(1500); rcp_set_retries(3);
 }
 
+/* clickdemo [seconds] [fps] - run the Thumbstick+Proximity -> RGB demo. */
+static void cmd_clickdemo(SYS_CMD_DEVICE_NODE *pCmdIO, int argc, char **argv)
+{
+    uint32_t seconds = 20u;
+    int fps = 50;
+    (void)pCmdIO;
+    if (argc >= 2) seconds = (uint32_t)strtoul(argv[1], NULL, 10);
+    if (argc >= 3) fps     = (int)strtoul(argv[2], NULL, 10);
+    if (seconds < 1u)  seconds = 1u;
+    if (seconds > 600u) seconds = 600u;   /* bounded: must not block the bridge forever */
+    clickdemo_run(seconds, fps, 128, 400, 64);
+}
+
 static const SYS_CMD_DESCRIPTOR lan866x_cmd_tbl[] = {
     {"discovery", (SYS_CMD_FNC) cmd_discovery, ": list LAN866x endpoints + full status (like lan866x-discovery.exe)"},
     {"diag",      (SYS_CMD_FNC) cmd_diag,      ": T1S link diagnostics (diag [probeCount])"},
     {"ledblink",  (SYS_CMD_FNC) cmd_ledblink,  ": LED running light PA02/06/10 (ledblink [laps] [ms])"},
+    {"clickdemo", (SYS_CMD_FNC) cmd_clickdemo, ": Thumbstick+Proximity -> RGB displays (clickdemo [s] [fps])"},
 };
 
 void LAN866X_CLI_Init(void)

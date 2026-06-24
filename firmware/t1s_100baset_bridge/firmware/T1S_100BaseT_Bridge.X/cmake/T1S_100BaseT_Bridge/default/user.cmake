@@ -124,7 +124,8 @@ set(LAN866X_STACK_SRCS
     "${LAN866X_ROOT}/src/someip_stub.c"
     "${LAN866X_ROOT}/src/rcp.c"
     "${PROJECT_SOURCE_ROOT}/../src/plat_h3tcpip.c"
-    "${PROJECT_SOURCE_ROOT}/../src/lan866x_cli.c")
+    "${PROJECT_SOURCE_ROOT}/../src/lan866x_cli.c"
+    "${PROJECT_SOURCE_ROOT}/../src/clickdemo_cli.c")
 
 target_sources(T1S_100BaseT_Bridge_default_default_XC32_compile PRIVATE ${LAN866X_STACK_SRCS})
 target_include_directories(T1S_100BaseT_Bridge_default_default_XC32_compile PRIVATE
