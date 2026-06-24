@@ -103,23 +103,29 @@ raw-Ethernet loopback test (`noip_send`), LAN865x register peek/poke
 
 ## 2. Hardware setup
 
-The bridge node is built from Microchip Xplained-Pro hardware. The **LAN866x
-endpoint** on the T1S side is a *separate* device (the thing you control); it is
-not part of the bridge board.
+The bridge node is built from a Microchip SAM E54 Curiosity board with one
+MikroElektronika Click add-on. The **LAN866x endpoint** on the T1S side is a
+*separate* device (the thing you control); it is not part of the bridge board.
+
+![The assembled bridge board: the SAM E54 Curiosity host with its onboard 100BASE-T RJ45 (bottom left), and the green Two-Wire ETH Click (10BASE-T1S MAC-PHY, left) carrying the T1S two-wire bus.](boards.jpg)
 
 ### Bridge board: bill of materials
 
 | Function | Board | Microchip order number |
 |---|---|---|
-| **MCU host** (Cortex-M4F, runs this firmware) | SAM E54 Xplained Pro Evaluation Kit (ATSAME54P20A) | **ATSAME54-XPRO** |
-| **100BASE-T PHY** for `eth1` (GMAC ↔ RJ45) | LAN8740A PHY Daughter Board | **AC320004-3** |
+| **MCU host** (Cortex-M4F, runs this firmware) + **onboard 100BASE-T PHY** for `eth1` (GMAC ↔ RJ45) | SAM E54 Curiosity (Ultra) board (ATSAME54P20A, onboard LAN8740A Ethernet) | **DM320210** — *verify against your board* |
 | **10BASE-T1S MAC-PHY** for `eth0` (SPI ↔ two-wire bus) | MikroElektronika **Two-Wire ETH Click** (LAN8651) | `MIKROE-xxxx` — *verify on mikroe.com* |
 
-> The LAN865x driver (`DRV_LAN865X`) talks to the **LAN8651** MAC-PHY on the
-> Two-Wire ETH Click over SERCOM SPI. The SPI pin assignment in the firmware is
-> fixed (CS=PC15, INT=PC14, see below) and the Click's wiring must land on those
-> pins. The exact MikroElektronika order code should be confirmed against the
-> board you have — it could not be looked up offline.
+> **`eth1` (100BASE-T) is the host board's onboard Ethernet** — a **LAN8740A** PHY
+> on RMII (PHY address 0), driven by the GMAC. No separate PHY daughter board is
+> used; the RJ45 on the board edge is the 100BASE-T port. This matches the
+> firmware config (`DRV_LAN8740_PHY_*` in `configuration.h`).
+>
+> **`eth0` (10BASE-T1S)** uses the **LAN8651** MAC-PHY on the Two-Wire ETH Click,
+> driven by `DRV_LAN865X` over SERCOM SPI. The SPI pin assignment in the firmware
+> is fixed (CS=PC15, INT=PC14, see below) and the Click's wiring must land on
+> those pins. The exact board order codes (Curiosity variant, MikroE Click) should
+> be confirmed against the hardware you have — they could not be looked up offline.
 
 ### How `eth0` (LAN865x) is wired (from the firmware config)
 
@@ -159,12 +165,12 @@ RJ45 adapter on the same subnet (e.g. `192.168.0.200`).
 
 ### Console and cabling
 
-1. **Debugger + console:** one USB cable from the PC to the SAM E54 Xplained
-   Pro **EDBG** USB port. This is both the programmer (PKOB/EDBG) and the
-   virtual COM port for the CLI (**115200 8N1**).
-2. **100BASE-T:** RJ45 on the LAN8740 daughter board ↔ the PC's Ethernet
+1. **Debugger + console:** one USB cable from the PC to the SAM E54 Curiosity
+   board's **embedded-debugger** USB port. This is both the programmer
+   (PKOB/EDBG) and the virtual COM port for the CLI (**115200 8N1**).
+2. **100BASE-T:** the board's **onboard RJ45** (LAN8740A PHY) ↔ the PC's Ethernet
    adapter (the one set to `192.168.0.200`).
-3. **T1S:** the two-wire bus from the LAN865x add-on to the LAN866x endpoint.
+3. **T1S:** the two-wire bus from the LAN865x Click to the LAN866x endpoint.
 
 ---
 
@@ -300,9 +306,13 @@ Harmony stack commands (`netinfo`, `bridge`, `ping`, etc.) are also available.
 | **Python 3.9+** | `pyserial` for the tool scripts (installed by setup) |
 | **Terminal** | the board's EDBG virtual COM port, 115200 8N1 |
 
-> The supported build path is `build.bat` (CMake/Ninja). The MPLAB X IDE build
-> (`nbproject/` + `Makefile`) is **not** wired for the SOME/IP sources and won't
-> link as-is; the IDE is kept for editing / MCC regeneration only.
+> **Two build paths.** `build.bat` (CMake/Ninja) is the primary, scripted path.
+> The **MPLAB X IDE** also builds the project: `nbproject/configurations.xml` is
+> wired with the SOME/IP client sources (`rcp.c`, `someip_stub.c`, the
+> `libsomeip/src/someip-*.c`, `plat_h3tcpip.c`, `lan866x_cli.c`, `clickdemo_cli.c`)
+> and their include directories, so *Open Project → Build* links cleanly (verified).
+> If you re-run **MCC code generation**, re-check that `configurations.xml` still
+> lists those files (MCC can overwrite it).
 
 ### 4.2 One-time setup after cloning
 
@@ -503,7 +513,7 @@ The original `eth0` frame is never altered — the mirror clones a fresh packet 
 ### 6.3 Using it
 
 1. On the PC, start **Wireshark** on the Fast-Ethernet adapter connected to the
-   bridge's `eth1` (RJ45 on the LAN8740 board).
+   bridge's `eth1` (the board's onboard RJ45).
 2. On the board CLI: `mirror 1` (turn it on). `mirror` with no argument shows the
    current state; `mirror 0` turns it off.
 3. Run anything that talks to the endpoint — `discovery`, `diag`, any `lan866x`
