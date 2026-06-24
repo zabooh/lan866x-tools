@@ -39,9 +39,14 @@ on-board, straight from a serial console.
   - [5.2 Runtime via the CLI (not persistent)](#52-runtime-via-the-cli-not-persistent)
 - [6. Port mirror: capturing the T1S bus in Wireshark](#6-port-mirror-capturing-the-t1s-bus-in-wireshark)
   - [6.1 Why a mirror is needed](#61-why-a-mirror-is-needed)
-  - [6.2 What gets mirrored (RX and TX paths)](#62-what-gets-mirrored-rx-and-tx-paths)
+  - [6.2 What gets mirrored (both directions, MAC-filtered)](#62-what-gets-mirrored-both-directions-mac-filtered)
   - [6.3 Using it](#63-using-it)
   - [6.4 Limitations](#64-limitations)
+- [7. The lan866x SOME/IP commands](#7-the-lan866x-someip-commands)
+  - [7.1 discovery](#71-discovery)
+  - [7.2 diag](#72-diag)
+  - [7.3 ledblink](#73-ledblink)
+  - [7.4 clickdemo](#74-clickdemo)
 
 ---
 
@@ -527,3 +532,78 @@ mirror 0        # turn it off when done
   diagnostics — leave it **off** for normal bridging to avoid the extra load.
 - Mirror state is a runtime toggle (like the §5.2 CLI settings) and defaults to
   **off** on every boot.
+
+---
+
+## 7. The `lan866x` SOME/IP commands
+
+These four commands are the on-board equivalents of the PC host tools: they speak
+the **RCP service (`0xFF10`) over SOME/IP** to the endpoint across the T1S bus,
+using the exact same `rcp.c` client the `.exe` tools use. Type the name directly
+(no group prefix); `help lan866x` lists them:
+
+```text
+> help lan866x
+ *** discovery: list LAN866x endpoints + full status (like lan866x-discovery.exe) ***
+ *** diag: T1S link diagnostics (diag [probeCount]) ***
+ *** ledblink: LED running light PA02/06/10 (ledblink [laps] [ms]) ***
+ *** clickdemo: Thumbstick+Proximity -> RGB displays (clickdemo [s] [fps]) ***
+```
+
+Run **`discovery` first** — it performs Service Discovery and selects an endpoint;
+the other commands act on the selected endpoint. These are blocking RCP calls, but
+they don't stall the bridge: `plat_sleep_ms()` pumps the TCP/IP stack and console
+while waiting (see §3), so bridging and live console output keep running.
+
+### 7.1 discovery
+
+`discovery` — no arguments. Mirrors `lan866x-discovery.exe`. Sends a SOME/IP
+FindService, then for each endpoint found prints a full status block via
+`GetStatus` + `GetNetworkStatus`:
+
+- identity: chip identifier (→ Control / Lighting / Audio endpoint), uptime,
+  active application, main/root/bootloader versions, COMO/service/keys versions,
+  startup information (security mode);
+- network: MAC, IPv4, endpoint link status, OA-SPI status, arbitration mode
+  (CSMA/CD · PLCA · PLCA-no-fallback), and the endpoint's PLCA node id.
+
+It uses a snappy 1000 ms timeout / 1 retry (the T1S link is ~2 ms RTT). If nothing
+is found, SD may still be settling — retry, and check the T1S/PLCA wiring.
+
+### 7.2 diag
+
+`diag [probeCount]` — link diagnostics; mirrors `lan866x-diag.exe`. `probeCount`
+defaults to **20**, clamped to **1…500**. Prints four sections:
+
+- **DEVICE** — chip identifier and firmware versions.
+- **T1S NETWORK** — link status, OA-SPI status, arbitration, PLCA node id, reset
+  reason.
+- **PHY DIAGNOSIS** — PHY-level link quality fields.
+- **LINK PROBE** — `probeCount` RCP round-trips with a live `probing k/N …`
+  counter, then `probes / completed / lost / loss%`. A verdict line reports
+  **HEALTHY** when loss < 3 %, else **DEGRADED – check link**.
+- **BANDWIDTH (RCP goodput)** — round-trips per second and the achieved RCP
+  goodput in kbit/s (see also the `diag.exe` bandwidth section).
+
+### 7.3 ledblink
+
+`ledblink [laps] [ms]` — a "hello-world" running light on the endpoint's GPIOs
+**PA02 / PA06 / PA10**; mirrors `lan866x-ledblink.exe`. `laps` defaults to **3**
+(clamped **1…50**, so it can't tie up the superloop indefinitely); the step time
+`ms` defaults to **300**. Each step lights one GPIO and clears the others, walking
+the three pins for the requested number of laps.
+
+### 7.4 clickdemo
+
+`clickdemo [s] [fps]` — the sensor→display demo; mirrors `lan866x-clickdemo.exe`.
+`s` (run time in seconds) defaults to **20** (clamped **1…600**); `fps` defaults to
+**50** (clamped **1…100**). On a **Lighting** endpoint with two MikroE Click
+displays it reads two sensors and renders them as an RTP/RFC4175 video stream
+(UDP 5001):
+
+- **Thumbstick Click** (SPI, MCP3204) → an orange spot on the left 10×10 display;
+- **Proximity 3 Click** (I²C, VCNL4200) → a blue distance bar on the right display.
+
+The run is time-bounded so it never freezes the bridge, and `plat_sleep_ms()`
+keeps the stack alive during the frame cadence. Press **Ctrl-C** or **`q`** to stop
+early.
