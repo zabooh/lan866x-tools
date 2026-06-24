@@ -452,22 +452,38 @@ Two things are otherwise invisible to a PC capture on `eth1`:
 1. **The endpoint's replies/offers** arrive on `eth0` and — because they are
    addressed to the bridge itself — are delivered *locally* by the MAC bridge, not
    forwarded onto `eth1`. So a plain `eth1` capture never shows them.
-2. **The bridge's own requests** (SOME/IP FindService, RCP method calls) are sent
+2. **The SOME/IP client's own requests** (FindService, RCP method calls) are sent
    *out* of `eth0` by the firmware. A node never receives its own transmissions,
    so no packet handler ever sees them either.
 
-The mirror reconstructs both directions onto `eth1`, giving a complete picture of
-the T1S conversation.
+The mirror reconstructs both directions onto `eth1` for the SOME/IP/RCP case,
+giving a complete picture of that conversation. **Note the asymmetry** between the
+two paths — see the table and the ping example below.
 
 ### 6.2 What gets mirrored (RX and TX paths)
 
 | Path | Source | Implementation (`app.c` / `plat_h3tcpip.c`) | What it captures |
 |---|---|---|---|
-| **RX mirror** | bus → bridge | `mirror_eth0_to_eth1()`, called from `pktEth0Handler` | every frame the endpoint (or any T1S node) sends to the bridge — offers, replies, ARP — cloned verbatim onto `eth1` |
-| **TX mirror** | bridge → bus | `mirror_udp_tx()`, called from `plat_udp_send()` | the firmware's own outgoing UDP (FindService + RCP requests), rebuilt as an Ethernet/IPv4/UDP frame and injected on `eth1` |
+| **RX mirror** | bus → bridge | `mirror_eth0_to_eth1()`, called from `pktEth0Handler` | **every** frame received on `eth0`, protocol-independent — SOME/IP offers/replies, ICMP echo replies, ARP, anything the endpoint or another T1S node sends — cloned verbatim onto `eth1` |
+| **TX mirror** | bridge → bus | `mirror_udp_tx()`, called from `plat_udp_send()` | **only** the UDP datagrams the embedded SOME/IP client sends through `plat_udp_send()` (FindService + RCP requests), rebuilt as an Ethernet/IPv4/UDP frame and injected on `eth1` |
 
 The original `eth0` frame is never altered — the RX mirror clones a fresh packet
 for `eth1` and leaves the bus frame for normal local/bridge processing.
+
+**The TX path is not symmetric with the RX path.** RX mirroring is total; TX
+mirroring covers *only* the SOME/IP client's own UDP. Any other firmware-
+originated traffic — a stack-generated **`ping` (ICMP)**, ARP requests the bridge
+emits, etc. — does **not** go through `plat_udp_send()`, so its outgoing frames
+are **not** mirrored (and the node can't receive its own TX, so the RX handler
+misses them too).
+
+> **Worked example — `ping` from the firmware to the endpoint:** the ICMP echo
+> *request* leaves on `eth0` via the TCP/IP stack (not `plat_udp_send()`) → **not
+> mirrored**. The endpoint's echo *reply* arrives on `eth0` → RX-mirrored → shows
+> up on `eth1`. So in Wireshark you see **only the replies**, not the requests.
+> By contrast, `discovery`/`diag` (RCP) show **both** directions, because their
+> requests go out through `plat_udp_send()` (TX mirror) and the replies return via
+> the RX mirror.
 
 ### 6.3 Using it
 
@@ -494,6 +510,9 @@ mirror 0        # turn it off when done
   payload correctly regardless; only the Ethernet destination may be approximate.
 - **UDP checksum is sent as 0** (not computed) on mirrored TX frames — valid for
   IPv4, but Wireshark may flag "checksum unverified".
+- **TX coverage is SOME/IP-only:** the TX mirror sees just the UDP sent via
+  `plat_udp_send()`. Firmware-originated ICMP (`ping`), ARP, etc. are not
+  mirrored (see §6.2). RX coverage is complete (all protocols).
 - The TX mirror only handles datagrams up to ~1400 B of payload; the RX mirror
   copies frames up to the 1518-byte Ethernet MTU.
 - Mirroring adds one cloned `eth1` transmit per relevant frame. It is meant for
