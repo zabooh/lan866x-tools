@@ -23,8 +23,30 @@ import argparse
 import time
 import os
 import re
+import glob
 
-MDB_DEFAULT  = r"C:\Program Files\Microchip\MPLABX\v6.25\mplab_platform\bin\mdb.bat"
+
+def _find_mdb():
+    """Locate mdb.bat from any installed MPLAB X version (newest first), so this
+    works on any machine regardless of the MPLAB X version. Falls back to the
+    well-known v6.25 path if nothing is found (overridable with --mdb)."""
+    pats = [
+        r"C:\Program Files\Microchip\MPLABX\v*\mplab_platform\bin\mdb.bat",
+        r"C:\Program Files (x86)\Microchip\MPLABX\v*\mplab_platform\bin\mdb.bat",
+    ]
+    found = []
+    for p in pats:
+        found += glob.glob(p)
+
+    def ver_key(path):
+        m = re.search(r'MPLABX[\\/]+v(\d+)\.(\d+)', path)
+        return (int(m.group(1)), int(m.group(2))) if m else (0, 0)
+
+    found.sort(key=ver_key, reverse=True)
+    return found[0] if found else r"C:\Program Files\Microchip\MPLABX\v6.25\mplab_platform\bin\mdb.bat"
+
+
+MDB_DEFAULT  = _find_mdb()
 MCU_DEFAULT  = "ATSAME54P20A"
 TOOL_DEFAULT = "edbg"
 SWD_KHZ_DEFAULT = 2000

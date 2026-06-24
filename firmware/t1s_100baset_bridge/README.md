@@ -22,16 +22,29 @@ On top of the bridge it embeds the **LAN866x SOME/IP (RCP) client** from
 | **Python 3.9+** | `pyserial` for the tool scripts |
 | **Terminal** | the board's EDBG virtual COM port, 115200 8N1 |
 
-## Tool Setup (once per machine)
+## Tool Setup (once per machine after cloning)
+
+Connect the board via its USB debugger port, then run the one-shot setup:
 
 ```bat
-install_dependencies.bat       :: pyserial (python deps)
-python setup_compiler.py       :: pick the installed XC32 version (writes setup_compiler.config)
-python setup_flasher.py        :: detect + save the bridge board's EDBG (setup_flasher.config)
-python setup_debug.py          :: SAME54_DFP tool-pack fix for VS Code debugging
+git clone https://github.com/zabooh/lan866x-tools.git
+cd lan866x-tools\firmware\t1s_100baset_bridge
+setup.bat
 ```
 
-Both `.config` files are per-machine and git-ignored.
+`setup.bat` adapts the project to the local machine (other clones have different
+compiler versions, COM ports and tool versions), running in sequence:
+
+| Step | Script | Adapts |
+|---|---|---|
+| 1 | `requirements.txt` (pip) | install `pyserial` |
+| 2 | `setup_compiler.py` | pick the installed **XC32 version** → `setup_compiler.config` (+ patches `toolchain.cmake`) |
+| 3 | `setup_flasher.py` | detect the **board's EDBG/COM port** → `setup_flasher.config` |
+| 4 | `setup_debug.py` | SAME54_DFP tool-pack fix (VS Code debugging) |
+
+The **MPLAB X version** needs no setup step — `mdb_flash.py` auto-discovers the
+installed version. The two `.config` files are per-machine and git-ignored, so
+each clone generates its own. (You can also run any step individually.)
 
 ## Build & Flash
 
