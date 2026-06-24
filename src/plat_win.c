@@ -36,6 +36,11 @@ struct plat_udp {
 static struct plat_udp s_socks[MAX_PLAT_SOCKETS];
 static int             s_wsaRefs = 0;   /* WSAStartup ref count */
 
+/* UDP payload byte counters (used by lan866x-diag for the bandwidth estimate).
+ * Defined here so every tool links them; only diag reads them. */
+volatile uint32_t g_plat_tx_bytes = 0;
+volatile uint32_t g_plat_rx_bytes = 0;
+
 /* ===================== 1) time base ===================================== */
 
 uint32_t plat_now_ms(void) { return GetTickCount(); }
@@ -141,6 +146,7 @@ bool plat_udp_send(plat_udp_t *s, const uint8_t dstIp[4], uint16_t dstPort,
         PRINT("plat_udp_send: sendto failed, error=%d\n", WSAGetLastError());
         return false;
     }
+    if (sent > 0) g_plat_tx_bytes += (uint32_t)sent;
     return (sent == (int)len);
 }
 
@@ -214,6 +220,7 @@ int plat_udp_poll(void)
                 ip[2] = from.sin_addr.S_un.S_un_b.s_b3;
                 ip[3] = from.sin_addr.S_un.S_un_b.s_b4;
                 port = ntohs(from.sin_port);
+                g_plat_rx_bytes += (uint32_t)len;
                 s->rx(s, ip, port, rxbuf, (uint16_t)len, s->tag);
                 dispatched++;
             }

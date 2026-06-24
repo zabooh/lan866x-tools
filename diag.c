@@ -229,6 +229,39 @@ int main(int argc, char **argv)
             printf("  Note: a packet capture is the authoritative wire reference (host+link here).\n");
         }
     }
+
+    /* ---- bandwidth: achieved RCP goodput over a tight back-to-back burst ----
+     * Measures the actual UDP payload bytes (request + reply) moved per second.
+     * This is the sequential request/reply rate, bound by RCP round-trip latency
+     * and host scheduling - NOT the raw 10BASE-T1S 10 Mbit/s line rate. */
+    printf("\n================ BANDWIDTH (RCP goodput) ================\n");
+    {
+        extern volatile uint32_t g_plat_tx_bytes, g_plat_rx_bytes;
+        double per = qpc_ms_per_tick();
+        int bn = 50, okb = 0, k;
+        uint32_t tx0 = g_plat_tx_bytes, rx0 = g_plat_rx_bytes;
+        long long t0 = qpc();
+        rcp_set_retries(0); rcp_set_timeout_ms(400);
+        for (k = 0; k < bn; ++k) {
+            GetStatusReply_t s3; memset(&s3, 0, sizeof(s3));
+            if (rcp_get_status(&s3) == RT_OK) okb++;     /* no inter-request gap = max rate */
+        }
+        rcp_set_retries(3); rcp_set_timeout_ms(1500);
+        {
+            double   ms    = (double)(qpc() - t0) * per;
+            uint32_t txb   = g_plat_tx_bytes - tx0;
+            uint32_t rxb   = g_plat_rx_bytes - rx0;
+            uint32_t bytes = txb + rxb;
+            double   kbps  = ms > 0 ? (bytes * 8.0) / ms : 0;   /* bits/ms = kbit/s */
+            double   rtps  = ms > 0 ? (okb * 1000.0) / ms : 0;
+            printf("  %d round-trips in %.0f ms (%d ok), %u UDP payload bytes (tx %u + rx %u)\n",
+                   bn, ms, okb, bytes, txb, rxb);
+            printf("  round-trips/s: %.0f    RCP goodput: ~%.0f kbit/s\n", rtps, kbps);
+            printf("  (sequential request/reply bound by RCP latency + host scheduling,\n");
+            printf("   not the 10BASE-T1S 10 Mbit/s line rate.)\n");
+        }
+    }
+
     timeEndPeriod(1);
     return 0;
 }
