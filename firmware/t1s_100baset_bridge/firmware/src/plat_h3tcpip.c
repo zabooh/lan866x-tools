@@ -110,6 +110,12 @@ plat_udp_t *plat_udp_open(uint16_t *port, plat_udp_rx_cb rx, void *tag)
         (void)TCPIP_UDP_OptionsSet(sock, UDP_OPTION_MULTICAST, &mc);
     }
 
+    /* Enlarge the TX buffer: the default (TCPIP_UDP_SOCKET_DEFAULT_TX_SIZE, 512)
+     * is too small for the clickdemo RTP frame (~674 B), so TxPutIsReady() would
+     * report < len and the datagram would never be sent. 1024 covers the RTP
+     * frame and every RCP request this firmware emits. */
+    (void)TCPIP_UDP_OptionsSet(sock, UDP_OPTION_TX_BUFF, (void *)(uintptr_t)1024u);
+
     if (*port == 0u) {                 /* report back the actual bound port */
         UDP_SOCKET_INFO info;
         if (TCPIP_UDP_SocketInfoGet(sock, &info))
