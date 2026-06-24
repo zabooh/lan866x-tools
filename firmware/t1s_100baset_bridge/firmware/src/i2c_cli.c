@@ -144,35 +144,47 @@ static void cmd_i2cid(SYS_CMD_DEVICE_NODE *pCmdIO, int argc, char **argv)
     rcp_set_timeout_ms(1500); rcp_set_retries(3);
 }
 
-/* --- proxmon [secs] [sda] [scl] (mirrors proxmon.c) ------------------------ */
+/* --- proxmon [secs] [max] [sda] [scl] (mirrors proxmon.c) ------------------
+ * Live 40-char proximity bar:  [#####------------] raw=  330            */
+#define PROX_BARW 40
 static void cmd_proxmon(SYS_CMD_DEVICE_NODE *pCmdIO, int argc, char **argv)
 {
     uint8_t sda = I2C_SDA, scl = I2C_SCL;
-    uint32_t secs = 20u, start, endt, lastP = 0u;
+    uint32_t secs = 20u, maxRaw = 400u, start, endt, lastP = 0u;
     uint16_t h;
     SYS_CONSOLE_HANDLE con = SYS_CONSOLE_HandleGet(SYS_CONSOLE_INDEX_0);
     int aborted = 0;
     (void)pCmdIO;
-    if (argc >= 2) secs = (uint32_t)strtoul(argv[1], NULL, 10);
-    if (argc >= 3) sda  = (uint8_t)strtoul(argv[2], NULL, 10);
-    if (argc >= 4) scl  = (uint8_t)strtoul(argv[3], NULL, 10);
+    if (argc >= 2) secs   = (uint32_t)strtoul(argv[1], NULL, 10);
+    if (argc >= 3) maxRaw = (uint32_t)strtoul(argv[2], NULL, 10);
+    if (argc >= 4) sda    = (uint8_t)strtoul(argv[3], NULL, 10);
+    if (argc >= 5) scl    = (uint8_t)strtoul(argv[4], NULL, 10);
     if (secs < 1u) secs = 1u; if (secs > 600u) secs = 600u;
+    if (maxRaw < 1u) maxRaw = 1u;
 
     if (!sel_first_ep()) { SYS_CONSOLE_PRINT("[proxmon] no endpoint - run 'discovery' first\r\n"); return; }
     rcp_set_timeout_ms(400); rcp_set_retries(2);
     if (!i2c_open(sda, scl, 1u, &h)) { SYS_CONSOLE_PRINT("OpenI2C failed\r\n"); goto restore; }
     if (!vcnl_init(h)) { SYS_CONSOLE_PRINT("VCNL4200 not found / init failed\r\n"); i2c_close(h); goto restore; }
 
-    SYS_CONSOLE_PRINT("Proximity monitor for %u s (move your hand; 'q' to stop)...\r\n", (unsigned)secs);
+    SYS_CONSOLE_PRINT("Live proximity (VCNL4200) for %u s - move your hand near the sensor ('q' to stop)...\r\n", (unsigned)secs);
     start = plat_now_ms(); endt = start + secs * 1000u;
     while (!aborted && (int32_t)(plat_now_ms() - endt) < 0) {
         uint16_t raw = 0;
         if (i2c_rd16(h, VCNL4200_ADDR, VCNL4200_PS_DATA, 0, &raw)) {
             uint32_t now = plat_now_ms();
-            if (now - lastP >= 150u) { SYS_CONSOLE_PRINT("\r  proximity raw = %5u   ", raw); lastP = now; }
+            if (now - lastP >= 66u) {                 /* ~15 Hz render */
+                char bar[PROX_BARW + 1]; int k;
+                uint32_t fill = (uint32_t)raw * PROX_BARW / maxRaw;
+                if (fill > PROX_BARW) fill = PROX_BARW;
+                for (k = 0; k < PROX_BARW; ++k) bar[k] = (uint32_t)k < fill ? '#' : '-';
+                bar[PROX_BARW] = 0;
+                SYS_CONSOLE_PRINT("\r  [%s] raw=%5u ", bar, raw);
+                lastP = now;
+            }
         }
         if (chk_abort(con)) aborted = 1;
-        plat_sleep_ms(50);
+        plat_sleep_ms(30);
     }
     SYS_CONSOLE_PRINT("\r\nDone.\r\n");
     i2c_close(h);
