@@ -469,3 +469,20 @@ What stays / what you write:
 Received UDP is dispatched **synchronously** from `plat_udp_poll()`, so no RTOS is required (a plain superloop works) and no locks are needed. `someip-cfg.h` is sized MCU-friendly (core static RAM ≈ 15 kB). A ready-to-fill starting point is in [`src/plat_lwip.c.template`](src/plat_lwip.c.template).
 
 ➡️ Details: **[PORTING.md](PORTING.md)**.
+
+### 9.1 Worked MCU port: the T1S ↔ 100BASE-T bridge firmware
+
+This port is not just theory — there is a **complete, running implementation** in
+[`firmware/t1s_100baset_bridge/`](firmware/t1s_100baset_bridge/). It runs the whole
+toolset on an **ATSAME54P20A** over the **MPLAB Harmony 3** TCP/IP stack: the one
+platform file is [`plat_h3tcpip.c`](firmware/t1s_100baset_bridge/firmware/src/plat_h3tcpip.c)
+(the six `plat.h` functions over `TCPIP_UDP_*`), while `rcp.c`, `someip_stub.c` and
+`libsomeip` are byte-for-byte the same as on the host. On top of the port it is a
+**10BASE-T1S ↔ 100BASE-T Layer-2 bridge** (PLCA coordinator), so a PC on Fast
+Ethernet can reach a LAN866x endpoint on the T1S bus, and it exposes the host
+tools (`discovery`, `diag`, `ledblink`, `clickdemo`) as on-board serial commands
+plus a Wireshark SPAN port for the T1S bus.
+
+➡️ Full firmware documentation — purpose, hardware (with order numbers), build &
+flash, configuration, and the SOME/IP commands — is in its own
+**[firmware/t1s_100baset_bridge/README.md](firmware/t1s_100baset_bridge/README.md)**.
