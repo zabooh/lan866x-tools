@@ -6,7 +6,24 @@ SOME/IP, via a T1S-to-USB adapter. Each tool is a small command-line program.
 
 Read this file first, then `README.md` (build/usage), `docs/INTEGRATION_NOTES.md`
 (the hard-won protocol/stack know-how), `docs/RCP_API.md` (the full `rcp.c` API
-reference), `PORTING.md` (MCU port), `TOOLS.md`.
+reference), `PORTING.md` (MCU port), `TOOLS.md`, and — for the embedded side —
+`firmware/t1s_100baset_bridge/README.md` (the bridge firmware / realized MCU port).
+
+## On session start — do this first
+At the **start of a new session** in this repo (your first reply), before waiting
+for a task, **orient yourself and brief the user**:
+1. Read this file, `README.md`, and `firmware/t1s_100baset_bridge/README.md`. Skim
+   `docs/INTEGRATION_NOTES.md` and `PORTING.md` as needed; run `git log --oneline -10`
+   for the recent state. (Read-only — do not build, flash, or change anything yet.)
+2. Post a **concise summary** to the chat covering **both** halves of the repo:
+   - the **host toolset** (pure-C `lan866x-*` RCP/SOME/IP tools, `build.bat`, `release/`);
+   - the **bridge firmware** under `firmware/t1s_100baset_bridge/` (T1S↔100BASE-T
+     bridge on ATSAME54, the realized MCU port; its build paths and on-board CLI);
+   - the key constraints (private repo, no end-customer name, NDA material stays
+     out — see below) and that the live board (if any) needs the NDA `EVB/` path.
+3. Then **ask the user what they want to do next** — and wait. Keep the summary
+   short (a screenful); don't dump file contents.
+Do this once per session, not on every message.
 
 ## Constraints — do not violate
 - **Keep this repo private.** It bundles Microchip SLA001 vendor sources under
@@ -73,6 +90,41 @@ That directory should contain (and a developer setting it up should provide):
 - Live test needs a board: `lan866x-discovery` lists endpoints; `lan866x-diag --ip <addr>`
   reports link quality.
 - **Keep 0 C++ symbols**: `nm release/lan866x-<tool>.exe | grep -cE '_ZSt|_ZNSt|__gxx'` → 0.
+
+## Firmware: the T1S↔100BASE-T bridge (the realized MCU port)
+Under `firmware/t1s_100baset_bridge/` is a **vendored copy** of the bridge firmware
+(github.com/zabooh/t1s_100baset_bridge; PTP support removed — that lives on in the
+newer `net_10base_t1s`). It is this toolset's **working MCU port**, so the embedded
+side is real, not hypothetical. Full docs: `firmware/t1s_100baset_bridge/README.md`.
+- **What it is:** a **10BASE-T1S ↔ 100BASE-T Layer-2 bridge** on an **ATSAME54P20A**
+  (MPLAB Harmony 3), the **PLCA coordinator** (node id 0). `eth0` = LAN865x (LAN8651
+  Two-Wire ETH Click, SPI; CS=PC15/INT=PC14), `eth1` = GMAC + LAN8740. The Harmony
+  **MAC bridge** does the L2 forwarding (no manual forward path). A PC on `eth1`
+  reaches the LAN866x endpoint (default **192.168.0.54**) through the bridge.
+  Defaults in `firmware/src/config/default/configuration.h`: eth0 .180, eth1 .181,
+  PLCA node 0 / count 8.
+- **The port itself:** only one target file — `firmware/src/plat_h3tcpip.c` (the six
+  `plat.h` functions over Harmony `TCPIP_UDP_*`). `rcp.c`, `someip_stub.c` and
+  `libepmicrochip/libsomeip/*` are **byte-for-byte the same** as the host build.
+  Blocking RCP works because `plat_sleep_ms()` pumps `TCPIP_STACK_Task()`+console.
+- **On-board CLI** (type names directly, no group prefix): `lan866x` group —
+  `discovery`, `diag`, `ledblink`, `gpiomax` (max-speed GPIO toggle benchmark),
+  `clickdemo` (runs until Ctrl-C/`q`); `Test` group — `mirror`, `ipdump`, `stats`,
+  `plca_node`, `lan_read/lan_write`, `noip_send/noip_stat`, `logstat`. These mirror
+  the host `lan866x-*` tools (`lan866x_cli.c`, `clickdemo_cli.c`).
+- **Port mirror (SPAN):** `mirror 1` clones the bridge↔bus conversation to `eth1`
+  for Wireshark, **symmetric + MAC-filtered + duplicate-free**: RX mirrors frames
+  with dst==eth0 MAC (`pktEth0Handler`), TX mirrors frames with src==eth0 MAC from
+  the single egress hook in `DRV_LAN865X_PacketTx` (a small edit in the otherwise
+  MCC-generated `config/default` driver — preserve it).
+- **Build (two paths):** primary is `firmware/t1s_100baset_bridge/build.bat`
+  (CMake/Ninja, XC32) → copies the HEX to `release/`; flash with `python flash.py`
+  (MDB, auto-finds MPLAB X). Per-machine `setup.bat` (setup_compiler/flasher/debug)
+  is run once after cloning. The project **also builds in the MPLAB X IDE** —
+  `nbproject/configurations.xml` is wired with the SOME/IP sources + include dirs;
+  re-check it after any MCC code regeneration.
+- Flash-without-building: a pre-built `firmware/t1s_100baset_bridge/release/T1S_100BaseT_Bridge.hex`
+  is committed, so a fresh clone can `python flash.py` directly.
 
 ## Non-obvious gotchas (don't relearn these the hard way)
 1. **`SOMEIP_Generator_Fill_*` writes absolutely at `pBuf[0]`** and only advances
