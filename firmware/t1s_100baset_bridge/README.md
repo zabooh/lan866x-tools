@@ -12,6 +12,39 @@ on-board, straight from a serial console.
 
 ---
 
+## Contents
+
+- [1. What this firmware is for](#1-what-this-firmware-is-for)
+  - [What you can demonstrate](#what-you-can-demonstrate)
+- [2. Hardware setup](#2-hardware-setup)
+  - [Bridge board: bill of materials](#bridge-board-bill-of-materials)
+  - [How `eth0` (LAN865x) is wired](#how-eth0-lan865x-is-wired-from-the-firmware-config)
+  - [Endpoint side (separate hardware)](#endpoint-side-separate-hardware)
+  - [Network and addressing (default)](#network-and-addressing-default)
+  - [Console and cabling](#console-and-cabling)
+- [3. Firmware architecture](#3-firmware-architecture)
+  - [Block view](#block-view)
+  - [The bridge data path](#the-bridge-data-path)
+  - [The embedded LAN866x SOME/IP client (the toolset port)](#the-embedded-lan866x-someip-client-the-toolset-port)
+  - [Application state machine (`app.c`)](#application-state-machine-appc)
+  - [Port mirror and SPAN (Wireshark)](#port-mirror-and-span-wireshark)
+  - [CLI command groups](#cli-command-groups)
+- [4. Building it yourself](#4-building-it-yourself)
+  - [4.1 Tool prerequisites (per machine)](#41-tool-prerequisites-per-machine)
+  - [4.2 One-time setup after cloning](#42-one-time-setup-after-cloning)
+  - [4.3 Build and flash](#43-build-and-flash)
+  - [4.4 First bring-up checklist](#44-first-bring-up-checklist)
+- [5. Changing IP and PLCA configuration](#5-changing-ip-and-plca-configuration)
+  - [5.1 Persistent: edit the build config and rebuild](#51-persistent-edit-the-build-config-and-rebuild)
+  - [5.2 Runtime via the CLI (not persistent)](#52-runtime-via-the-cli-not-persistent)
+- [6. Port mirror: capturing the T1S bus in Wireshark](#6-port-mirror-capturing-the-t1s-bus-in-wireshark)
+  - [6.1 Why a mirror is needed](#61-why-a-mirror-is-needed)
+  - [6.2 What gets mirrored (RX and TX paths)](#62-what-gets-mirrored-rx-and-tx-paths)
+  - [6.3 Using it](#63-using-it)
+  - [6.4 Limitations](#64-limitations)
+
+---
+
 ## 1. What this firmware is for
 
 The board sits between two worlds:
@@ -50,7 +83,7 @@ the endpoint's SOME/IP offers/replies *and* the bridge's own requests
 raw-Ethernet loopback test (`noip_send`), LAN865x register peek/poke
 (`lan_read`/`lan_write`), PLCA node-ID control, and per-interface counters.
 
-### What you can show / demonstrate with it
+### What you can demonstrate
 
 - A PC reaching a 10BASE-T1S endpoint over a standard RJ45 link, end to end.
 - Live T1S/PLCA traffic in Wireshark (mirrored onto Fast Ethernet).
@@ -68,22 +101,19 @@ The bridge node is built from Microchip Xplained-Pro hardware. The **LAN866x
 endpoint** on the T1S side is a *separate* device (the thing you control); it is
 not part of the bridge board.
 
-### Bridge board — bill of materials
+### Bridge board: bill of materials
 
 | Function | Board | Microchip order number |
 |---|---|---|
 | **MCU host** (Cortex-M4F, runs this firmware) | SAM E54 Xplained Pro Evaluation Kit (ATSAME54P20A) | **ATSAME54-XPRO** |
 | **100BASE-T PHY** for `eth1` (GMAC ↔ RJ45) | LAN8740A PHY Daughter Board | **AC320004-3** |
 | **10BASE-T1S MAC-PHY** for `eth0` (SPI ↔ two-wire bus) | MikroElektronika **Two-Wire ETH Click** (LAN8651) | `MIKROE-xxxx` — *verify on mikroe.com* |
-| **mikroBUS adapter** (mounts the Click on the SAM E54 EXT header) | mikroBUS Xplained Pro adapter | **ATMBUSADAPTER-XPRO** (*verify*) |
 
 > The LAN865x driver (`DRV_LAN865X`) talks to the **LAN8651** MAC-PHY on the
-> Two-Wire ETH Click over SERCOM SPI. The Click attaches to the SAM E54
-> Xplained Pro **EXT1** header through a mikroBUS Xplained-Pro adapter; the SPI
-> pin assignment in the firmware is fixed (CS=PC15, INT=PC14, see below) and the
-> wiring must land on those pins. The exact MikroElektronika order code and the
-> adapter part number should be confirmed against the boards you have — they
-> could not be looked up offline.
+> Two-Wire ETH Click over SERCOM SPI. The SPI pin assignment in the firmware is
+> fixed (CS=PC15, INT=PC14, see below) and the Click's wiring must land on those
+> pins. The exact MikroElektronika order code should be confirmed against the
+> board you have — it could not be looked up offline.
 
 ### How `eth0` (LAN865x) is wired (from the firmware config)
 
@@ -94,7 +124,7 @@ not part of the bridge board.
 | Chip select (CS) | **PC15** | `DRV_LAN865X_SPI_CS_IDX0 = SYS_PORT_PIN_PC15` |
 | Interrupt (INT) | **PC14** | `DRV_LAN865X_INTERRUPT_PIN_IDX0 = SYS_PORT_PIN_PC14` |
 
-### Endpoint side (the device under control — separate hardware)
+### Endpoint side (separate hardware)
 
 - A **LAN866x 10BASE-T1S endpoint** (LAN8660 Control / LAN8661 Lighting /
   LAN8662 Audio), default address **192.168.0.54**, connected to the bridge's
@@ -105,7 +135,7 @@ not part of the bridge board.
 - The endpoint hardware, datasheets and firmware packages are **NDA material**
   and are not part of this repo (see `CLAUDE.md`).
 
-### Network / addressing (default)
+### Network and addressing (default)
 
 | Interface | Role | IP | Mask | PLCA |
 |---|---|---|---|---|
@@ -121,7 +151,7 @@ RJ45 adapter on the same subnet (e.g. `192.168.0.200`).
 > T1S side shows no RX, this is the first thing to check — `Test plca_node`
 > reads it back; `Test plca_node 0` re-asserts it.
 
-### Console / cabling
+### Console and cabling
 
 1. **Debugger + console:** one USB cable from the PC to the SAM E54 Xplained
    Pro **EDBG** USB port. This is both the programmer (PKOB/EDBG) and the
@@ -132,7 +162,7 @@ RJ45 adapter on the same subnet (e.g. `192.168.0.200`).
 
 ---
 
-## 3. Firmware architecture — how it works
+## 3. Firmware architecture
 
 Built on **MPLAB Harmony 3** for the ATSAME54P20A. Single-threaded cooperative
 superloop (`SYS_Tasks()` in `main.c`); no RTOS, no threads, no locks.
@@ -206,7 +236,9 @@ entries/iteration, so logging never stalls the loop). Captured frame bytes go to
 a separate circular pool; the ring uses a lock-free single-producer/consumer
 pattern (handlers write, `APP_Tasks` reads).
 
-### Port-mirror / SPAN (Wireshark)
+### Port mirror and SPAN (Wireshark)
+
+*(Full walkthrough and limitations in [§6](#6-port-mirror-capturing-the-t1s-bus-in-wireshark).)*
 
 `mirror 1` turns on two clone paths so a PC capture on `eth1` sees the full T1S
 picture:
@@ -292,7 +324,7 @@ generates its own. You can re-run any step on its own (e.g. `python
 setup_compiler.py` after installing a new XC32). The **MPLAB X version** needs no
 setup step — `mdb_flash.py` auto-discovers the newest installed `mdb.bat`.
 
-### 4.3 Build & flash
+### 4.3 Build and flash
 
 ```bat
 build.bat            :: incremental build  (build.bat rebuild = clean build, build.bat help)
@@ -331,3 +363,140 @@ reset).
 > can start failing and a soft reboot won't clear it — power-cycle the endpoint.
 > Pace control traffic; the Windows host can drop back-to-back RCP replies (the
 > T1S link itself is excellent). See `../../docs/INTEGRATION_NOTES.md`.
+
+---
+
+## 5. Changing IP and PLCA configuration
+
+The IP addresses (`eth0` = 192.168.0.180, `eth1` = 192.168.0.181) and the PLCA
+parameters (node id 0, node count 8) can be changed two ways. **Editing the build
+config is the only persistent method** — a runtime CLI change is convenient for
+experiments but is forgotten on the next reset.
+
+### 5.1 Persistent: edit the build config and rebuild
+
+All defaults live in **`firmware/src/config/default/configuration.h`** (an
+MCC-generated file). Edit the macros, then `build.bat` + `python flash.py`.
+
+| Setting | Macro (`configuration.h`) | Default |
+|---|---|---|
+| eth0 (T1S) IP | `TCPIP_NETWORK_DEFAULT_IP_ADDRESS_IDX0` | `"192.168.0.180"` |
+| eth0 subnet mask | `TCPIP_NETWORK_DEFAULT_IP_MASK_IDX0` | `"255.255.255.0"` |
+| eth0 gateway | `TCPIP_NETWORK_DEFAULT_GATEWAY_IDX0` | `"192.168.0.1"` |
+| eth0 MAC | `TCPIP_NETWORK_DEFAULT_MAC_ADDR_IDX0` | `"00:04:25:01:02:01"` |
+| eth1 (100BASE-T) IP | `TCPIP_NETWORK_DEFAULT_IP_ADDRESS_IDX1` | `"192.168.0.181"` |
+| eth1 subnet mask | `TCPIP_NETWORK_DEFAULT_IP_MASK_IDX1` | `"255.255.255.0"` |
+| eth1 gateway | `TCPIP_NETWORK_DEFAULT_GATEWAY_IDX1` | `"192.168.0.1"` |
+| eth1 MAC | `TCPIP_NETWORK_DEFAULT_MAC_ADDR_IDX1` | `"00:04:25:01:02:04"` |
+| PLCA node id | `DRV_LAN865X_PLCA_NODE_ID_IDX0` | `0` (coordinator) |
+| PLCA node count | `DRV_LAN865X_PLCA_NODE_COUNT_IDX0` | `8` |
+
+The PLCA node-id macro is the single source of truth: `initialization.c` seeds
+the LAN865x driver from it (`.nodeId = DRV_LAN865X_PLCA_NODE_ID_IDX0`) and `app.c`
+uses it as the CLI default, so changing the macro is enough.
+
+```bat
+:: after editing configuration.h
+build.bat
+python flash.py
+```
+
+> **Keep `eth0` as PLCA node id 0** unless you deliberately move the coordinator
+> role elsewhere — the bridge must coordinate the T1S bus. Keep both interfaces
+> on the same subnet as the endpoint and the PC, since the MAC bridge makes them
+> one L2 segment.
+>
+> **MCC note:** `configuration.h` is generated by MCC. A plain text edit +
+> rebuild is fully supported. Only if you *re-run MCC code generation* will it be
+> overwritten — in that case make the change in the MCC project (TCP/IP network
+> config / LAN865x PLCA) instead.
+
+### 5.2 Runtime via the CLI (not persistent)
+
+The Harmony TCP/IP stack commands and the `Test` group let you change addressing
+and PLCA on the fly. Run `netinfo` first to see the exact interface names
+(`eth0`/`eth1`).
+
+```text
+netinfo                                   # show both interfaces, IPs, MACs, status
+setip  eth0 192.168.0.190 255.255.255.0   # set eth0 IPv4 address + mask
+setgw  eth0 192.168.0.1                    # set eth0 gateway
+setip  eth1 192.168.0.191 255.255.255.0   # set eth1 IPv4 address + mask
+plca_node 0                                # set PLCA node id (writes PLCA_CTRL1)
+plca_node                                  # (no arg) read back the current node id
+```
+
+- `setip <interface> <ipv4> <mask>` and `setgw <interface> <ipv4>` are Harmony
+  stack commands.
+- `plca_node [id]` is in the `Test` group; with an argument it writes the
+  LAN865x `PLCA_CTRL1` register (NODE_CNT:NODE_ID) live.
+
+> ⚠️ **Runtime changes are volatile.** Anything set with `setip`/`setgw`/
+> `plca_node` is lost on the next reset or power-cycle — the board boots back to
+> the `configuration.h` defaults. **For a permanent change, edit the build config
+> (§5.1) and reflash.** Use the CLI only to try a value before baking it in.
+
+---
+
+## 6. Port mirror: capturing the T1S bus in Wireshark
+
+The `mirror` command turns the bridge into a SPAN/monitor port: it copies T1S
+(`eth0`) traffic onto `eth1` so a PC running Wireshark on its Fast-Ethernet
+adapter can see the two-wire bus. This is the primary way to debug SOME/IP / RCP
+exchanges with the endpoint.
+
+### 6.1 Why a mirror is needed
+
+Two things are otherwise invisible to a PC capture on `eth1`:
+
+1. **The endpoint's replies/offers** arrive on `eth0` and — because they are
+   addressed to the bridge itself — are delivered *locally* by the MAC bridge, not
+   forwarded onto `eth1`. So a plain `eth1` capture never shows them.
+2. **The bridge's own requests** (SOME/IP FindService, RCP method calls) are sent
+   *out* of `eth0` by the firmware. A node never receives its own transmissions,
+   so no packet handler ever sees them either.
+
+The mirror reconstructs both directions onto `eth1`, giving a complete picture of
+the T1S conversation.
+
+### 6.2 What gets mirrored (RX and TX paths)
+
+| Path | Source | Implementation (`app.c` / `plat_h3tcpip.c`) | What it captures |
+|---|---|---|---|
+| **RX mirror** | bus → bridge | `mirror_eth0_to_eth1()`, called from `pktEth0Handler` | every frame the endpoint (or any T1S node) sends to the bridge — offers, replies, ARP — cloned verbatim onto `eth1` |
+| **TX mirror** | bridge → bus | `mirror_udp_tx()`, called from `plat_udp_send()` | the firmware's own outgoing UDP (FindService + RCP requests), rebuilt as an Ethernet/IPv4/UDP frame and injected on `eth1` |
+
+The original `eth0` frame is never altered — the RX mirror clones a fresh packet
+for `eth1` and leaves the bus frame for normal local/bridge processing.
+
+### 6.3 Using it
+
+1. On the PC, start **Wireshark** on the Fast-Ethernet adapter connected to the
+   bridge's `eth1` (RJ45 on the LAN8740 board).
+2. On the board CLI: `mirror 1` (turn it on). `mirror` with no argument shows the
+   current state; `mirror 0` turns it off.
+3. Run a command that talks to the endpoint — e.g. `discovery`, `diag`, or any
+   `lan866x` command — and watch the SOME/IP traffic appear in Wireshark.
+4. A useful Wireshark display filter: `udp.port == 30490 || udp.port == 6800`
+   (Service Discovery + RCP method endpoint), or `someip` if the dissector is on.
+
+```text
+mirror 1        # eth0(T1S) -> eth1 mirror: ON   (RX + the bridge's own TX)
+discovery       # now visible on eth1 in Wireshark: FindService, offers, GetStatus...
+mirror 0        # turn it off when done
+```
+
+### 6.4 Limitations
+
+- **L2 addressing is best-effort** on the TX mirror: the destination MAC is taken
+  from the ARP cache for unicast, the standard `01:00:5E:xx:xx:xx` mapping for
+  IPv4 multicast, or broadcast if unresolved. Wireshark dissects the IP/UDP
+  payload correctly regardless; only the Ethernet destination may be approximate.
+- **UDP checksum is sent as 0** (not computed) on mirrored TX frames — valid for
+  IPv4, but Wireshark may flag "checksum unverified".
+- The TX mirror only handles datagrams up to ~1400 B of payload; the RX mirror
+  copies frames up to the 1518-byte Ethernet MTU.
+- Mirroring adds one cloned `eth1` transmit per relevant frame. It is meant for
+  diagnostics — leave it **off** for normal bridging to avoid the extra load.
+- Mirror state is a runtime toggle (like the §5.2 CLI settings) and defaults to
+  **off** on every boot.
