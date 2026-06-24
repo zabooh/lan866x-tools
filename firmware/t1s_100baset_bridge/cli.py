@@ -18,14 +18,18 @@ import serial  # pyserial
 
 
 def drain(ser, seconds):
-    """Read and return everything arriving within `seconds`."""
+    """Read for at least `seconds` (a fixed window that never shrinks), plus a
+    little longer while data keeps flowing. The fixed floor matters because the
+    firmware can block in a CLI handler for a few seconds (RCP round-trips) and
+    only flush its output afterwards."""
     out = bytearray()
-    deadline = time.time() + seconds
+    floor = time.time() + seconds          # minimum window, regardless of silence
+    deadline = floor
     while time.time() < deadline:
         n = ser.in_waiting
         if n:
             out += ser.read(n)
-            deadline = time.time() + 0.4  # extend a little after fresh data
+            deadline = max(floor, time.time() + 0.5)  # keep going while data flows
         else:
             time.sleep(0.02)
     return out.decode("utf-8", errors="replace")

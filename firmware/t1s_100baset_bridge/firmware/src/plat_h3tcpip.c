@@ -59,17 +59,42 @@ plat_udp_t *plat_udp_open(uint16_t *port, plat_udp_rx_cb rx, void *tag)
         if (!s_socks[i].used) { s = &s_socks[i]; break; }
     if (!s) return NULL;
 
-    /* Server socket bound to *port, accepting datagrams from any remote on any
-     * interface (the destination is set per-send in plat_udp_send). */
-    sock = TCPIP_UDP_ServerOpen(IP_ADDRESS_TYPE_IPV4, (UDP_PORT)*port, NULL);
-    if (sock == INVALID_UDP_SOCKET) return NULL;
+    /* Server socket bound to *port. Harmony's ServerOpen needs a REAL local
+     * port: unlike Winsock bind(0), ServerOpen(...,0,...) does not assign an
+     * ephemeral port, so a reply to a 0-source-port request would be lost.
+     * rcp opens its method/transmit socket with *port==0 (ephemeral), so when
+     * we see 0 we assign a concrete local port from the dynamic range and
+     * report it back (the SOME/IP reply comes to this port). */
+    {
+        static uint16_t s_nextEphemeral = 49200u;
+        UDP_PORT bindPort = (UDP_PORT)*port;
+        if (*port == 0u) bindPort = (UDP_PORT)(s_nextEphemeral++);
+        sock = TCPIP_UDP_ServerOpen(IP_ADDRESS_TYPE_IPV4, bindPort, NULL);
+        if (sock == INVALID_UDP_SOCKET) return NULL;
+        if (*port == 0u) *port = (uint16_t)bindPort;
+    }
 
-    /* Accept multicast traffic on this socket (SD group 224.0.0.1) and don't
-     * restrict by source/interface - we bridge, traffic can arrive on eth0. */
+    /* Pin the socket to eth0 (the T1S interface, stack index 0) so the SOME/IP
+     * client always talks to the endpoint over T1S. This is essential on the
+     * bridge: eth0 (192.168.0.180) and eth1 (192.168.0.181) share one /24, so
+     * without pinning the stack could pick eth1 as the source for a request to
+     * the endpoint and the unicast reply would take an ambiguous bridged/ARP
+     * path back (-> RT_TIMEOUT). Pinned, source is .180 and replies come
+     * straight back on eth0. */
+    {
+        TCPIP_NET_HANDLE eth0 = TCPIP_STACK_IndexToNet(0);
+        if (eth0 != 0) (void)TCPIP_UDP_SocketNetSet(sock, eth0);
+    }
+
+    /* Accept multicast traffic on this socket (SD group 224.0.0.1) WITHOUT
+     * ignoring unicast: UDP_MCAST_FLAG_DEFAULT includes IGNORE_UNICAST, which
+     * would make the socket drop the unicast SOME/IP method replies (they come
+     * back to this same socket) -> RT_TIMEOUT. Clear that one bit so the socket
+     * accepts both the multicast SD offers and the unicast method replies. */
     {
         UDP_OPTION_MULTICAST_DATA mc;
         mc.flagsMask  = UDP_MCAST_FLAG_DEFAULT;
-        mc.flagsValue = UDP_MCAST_FLAG_DEFAULT;
+        mc.flagsValue = (UDP_MULTICAST_FLAGS)(UDP_MCAST_FLAG_DEFAULT & ~UDP_MCAST_FLAG_IGNORE_UNICAST);
         (void)TCPIP_UDP_OptionsSet(sock, UDP_OPTION_MULTICAST, &mc);
     }
 
@@ -99,13 +124,15 @@ bool plat_udp_send(plat_udp_t *s, const uint8_t dstIp[4], uint16_t dstPort,
     dst.v4Add.v[2] = dstIp[2];
     dst.v4Add.v[3] = dstIp[3];
 
+    /* Canonical Harmony order: TxPutIsReady FIRST (it allocates/initialises the
+     * TX packet), THEN set the destination on that packet, THEN ArrayPut/Flush. */
+    ready = TCPIP_UDP_TxPutIsReady(s->sock, len);
+    if (ready < len) return false;
+
     if (!TCPIP_UDP_DestinationIPAddressSet(s->sock, IP_ADDRESS_TYPE_IPV4, &dst))
         return false;
     if (!TCPIP_UDP_DestinationPortSet(s->sock, (UDP_PORT)dstPort))
         return false;
-
-    ready = TCPIP_UDP_TxPutIsReady(s->sock, len);
-    if (ready < len) return false;
 
     if (TCPIP_UDP_ArrayPut(s->sock, buf, len) != len) return false;
     (void)TCPIP_UDP_Flush(s->sock);
@@ -196,13 +223,17 @@ void plat_net_enum_ifaces(plat_if_cb cb, void *tag)
 
 void plat_sleep_ms(uint32_t ms)
 {
-    /* Busy-wait on the time base. NOTE: this does NOT pump SYS_Tasks(), so the
-     * SOME/IP client must be driven cooperatively from APP_Tasks (rcp_poll once
-     * per superloop iteration), not by blocking here. Kept minimal on purpose. */
+    /* Pump the Harmony TCP/IP stack while waiting so that blocking rcp_* calls
+     * (rcp.c's wait loop: rcp_poll() + plat_sleep_ms(2)) make progress - the
+     * UDP RX queue is filled by TCPIP_STACK_Task(). This is the single point
+     * that lets a blocking RCP method call run from a SYS_CMD handler without
+     * starving the network stack. It is NOT harmful re-entrancy: the command
+     * handler runs sequentially AFTER TCPIP_STACK_Task() in the SYS_Tasks()
+     * loop, so the stack task is never already on the call stack here. */
     uint32_t start = plat_now_ms();
-    while ((plat_now_ms() - start) < ms) {
-        /* spin */
-    }
+    do {
+        TCPIP_STACK_Task(sysObj.tcpip);
+    } while ((plat_now_ms() - start) < ms);
 }
 
 void plat_yield(void)

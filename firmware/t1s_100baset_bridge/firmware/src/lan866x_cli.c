@@ -13,6 +13,7 @@
  */
 #include <stdbool.h>
 #include <stdint.h>
+#include <string.h>
 
 #include "definitions.h"
 #include "system/command/sys_command.h"
@@ -26,6 +27,72 @@ uint8_t MULTICAST_IP[] = { 224, 0, 0, 1 };
 
 static bool s_rcp_inited = false;
 
+/* --- mirrors lan866x-discovery.exe (discovery.c) --------------------------- */
+static const char *arb_str(uint8_t a)
+{
+    switch (a) { case 0: return "CSMA/CD"; case 1: return "PLCA"; case 2: return "PLCA no fallback"; }
+    return "unknown";
+}
+
+static const char *ep_type(const char *chip)
+{
+    if (!chip) return "Endpoint";
+    if (strstr(chip, "LAN8660")) return "Control Endpoint";
+    if (strstr(chip, "LAN8661")) return "Lighting Endpoint (LED/Display)";
+    if (strstr(chip, "LAN8662")) return "Audio Endpoint";
+    return "Endpoint";
+}
+
+static void print_status(int idx, const rcp_endpoint_t *e)
+{
+    GetStatusReply_t st;
+    GetNetworkStatusReply_t ns;
+    ReturnCode_t rc;
+
+    SYS_CONSOLE_PRINT("\r\n========================================================\r\n");
+    SYS_CONSOLE_PRINT("Endpoint #%d  -  %u.%u.%u.%u:%u  (instance 0x%04X, available=%d)\r\n",
+           idx, e->ip[0], e->ip[1], e->ip[2], e->ip[3], e->port, e->instanceId, e->available);
+    SYS_CONSOLE_PRINT("========================================================\r\n");
+
+    memset(&st, 0, sizeof(st));
+    rc = rcp_get_status(&st);
+    if (rc == RT_OK) {
+        unsigned long long up = st.UpTime / 1000000000ULL;
+        SYS_CONSOLE_PRINT("  Uptime:             %lluh %llum %llus\r\n", up/3600ULL, (up%3600ULL)/60ULL, up%60ULL);
+        SYS_CONSOLE_PRINT("  Application:        %s\r\n", st.ActiveApplication);
+        SYS_CONSOLE_PRINT("  Chip Identifier:    %s   -> %s\r\n", st.ChipIdentifier, ep_type((const char *)st.ChipIdentifier));
+        SYS_CONSOLE_PRINT("  Main Version:       %s\r\n", st.MainApplicationVersion);
+        SYS_CONSOLE_PRINT("  Root Version:       %s\r\n", st.RootApplicationVersion);
+        SYS_CONSOLE_PRINT("  Bootloader Version: %s\r\n", st.BootApplicationVersion);
+        SYS_CONSOLE_PRINT("  COMO Version:       0x%08X\r\n", st.ComoVersion);
+        SYS_CONSOLE_PRINT("  Service Version:    0x%08X\r\n", st.ServiceVersion);
+        SYS_CONSOLE_PRINT("  Keys Version:       %s\r\n", st.KeysVersion);
+        SYS_CONSOLE_PRINT("  StartupInformation: 0x%016llX (Security Mode %u)\r\n",
+               (unsigned long long)st.StartupInformation,
+               (unsigned)((st.StartupInformation >> 9) & 0x3u));
+    } else {
+        SYS_CONSOLE_PRINT("  GetStatus failed (rc=%d)\r\n", rc);
+    }
+
+    memset(&ns, 0, sizeof(ns));
+    rc = rcp_get_network_status(&ns);
+    if (rc == RT_OK) {
+        uint64_t mac = ns.EndpointAddress;
+        SYS_CONSOLE_PRINT("  MAC:                %02X:%02X:%02X:%02X:%02X:%02X\r\n",
+               (unsigned)((mac>>40)&0xFF),(unsigned)((mac>>32)&0xFF),(unsigned)((mac>>24)&0xFF),
+               (unsigned)((mac>>16)&0xFF),(unsigned)((mac>>8)&0xFF),(unsigned)(mac&0xFF));
+        SYS_CONSOLE_PRINT("  IPv4:               %u.%u.%u.%u\r\n",
+               (unsigned)((ns.EndpointIpV4Address>>24)&0xFF),(unsigned)((ns.EndpointIpV4Address>>16)&0xFF),
+               (unsigned)((ns.EndpointIpV4Address>>8)&0xFF),(unsigned)(ns.EndpointIpV4Address&0xFF));
+        SYS_CONSOLE_PRINT("  Endpoint Status:    %s\r\n", ns.EndpointStatus==1?"Link-Up":ns.EndpointStatus==2?"Link-Down":"unknown");
+        SYS_CONSOLE_PRINT("  OASPI Status:       %s\r\n", ns.OaspiStatus==0?"Disabled":ns.OaspiStatus==1?"Link-Up":"Link-Down");
+        SYS_CONSOLE_PRINT("  Arbitration:        %s\r\n", arb_str(ns.ArbitrationMode));
+        SYS_CONSOLE_PRINT("  PLCA Node Id:       %u\r\n", ns.PLCANodeId);
+    } else {
+        SYS_CONSOLE_PRINT("  GetNetworkStatus failed (rc=%d)\r\n", rc);
+    }
+}
+
 static void cmd_discovery(SYS_CMD_DEVICE_NODE *pCmdIO, int argc, char **argv)
 {
     rcp_endpoint_t eps[RCP_MAX_ENDPOINTS];
@@ -37,18 +104,22 @@ static void cmd_discovery(SYS_CMD_DEVICE_NODE *pCmdIO, int argc, char **argv)
         return;
     }
 
+    /* Snappier than the 1500ms x3 host default: the T1S link is ~2 ms RTT. */
+    rcp_set_timeout_ms(1000);
+    rcp_set_retries(1);
+
     n = rcp_get_endpoints(eps, RCP_MAX_ENDPOINTS);
-    SYS_CONSOLE_PRINT("[lan866x] endpoints discovered = %u\r\n", (unsigned)n);
-    for (i = 0u; i < n; i++) {
-        SYS_CONSOLE_PRINT("  #%u  %u.%u.%u.%u:%u  service=0x%04X inst=0x%04X avail=%d\r\n",
-            (unsigned)i,
-            eps[i].ip[0], eps[i].ip[1], eps[i].ip[2], eps[i].ip[3],
-            (unsigned)eps[i].port, (unsigned)eps[i].serviceId,
-            (unsigned)eps[i].instanceId, (int)eps[i].available);
-    }
+    SYS_CONSOLE_PRINT("\r\nDevices available = %u\r\n", (unsigned)n);
     if (n == 0u) {
-        SYS_CONSOLE_PRINT("  (none yet - SD runs in background, retry in a moment)\r\n");
+        SYS_CONSOLE_PRINT("Nothing found (SD runs in background; retry shortly, check T1S/PLCA).\r\n");
     }
+    for (i = 0u; i < n; i++) {
+        if (!rcp_select_endpoint(i)) continue;
+        print_status((int)i, &eps[i]);
+    }
+
+    rcp_set_timeout_ms(1500);   /* restore defaults */
+    rcp_set_retries(3);
 }
 
 static const SYS_CMD_DESCRIPTOR lan866x_cmd_tbl[] = {
