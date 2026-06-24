@@ -368,6 +368,13 @@ python flash.py      :: program the board via MDB and release it from reset
 3. copies the resulting HEX into a tracked **`release/T1S_100BaseT_Bridge.hex`**,
 4. prints a flash/RAM/heap/IRQ **build summary** (`build_summary.py`).
 
+For a per-component **RAM/ROM breakdown of the SOME/IP client** (the stack, RCP,
+the platform port and each endpoint demo/tool CLI group), run after a build:
+
+```bat
+python someip_size.py        :: ROM=.text+.data, RAM=.data+.bss, grouped by component
+```
+
 Because the HEX is committed under `release/`, a **fresh clone can flash without
 building**:
 
