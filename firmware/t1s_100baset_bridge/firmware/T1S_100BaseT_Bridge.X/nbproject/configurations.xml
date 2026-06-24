@@ -771,8 +771,6 @@
       </logicalFolder>
       <itemPath>../src/app.c</itemPath>
       <itemPath>../src/filters.c</itemPath>
-      <itemPath>../src/PTP_FOL_task.c</itemPath>
-      <itemPath>../src/ptp_gm_task.c</itemPath>
       <itemPath>../src/main.c</itemPath>
       <itemPath>../src/config/default/pin_configurations.csv</itemPath>
     </logicalFolder>
