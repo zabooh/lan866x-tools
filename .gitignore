@@ -57,3 +57,7 @@ firmware/**/setup_flasher.config
 # Wireshark report tool — generated run artifacts
 wireshark/captures/
 wireshark/report.html
+
+# Python bytecode cache
+__pycache__/
+*.pyc
