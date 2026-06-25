@@ -90,6 +90,10 @@ counter_*.py
 critical_*.py
 activate_*.py
 
+# NDA local reference dossier (datasheet, board schematic, BOM, user guide) - never commit.
+# Pattern is relative to this .gitignore's directory.
+Curiosity/
+
 # MCC and IDE generated
 MCC_Test.mc3
 MCC_Alternatives.md
