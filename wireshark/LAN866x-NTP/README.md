@@ -40,3 +40,45 @@ is needed. Filter on `lan866x_ntp` to see only the time-sync traffic.
 
 > If the firmware ever uses a different port (`lan866x-ntpsync --port <n>`), change
 > the `NTP_PORT` constant at the top of the `.lua` and reload.
+
+## Maintenance — when the protocol changes
+
+The dissector is **hand-maintained** (no code generation), so it must be kept in
+step with the wire format. The single source of truth is the protocol comment at
+the top of [`ntp_sync.c`](../../firmware/t1s_100baset_bridge/firmware/src/ntp_sync.c)
+plus the actual `put64`/`get64` offsets there; `ntpsync.c` and this `.lua` must all
+agree byte-for-byte (big-endian, signed 64-bit ns).
+
+What to edit in `lan866x_ntp.lua` for each kind of change:
+
+| Protocol change | What to update |
+|---|---|
+| **New op code** (e.g. `0x07`) | add it to the `OP` table; add an `elseif op == 0x07 ...` branch with the `tvb(offset,len)` fields and a `len >=` guard |
+| **Field added / reordered / resized** in an existing op | fix the `tvb(offset,len)` ranges in that branch **and** the `len >=` guard |
+| **New field type** | add a `ProtoField.*` under `f.*` and a `t:add(f.new, tvb(...))` |
+| **Port change** | the `NTP_PORT` constant at the top |
+| **Endianness / sign** | `tvb():int64()` vs `:uint64()` (default here: big-endian, signed) |
+
+Then **test → install → commit**:
+
+1. **Test** against a capture (live, or synthetic) and watch for `Lua Error:`:
+   ```sh
+   "/c/Program Files/Wireshark/tshark.exe" -r your.pcapng \
+       -X lua_script:wireshark/LAN866x-NTP/lan866x_ntp.lua -O lan866x_ntp
+   ```
+2. **Install** the edited file (see above) and reload (Ctrl+Shift+L).
+3. **Commit** the `.lua` and, if the message set changed, the protocol table above.
+
+### Avoid the "two copies" trap
+
+Editing the repo file does **not** change Wireshark until the copy in the plugins
+folder is refreshed — they are two separate files. To keep just one, drop a tiny
+loader into the personal plugins folder that `dofile()`s the repo copy, then you
+only ever edit the repo file (+ Ctrl+Shift+L to reload):
+
+```lua
+-- %APPDATA%\Wireshark\plugins\load_lan866x_ntp.lua
+dofile("C:/work/lan866x-tools/wireshark/LAN866x-NTP/lan866x_ntp.lua")
+```
+
+(Adjust the path to wherever this repo lives on your machine.)
