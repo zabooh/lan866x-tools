@@ -425,6 +425,13 @@ The build produces a shared static lib **`rcpcore`** (rcp.c + someip_stub.c + pl
 > (RCP `0xFF10`) with named fields, plus DNCP and the RTP/RFC4175 video — install
 > the add-ons in [`wireshark/`](wireshark/); see **[wireshark/README.md](wireshark/README.md)**.
 
+> ⏱️ **Time sync & bridge-delay timing:** the bridge firmware runs a small **software
+> NTP** service so its high-resolution clock can be disciplined to the PC's wall clock
+> (`lan866x-ntpsync`) — this lets firmware events be timestamped on the PC timebase and,
+> with an `eth0` packet tap, lets you **measure the bridge's one-way forwarding delay in
+> both directions** (`wireshark/bridge_delay.py`). How it works, how to use it, and an
+> analysis of the measured results are in **[wireshark/NTP_TIMING.md](wireshark/NTP_TIMING.md)**.
+
 ---
 
 ## 7. Example pin mapping (LAN8660)

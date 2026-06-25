@@ -195,6 +195,10 @@ Floor = the software-NTP sync residual (~hundreds of us), so it aggregates over
 many frames. The firmware-side stamp is taken in the eth0 packet hook (no UART in
 the timing path), so console output does not perturb the measurement.
 
+> 📖 A full write-up — how the software NTP is implemented and used, what it
+> achieves, the bridge-delay test and its goal, and an **analysis of the measured
+> results** — is in **[NTP_TIMING.md](NTP_TIMING.md)**.
+
 ---
 
 ## Troubleshooting
