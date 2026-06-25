@@ -174,26 +174,34 @@ discovery / diag / gpiomax.
 
 ### `bridge_delay.py` — measure the bridge's one-way forwarding delay
 Uses the NTP-synced firmware clock + the eth0 timestamp tap to measure how long a
-frame takes **through the bridge** in each direction. It runs `lan866x-ntpsync`
-(so the bridge and PC share one epoch timebase), enables the firmware eth0 tap
+frame takes **through the bridge** in each direction. It keeps `lan866x-ntpsync`
+running **continuously** (so the firmware clock stays disciplined — a one-shot sync
+drifts), **calibrates** the constant skew `S` between the NIC capture clock (Npcap)
+and the sync clock by self-stamping outgoing frames, enables the firmware eth0 tap
 (every IPv4 frame on the T1S side is stamped with the synced NTP time and streamed
 to the PC), captures the same frames at the NIC, runs `lan866x-discovery` to
-generate traffic, and matches the two by IPv4 id:
+generate traffic, and matches the two by IPv4 id (removing `S`):
 ```bash
-python bridge_delay.py --iface "Ethernet 8" --bridge 192.168.0.181 --endpoint 192.168.0.54
+python bridge_delay.py --iface "Ethernet 8" --src-ip 192.168.0.200 \
+       --bridge 192.168.0.181 --endpoint 192.168.0.54
 ```
 ```text
-  bridge round-trip transport (NIC<->eth0, skew-free) : 733 us
-  -> per direction (assuming symmetry)                : 366 us each
-  estimated capture-vs-sync clock skew S              : ~13 ms
+  calibrated capture-vs-sync clock skew S : -0.6 us  (60 frames)
+  -> exact one-way bridge delay (skew removed, NO symmetry assumption):
+       PC -> endpoint :    699.9 us
+       endpoint -> PC :     86.4 us
+     cross-check round-trip (mf+mr, S-independent) : 786.3 us
 ```
-The NIC capture clock (Npcap) and the clock `ntpsync` disciplines to differ by a
-**constant** skew that appears with opposite sign in the two directions, so the
-**sum cancels it** — the skew-free round-trip (and its half) is the meaningful
-bridge-delay figure; an exact per-direction split needs the symmetry assumption.
-Floor = the software-NTP sync residual (~hundreds of us), so it aggregates over
-many frames. The firmware-side stamp is taken in the eth0 packet hook (no UART in
-the timing path), so console output does not perturb the measurement.
+The calibration finds `S ≈ 0` (Npcap and the sync clock are effectively the same
+clock), which rules out a capture-clock offset and proves the only thing that can
+bias the result is firmware **drift** — hence the continuous re-sync. The result is
+**asymmetric**: PC→endpoint (eth0 egress, through the SPI MAC-PHY) ≈ 0.5–0.7 ms
+dominates; endpoint→PC ≈ 0–0.1 ms sits within the software-NTP floor. `--src-ip` is
+the capture NIC's own address (so calibration frames egress that NIC when several
+share the subnet); `--no-calibrate` reports only the skew-free round-trip. The
+firmware stamp is taken in the eth0 packet hook (no UART in the timing path), so
+console output does not perturb the measurement. **Full write-up + analysis:
+[NTP_TIMING.md](NTP_TIMING.md).**
 
 > 📖 A full write-up — how the software NTP is implemented and used, what it
 > achieves, the bridge-delay test and its goal, and an **analysis of the measured

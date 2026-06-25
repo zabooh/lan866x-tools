@@ -105,6 +105,9 @@ stamp firmware events on the PC timebase.
 - That floor is set by *software* timestamping at both ends and the 100BASE-T
   round-trip — **not** by the 16 ns counter. Sub-µs/absolute timing needs hardware
   timestamping / PTP (which lives in the newer `net_10base_t1s` project).
+- **Drift:** the firmware oscillator is undisciplined and drifts ~ms/s, so a *single*
+  sync only holds for a moment. To stamp events more than a fraction of a second after
+  syncing, re-sync continuously (the default `lan866x-ntpsync` mode) — see §5.1.
 
 > **What `delay` means.** It is the **round-trip transit time** PC↔bridge, with the
 > firmware's own receive→reply turnaround `(t3 − t2)` removed: `delay = (t4 − t1) −
@@ -121,96 +124,113 @@ PC→endpoint (NIC → `eth0`) and endpoint→PC (`eth0` → NIC) — i.e. the f
 
 **Mechanism** (`wireshark/bridge_delay.py`, orchestrating the existing tools):
 
-1. `lan866x-ntpsync --once` — align the firmware counter to the PC epoch clock.
-2. `TAP_SET` enables the firmware **eth0 timestamp tap**: every IPv4 frame crossing
+1. **Continuous** `lan866x-ntpsync` in the background — keeps the firmware counter
+   disciplined to the PC epoch clock for the *whole* run. A one-shot sync is **not**
+   enough: the firmware oscillator drifts ~ms/s, so by the time we measure (seconds
+   later) a one-shot-synced clock has already slid milliseconds off (see §5.1).
+2. **Calibrate the capture-clock skew** `S` once: the PC sends self-timestamped UDP
+   packets out the capture NIC and reads their `frame.time_epoch` back; `S = median(
+   FILETIME_send − capture_epoch)` is the constant offset between the NIC capture
+   clock (Npcap) and the `GetSystemTimePreciseAsFileTime()` clock the firmware is
+   synced to. (In practice `S ≈ 0` here — see §5.)
+3. `TAP_SET` enables the firmware **eth0 timestamp tap**: every IPv4 frame crossing
    `eth0` is stamped with `ntp_now_ns()` **inside the packet hook** (ingress in
    `pktEth0Handler`, egress in `mirror_eth0_tx_hook`) — so no UART/console is in the
    timing path — and the record `(dir, t, ipid, proto, len, src, dst)` is streamed to
    the PC from `NTP_Task` (decoupled from the stamp, so sending never delays it).
-3. `tshark` captures the same frames at the **NIC** (epoch timestamps), and the tool
+4. `tshark` captures the same frames at the **NIC** (epoch timestamps), and the tool
    collects the tap stream.
-4. `lan866x-discovery` generates the traffic (PC→endpoint requests + endpoint→PC
+5. `lan866x-discovery` generates the traffic (PC→endpoint requests + endpoint→PC
    replies + SD).
-5. Each captured frame is matched to its tap record by **IPv4 id** (the bridge
-   forwards transparently, so the id/length are preserved):
+6. Each captured frame is matched to its tap record by **IPv4 id** (the bridge
+   forwards transparently, so the id/length are preserved), and `S` is removed:
 
 ```
-PC → endpoint : delay_fwd = t(eth0 egress)  − t(NIC sent)
-endpoint → PC : delay_rev = t(NIC received) − t(eth0 ingress)
+PC → endpoint : delay_fwd = t(eth0 egress)  − t(NIC sent)     ;  D_fwd = delay_fwd − S
+endpoint → PC : delay_rev = t(NIC received) − t(eth0 ingress) ;  D_rev = delay_rev + S
 ```
 
-Run it:
+Run it (`--src-ip` = the capture NIC's own address; needed when several NICs share
+the subnet, so the calibration packets really egress that NIC):
 ```bash
-python bridge_delay.py --iface "Ethernet 8" --bridge 192.168.0.181 --endpoint 192.168.0.54
+python bridge_delay.py --iface "Ethernet 8" --src-ip 192.168.0.200 \
+       --bridge 192.168.0.181 --endpoint 192.168.0.54
+# skew-free round-trip only, no calibration / no exact split:
+python bridge_delay.py --iface "Ethernet 8" --no-calibrate
 ```
 
 ---
 
 ## 5. Analysis of the results
 
-A representative run:
+A first attempt with a **one-shot** sync gave nonsense raw values:
 
 ```
-raw (firmware NTP clock vs NIC capture clock):
-  PC -> endpoint  (eth0 - NIC): n=  2  min= 13345.9  median= 13362.3  max= 13378.6  us
-  endpoint -> PC  (NIC - eth0): n= 11  min=-17703.3  median=-12629.4  max= -3331.3  us
-
-  bridge round-trip transport (NIC<->eth0, skew-free) : 733 us
-  -> per direction (assuming symmetry)                : 366 us each
-  estimated capture-vs-sync clock skew S              : ~13 ms
+PC -> endpoint  (eth0 - NIC): median ≈ +20.7 ms
+endpoint -> PC  (NIC - eth0): median ≈ −19.9 ms      ← negative one-way delay is impossible
 ```
 
-### 5.1 The raw values carry a constant clock skew
+The two directions carry a large offset of **opposite sign**, so something biases the
+firmware clock relative to the capture clock by ~20 ms. The whole point of the
+calibration step (§4.2) was to find *what*.
 
-The raw per-direction numbers are implausible: +13 ms one way, **−13 ms** the other.
-A negative one-way delay is impossible, so there is a **systematic offset**. Its
-cause: the NIC capture timestamps come from **Npcap's clock**, which differs from the
-`GetSystemTimePreciseAsFileTime()` clock that `ntpsync` disciplines the firmware to,
-by a **constant skew `S` ≈ 11–13 ms**. The firmware is aligned to one clock; the
-capture is stamped by another.
+### 5.1 The bias is firmware clock drift, **not** a capture-clock skew
 
-### 5.2 Why the sum cancels it
+Calibrating `S` (NIC capture clock vs the `FILETIME` clock the firmware is synced to)
+gave **`S ≈ 0` — only a few microseconds**, stable across runs (−0.6, 2.8, 5.7 µs).
+So Npcap and `FILETIME` are effectively the *same* clock; the ~20 ms is **not** a
+capture-clock offset.
 
-With `S` = (firmware/tap clock) − (capture clock), constant:
+The real cause: after a **one-shot** sync the firmware's free-running oscillator
+**drifts** (here ~2–3 ms/s, i.e. thousands of ppm — normal for an undisciplined MCU
+clock). By the time we measure, seconds after the sync, the firmware clock has slid
+~20 ms ahead of PC time. That drift enters `delay_fwd` as `+drift` and `delay_rev` as
+`−drift` — exactly the opposite-sign pattern observed. The built-in consistency check
+flags it: *“symmetry would estimate S = 20288 µs vs calibrated 2.8 µs.”*
+
+**Fix:** keep `lan866x-ntpsync` running **continuously** during the capture (§4.1) so
+the firmware clock is re-disciplined every ~200 ms and never drifts far.
+
+### 5.2 Result with continuous sync + calibration
+
+A representative run (continuous sync, `S` calibrated):
 
 ```
-delay_fwd(measured) = D_fwd + S        # eth0_out is on the FW clock, NIC_sent on the capture clock
-delay_rev(measured) = D_rev − S        # NIC_recv on the capture clock, eth0_in on the FW clock
+calibrated capture-vs-sync clock skew S : -0.6 us  (60 frames)
+-> exact one-way bridge delay (skew removed, NO symmetry assumption):
+     PC -> endpoint :    699.9 us
+     endpoint -> PC :     86.4 us
+   cross-check round-trip (mf+mr, S-independent) : 786.3 us
 ```
 
-where `D_fwd`, `D_rev` are the true one-way delays. The skew enters with **opposite
-sign**, so:
-
-```
-delay_fwd + delay_rev = D_fwd + D_rev          ← skew-free: the true bridge round-trip
-delay_fwd − delay_rev = (D_fwd − D_rev) + 2·S  ← gives S if we assume D_fwd ≈ D_rev
-```
-
-So the tool reports the **skew-free round-trip transport** `D_fwd + D_rev ≈ 0.7–1.2 ms`
-(varies run to run with the small sample count and jitter), and, **assuming
-symmetry**, `≈ 0.35–0.6 ms per direction`. The extracted skew `S ≈ 11–13 ms` matches
-across both directions and across runs, confirming it is a genuine constant
-clock offset, not the bridge delay.
+Across runs: **PC→endpoint ≈ 0.5–0.7 ms**, **endpoint→PC ≈ 0–0.1 ms**, round-trip
+**≈ 0.4–0.8 ms**. Because `S ≈ 0`, the directions are now directly comparable — no
+symmetry assumption needed.
 
 ### 5.3 What this tells us
 
-- The **bridge adds roughly 0.4–0.6 ms each way** (MAC-bridge forwarding + the
-  100BASE-T `eth1` hop + the NIC/Npcap path). That is small relative to the T1S RTT
-  (~2 ms) and explains why, for *round-trip* RCP timing measured at a single capture
-  point, the bridge delay largely cancels (it is common-mode — see the SPAN/mirror
-  discussion in the firmware README §6).
-- The **dominant uncertainty is the Npcap-vs-sync clock skew (~11–13 ms)**, not the
-  bridge. Because it is constant and opposite-signed, the round-trip sum removes it;
-  an *exact* per-direction split, however, requires the symmetry assumption.
+- The bridge’s forwarding latency is **sub-millisecond**, and it is **asymmetric**:
+  the **PC→endpoint (eth0 egress) leg ≈ 0.5–0.7 ms dominates**, while the reverse
+  (eth0 ingress) leg is **≈ 0–0.1 ms**, within the sync-residual floor. The egress
+  leg is the slow path — the frame goes bridge → SPI → the LAN8651 MAC-PHY → onto the
+  T1S bus, with MAC-PHY/SPI buffering — whereas the ingress stamp is taken right at
+  the `eth0` RX hook.
+- That ~0.7 ms is small versus the T1S RTT (~2 ms), which is why, for *round-trip* RCP
+  timing measured at a single capture point, the bridge delay largely cancels as
+  common-mode (see the SPAN/mirror discussion in the firmware README §6).
+- **Calibration earned its keep by being ~0:** it ruled out the capture clock and
+  redirected the diagnosis to firmware drift — the actual fix was continuous sync.
 
 ### 5.4 Limitations & how to improve
 
-- **Software-NTP floor (~hundreds of µs):** aggregate over more frames (longer
-  capture / more `--discovery-runs`) to average it down. The skew-free round-trip is
-  more stable than either raw direction.
-- **Per-direction split needs symmetry.** To split exactly, the constant Npcap-vs-
-  `FILETIME` skew `S` would have to be calibrated once (e.g. a loopback frame
-  timestamped at NIC-TX and NIC-RX), then subtracted per direction.
+- **Software-NTP floor (~hundreds of µs):** the reverse leg sits at/below it, so its
+  median is noisy (and can read slightly negative). Aggregate over more frames (longer
+  capture / more `--discovery-runs`) to average it down; the round-trip sum is the
+  most stable figure.
+- **Continuous sync is required** for a meaningful per-direction split — a one-shot
+  sync drifts (§5.1). The calibration of `S` removes any residual capture-clock offset
+  exactly (no symmetry assumption); `--no-calibrate` falls back to the skew-free
+  round-trip only.
 - **Few matched frames per run** (discovery is bursty; SD is ~1/s). More traffic or a
   longer window tightens the medians.
 - **For sub-µs / hardware-grade timing**, use PTP / hardware timestamping rather than
