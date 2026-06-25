@@ -229,6 +229,45 @@ def fig_bias_cancel():
     save(fig, "ntp_bias_cancel.png")
 
 
+# 8) PLCA is not TDMA: variable transmit-opportunity timing ---------------------
+def fig_plca():
+    fig, ax = plt.subplots(figsize=(8.6, 4.0))
+    from matplotlib.patches import Rectangle
+
+    def slot(x, w, y, label, fc, ec="#555", hatch=None, txtc="#222"):
+        ax.add_patch(Rectangle((x, y), w, 0.6, fc=fc, ec=ec, lw=1.2, hatch=hatch))
+        ax.text(x + w / 2, y + 0.3, label, ha="center", va="center", fontsize=8.5, color=txtc)
+
+    EMPTY = "#dfe6ee"; FULL = "#ffd9a0"; OURS = "#9ad29a"; BEAC = "#bcd"
+    # Cycle A (top): bus idle -> our TO (ID3) starts early
+    yA = 1.5
+    ax.text(-2, yA + 0.3, "Zyklus A\n(Bus leer)", ha="right", va="center", fontsize=9, fontweight="bold")
+    slot(0, 2, yA, "Beacon", BEAC); slot(2, 3, yA, "TO0", EMPTY); slot(5, 3, yA, "TO1", EMPTY)
+    slot(8, 3, yA, "TO2", EMPTY); slot(11, 3, yA, "TO3\n(wir: TX)", OURS)
+    txA = 11
+    # Cycle B (bottom): TO2 sends a full frame -> our TO (ID3) starts much later
+    yB = 0.3
+    ax.text(-2, yB + 0.3, "Zyklus B\n(Bus belastet)", ha="right", va="center", fontsize=9, fontweight="bold")
+    slot(0, 2, yB, "Beacon", BEAC); slot(2, 3, yB, "TO0", EMPTY); slot(5, 3, yB, "TO1", EMPTY)
+    slot(8, 14, yB, "TO2: voller Frame (~1,2 ms)", FULL); slot(22, 3, yB, "TO3\n(wir: TX)", OURS)
+    txB = 22
+    # mark the differing TX-start of the SAME node
+    for x, y in [(txA, yA), (txB, yB)]:
+        ax.annotate("", xy=(x, y - 0.05), xytext=(x, y - 0.45),
+                    arrowprops=dict(arrowstyle="-|>", color="#c0392b", lw=1.6))
+    ax.annotate("", xy=(txB, -0.35), xytext=(txA, -0.35),
+                arrowprops=dict(arrowstyle="<|-|>", color="#c0392b", lw=1.4))
+    ax.text((txA + txB) / 2, -0.62, "Δ Zugriffszeit variabel (lastabhängig)",
+            ha="center", color="#c0392b", fontsize=9)
+    ax.text(12.5, 2.45,
+            "Gleiche Node, anderer Zyklus → anderer Sendezeitpunkt  ⇒  d→ ≠ d← (variabel)",
+            ha="center", fontsize=9.5, bbox=dict(boxstyle="round", fc="#eef", ec="#88a"))
+    ax.set_title("PLCA ist kein TDMA: die Transmit Opportunity verschiebt sich mit der Buslast")
+    ax.set_xlim(-6.5, 26); ax.set_ylim(-0.9, 2.8); ax.axis("off")
+    ax.set_xlabel("")
+    save(fig, "ntp_plca_cycles.png")
+
+
 if __name__ == "__main__":
     fig_exchange()
     fig_sawtooth()
@@ -237,4 +276,5 @@ if __name__ == "__main__":
     fig_loop()
     fig_master_slave()
     fig_bias_cancel()
+    fig_plca()
     print("done.")

@@ -31,6 +31,29 @@ Grundlage sind die in diesem Repo **real gemessenen** Werte (siehe
 
 ---
 
+## Inhaltsverzeichnis
+
+- [1. Das Messmodell — was ein NTP-Austausch liefert](#1-das-messmodell--was-ein-ntp-austausch-liefert)
+- [2. Zwei Fehlerklassen — und nur eine ist mittelbar](#2-zwei-fehlerklassen--und-nur-eine-ist-mittelbar)
+- [3. Der Drift-Killer: warum Mitteln allein nicht reicht](#3-der-drift-killer-warum-mitteln-allein-nicht-reicht)
+  - [3.1 „Drift vorhersagen" ist der größte Hebel — aber nur der *veränderliche* Teil zählt](#31-drift-vorhersagen-ist-der-größte-hebel--aber-nur-der-veränderliche-teil-zählt)
+  - [3.2 Taktgeber: RC vs. Quarz vs. TCXO vs. MEMS](#32-taktgeber-rc-vs-quarz-vs-tcxo-vs-mems)
+- [4. Konvergenz-Mathematik](#4-konvergenz-mathematik)
+  - [4.1 Zufallsanteil: 1/√N — bis zum Plateau](#41-zufallsanteil-1n--bis-zum-plateau)
+  - [4.2 Optimale Mittelungsdauer (Allan-Deviation)](#42-optimale-mittelungsdauer-allan-deviation)
+  - [4.3 Symmetrische Variante: Konsens statt Master/Slave](#43-symmetrische-variante-konsens-statt-masterslave)
+- [5. Ausreißer-Filterung auf dem T1S-Strang](#5-ausreißer-filterung-auf-dem-t1s-strang)
+  - [5.1 PLCA ist kein TDMA — variable Transmit Opportunities](#51-plca-ist-kein-tdma--variable-transmit-opportunities)
+- [6. Qualitätsmaß, das jeder Knoten lokal berechnen kann](#6-qualitätsmaß-das-jeder-knoten-lokal-berechnen-kann)
+- [7. Was ist erreichbar — Genauigkeit & Zuverlässigkeit](#7-was-ist-erreichbar--genauigkeit--zuverlässigkeit)
+- [8. Was damit möglich wäre — und was nicht](#8-was-damit-möglich-wäre--und-was-nicht)
+- [9. Bester Fall: nur Embedded-Knoten, Master/Slave auf einem Strang](#9-bester-fall-nur-embedded-knoten-masterslave-auf-einem-strang)
+  - [9.1 Noch besser: Broadcast-One-Way statt Einzel-Round-Trips](#91-noch-besser-broadcast-one-way-statt-einzel-round-trips)
+  - [9.2 Erreichbar in diesem Fall](#92-erreichbar-in-diesem-fall)
+- [10. Fazit & ein konkreter Algorithmus-Vorschlag](#10-fazit--ein-konkreter-algorithmus-vorschlag)
+
+---
+
 ## 1. Das Messmodell — was ein NTP-Austausch liefert
 
 Pro Austausch (Knoten A fragt, Knoten B antwortet):
@@ -260,6 +283,63 @@ Bewährte Gegenmittel (klassisches NTP macht genau das):
 
 Auf einem dedizierten Strang ist δ_min damit sehr stabil → konstante Asymmetrie →
 **kalibrierbar** (Abschnitt 4.3).
+
+### 5.1 PLCA ist kein TDMA — variable Transmit Opportunities
+
+Hier steckt die eigentliche T1S-Besonderheit, und sie verletzt eine NTP-Kernannahme.
+Bei PLCA sendet der Koordinator den **Beacon**, danach folgen die Transmit
+Opportunities (TOs) in ID-Reihenfolge. Aber das ist **kein festes Zeitraster**:
+
+- Eine **leere** TO kostet nur `to_timer` (wenige µs), eine **genutzte** TO dauert
+  Beacon → Frame (bis ~1,2 ms bei 1500 B @ 10 Mbit/s).
+- Der **Beacon-Abstand ist dadurch selbst variabel** (lastabhängig), nicht konstant.
+- Der **Sendezeitpunkt eines Knotens wird vom PHY bestimmt** — wann seine TO im Zyklus
+  „dran" ist, hängt davon ab, was die Knoten mit kleinerer ID in *diesem* Zyklus getan
+  haben.
+
+![PLCA: variable Transmit-Opportunity-Lage je nach Buslast](img/ntp_plca_cycles.png)
+
+Folge: **der Hinweg ist i. A. ≠ dem Rückweg** — und zwar nicht um einen *konstanten*,
+sondern um einen **last- und zyklusabhängigen, variablen** Betrag. Das greift NTP auf
+zwei Ebenen an:
+
+1. **Software-Sendestempel ≠ Wire-Zeitpunkt.** Stempelt man t1/t3 in Software beim
+   SPI-Handoff an die LAN8651, liegt der echte Leitungsabgang erst *nach* der
+   PLCA-Zugriffsverzögerung → t1/t3 sind um genau diesen (variablen) Zugriff verfälscht.
+2. **Die Asymmetrie wird nicht-konstant.** `(d→ − d←)` zerfällt in einen **strukturellen**
+   Teil (A auf TO-Position `a`, B auf `b` → fester Versatz pro Knotenpaar →
+   *kalibrierbar*) und einen **variablen** Teil (was andere Knoten in diesem Zyklus
+   gesendet haben → eine *Verteilung*, mit Einmal-Kalibrierung **nicht** erfassbar).
+   Dessen Spannweite reicht von **~µs** (TO sofort, Bus leer) bis **~ms** (Warten hinter
+   vollen Frames) — potenziell die **größte** Störgröße, größer als der SPI-Jitter.
+
+**Was es trotzdem rettet:**
+
+- **Minimum-Delay-Filter (genau dafür):** das δ-kleinste Sample ist der Zyklus, in dem
+  *beide* Richtungen kaum PLCA-Wartezeit hatten → der variable Teil ≈ 0, übrig bleibt
+  nur die strukturelle (kalibrierbare) Asymmetrie. Auf einem ruhigen Strang wird dieses
+  Minimum häufig und stabil erreicht — Min-Filtering macht die variable Zugriffszeit
+  wieder nahezu konstant.
+- **Master/Slave + Broadcast-One-Way (Abschnitt 9):** der Slave misst nur seinen
+  **RX-Stempel** des Master-Broadcasts und braucht für die Messung **keine eigene TO** →
+  die variable Per-Slave-TO-Verzögerung fällt **aus der slave↔slave-Relation heraus**.
+  Der Master sendet als **Node 0 direkt am Beacon** → konsistentester Sendezeitpunkt.
+- **Ideal — am Beacon / Wire-TX stempeln:** der Beacon ist das eine periodische,
+  vom Koordinator erzeugte Ereignis pro Zyklus — ein freier „Sync-Puls" wie ein
+  TDMA-Rahmenmarker. Wer den **Beacon-Empfang** bzw. den **echten Wire-TX-Zeitpunkt**
+  stempelt, umgeht den Datenpfad-Zugriff vollständig. Das braucht PHY-/MAC-Unterstützung
+  (PTP-over-PLCA / Hardware-Timestamping) — über reines SPI-Software-Stempeln nicht
+  jitterarm zu haben.
+- **Last ist die Stellgröße:** ruhiger/dedizierter Sync-Strang → kurze, konsistente
+  Zyklen → kleiner Effekt. Unter Datenlast wächst der variable Zugriff → das
+  **δ-Spread / Λ-Gütemaß** (Abschnitt 6) erkennt es und der Knoten weitet seine Schranke
+  oder geht in **Holdover**.
+
+**Fazit:** PLCA erhöht den Boden **nur bei naiver Messung** (Software-Sendestempel +
+simples Mitteln). Mit **Min-Delay-Filter + Broadcast-One-Way + leitungsnahem Stempel**
+bleibt der ~10er-µs- bzw. einstellige-µs-Bereich erreichbar — die fehlende
+TDMA-Determiniertheit wird so kompensiert. Die *saubere* Lösung ist, **am Beacon bzw.
+Wire-TX zu stempeln** (Hardware-PLCA-Awareness / PTP).
 
 ---
 
