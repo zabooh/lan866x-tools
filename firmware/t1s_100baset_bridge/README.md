@@ -745,6 +745,12 @@ at boot. A PC tool disciplines it to the PC's wall clock over a small UDP
 exchange, so afterwards the firmware can timestamp events on the **PC timebase**
 (`ntp_sync.c`, host tool `lan866x-ntpsync`).
 
+> 📐 Full write-up — the PI frequency discipline and **how the convergence works**,
+> with a real `ntp watch` run analysed — is in
+> **[../../wireshark/NTP_SYNC.md](../../wireshark/NTP_SYNC.md)**
+> (usage + bridge-delay: [NTP_TIMING.md](../../wireshark/NTP_TIMING.md); theory:
+> [NTP_TWO_NODE_CONVERGENCE.md](../../wireshark/NTP_TWO_NODE_CONVERGENCE.md)).
+
 - **Counter / resolution:** the counter is `SYS_TIME` (ns) plus a signed offset.
   On the SAME54 it runs at **60 MHz → ~16 ns/tick** (reported by the `ntp`
   command). The achievable *sync accuracy* is far coarser than the tick — it is

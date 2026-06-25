@@ -203,9 +203,10 @@ firmware stamp is taken in the eth0 packet hook (no UART in the timing path), so
 console output does not perturb the measurement. **Full write-up + analysis:
 [NTP_TIMING.md](NTP_TIMING.md).**
 
-> 📖 A full write-up — how the software NTP is implemented and used, what it
-> achieves, the bridge-delay test and its goal, and an **analysis of the measured
-> results** — is in **[NTP_TIMING.md](NTP_TIMING.md)**.
+> 📖 Software NTP write-ups: **[NTP_SYNC.md](NTP_SYNC.md)** (implementation + how the
+> convergence works, with a real run analysed), **[NTP_TIMING.md](NTP_TIMING.md)**
+> (usage + this bridge-delay test), and
+> **[NTP_TWO_NODE_CONVERGENCE.md](NTP_TWO_NODE_CONVERGENCE.md)** (theory).
 
 ---
 

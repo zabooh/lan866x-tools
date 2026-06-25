@@ -7,6 +7,12 @@ the bridge-delay test that builds on it, and an analysis of the measured results
 - Firmware: `firmware/t1s_100baset_bridge/firmware/src/ntp_sync.c` (+ eth0 hooks in `app.c`)
 - PC tools: `ntpsync.c` → `lan866x-ntpsync`, and `wireshark/bridge_delay.py`
 
+> 📐 For the **implementation, the PI frequency discipline and how the convergence
+> works** (with a real `ntp watch` run analysed), see
+> **[NTP_SYNC.md](NTP_SYNC.md)**. For the **theory** (convergence maths, master/slave,
+> distributed-sampling bandwidth), see
+> [NTP_TWO_NODE_CONVERGENCE.md](NTP_TWO_NODE_CONVERGENCE.md).
+
 ---
 
 ## 1. Why

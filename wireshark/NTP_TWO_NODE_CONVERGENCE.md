@@ -7,6 +7,11 @@ Boards tauschen ständig Zeitstempel aus, mitteln die Ergebnisse und nähern sic
 zeitlich immer weiter an. Es geht um die Frage: **Wie genau und wie zuverlässig kann
 das werden — und wo ist die physikalische Grenze?**
 
+> 📐 Dies ist die *Theorie*. Die tatsächliche **Implementierung, die PI-Frequenz­
+> regelung und wie die Konvergenz abläuft** (mit einem analysierten echten
+> `ntp watch`-Lauf) steht in **[NTP_SYNC.md](NTP_SYNC.md)**; Bedienung und die
+> Bridge-Delay-Messung in [NTP_TIMING.md](NTP_TIMING.md).
+
 Grundlage sind die in diesem Repo **real gemessenen** Werte (siehe
 [NTP_TIMING.md](NTP_TIMING.md)):
 

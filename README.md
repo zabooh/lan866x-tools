@@ -429,8 +429,11 @@ The build produces a shared static lib **`rcpcore`** (rcp.c + someip_stub.c + pl
 > NTP** service so its high-resolution clock can be disciplined to the PC's wall clock
 > (`lan866x-ntpsync`) — this lets firmware events be timestamped on the PC timebase and,
 > with an `eth0` packet tap, lets you **measure the bridge's one-way forwarding delay in
-> both directions** (`wireshark/bridge_delay.py`). How it works, how to use it, and an
-> analysis of the measured results are in **[wireshark/NTP_TIMING.md](wireshark/NTP_TIMING.md)**.
+> both directions** (`wireshark/bridge_delay.py`). Implementation + how the convergence
+> works (PI frequency discipline, with a real run analysed):
+> **[wireshark/NTP_SYNC.md](wireshark/NTP_SYNC.md)**; usage + the bridge-delay measurement:
+> **[wireshark/NTP_TIMING.md](wireshark/NTP_TIMING.md)**; the theory:
+> **[wireshark/NTP_TWO_NODE_CONVERGENCE.md](wireshark/NTP_TWO_NODE_CONVERGENCE.md)**.
 
 ---
 
