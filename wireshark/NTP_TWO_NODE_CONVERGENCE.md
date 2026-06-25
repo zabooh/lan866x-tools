@@ -37,17 +37,7 @@ offset  θ = ((t2 − t1) + (t3 − t4)) / 2      # Uhr_B − Uhr_A
 delay   δ = (t4 − t1) − (t3 − t2)            # Round-Trip-Transit
 ```
 
-```mermaid
-sequenceDiagram
-    participant A as Knoten A (Anfrager)
-    participant B as Knoten B
-    A->>B: REQUEST — sendet t1
-    Note over B: t2 = Empfang (B-Uhr)
-    Note over B: t3 = Antwort (B-Uhr)
-    B->>A: REPLY — t1, t2, t3
-    Note over A: t4 = Empfang (A-Uhr)
-    Note over A: θ = ((t2−t1)+(t3−t4))/2<br/>δ = (t4−t1)−(t3−t2)
-```
+![NTP-Austausch: t1/t2/t3/t4-Quartett](img/ntp_exchange.png)
 
 Der **fundamentale NTP-Trick**: θ ist exakt richtig, **wenn Hin- und Rückweg gleich
 lang sind**. Ist der Hinweg `d→` und der Rückweg `d←`, dann gilt:
@@ -98,27 +88,8 @@ weg. Wer nur **die Position** korrigiert (Offset-Sprung alle 250 ms) und dazwisc
 Sägezahn ist *deterministisch* — Mittelung über viele Samples senkt ihn **nicht**,
 weil zwischen den Samples die Uhr ja weiterdriftet.
 
-```
- Uhrfehler
- (µs)
-  400 |      /|       /|       /|       /|        ← nur Positions-Sprung: Sägezahn
-      |     / |      / |      / |      / |           (Spitze 400 µs, Mittel ~200 µs)
-  200 |    /  |     /  |     /  |     /  |
-      |   /   |    /   |    /   |    /   |
-    0 |__/____|___/____|___/____|___/____|______________________ mit Frequenzregelung:
-      |  ↑sync   ↑sync   ↑sync   ↑sync                 flach um 0 (Holdover < 1 µs)
-      +----|-------|-------|-------|------------------------------► t
-          250ms   500ms   750ms   1s
-```
+![Drift-Sägezahn vs. Frequenz-Disziplinierung](img/ntp_sawtooth.png)
 
-```mermaid
-xychart-beta
-    title "Positions-Sprung (Sägezahn) vs. Frequenz-Disziplinierung"
-    x-axis "Zeit (ms)" [0, 125, 250, 375, 500, 625, 750, 875, 1000]
-    y-axis "Uhrfehler (µs)" 0 --> 420
-    line [0, 200, 400, 200, 400, 200, 400, 200, 400]
-    line [0, 0, 0, 0, 0, 0, 0, 0, 0]
-```
 *(obere Linie: nur Positions-Korrektur — der Drift-Sägezahn, den Mitteln nicht
 beseitigt; untere Linie: mit Frequenzregelung bleibt der Fehler praktisch bei 0.)*
 
@@ -157,14 +128,8 @@ weiteres Mitteln nichts mehr — die Kurve **plateaut**. Praktisch ist dieses Pl
 nach **Sekunden bis wenigen Minuten** erreicht; „beliebig genau mit der Zeit" gibt es
 nicht.
 
-```mermaid
-xychart-beta
-    title "Zufallsfehler ~ σ/√N bis zum Asymmetrie-/Transit-Boden"
-    x-axis "Anzahl gemittelter Samples N" [1, 4, 16, 64, 144, 256, 576, 1024]
-    y-axis "Offset-Unsicherheit (µs)" 0 --> 210
-    line [200, 100, 50, 25, 20, 20, 20, 20]
-    line [20, 20, 20, 20, 20, 20, 20, 20]
-```
+![Konvergenz σ/√N mit Plateau](img/ntp_convergence.png)
+
 *(fallende Linie: σ/√N (hier σ ≈ 200 µs); flache Linie: der nicht mittelbare Boden
 aus Asymmetrie/Transit. Der effektive Fehler folgt dem Maximum beider → die
 Konvergenz **plateaut**, sobald σ/√N den Boden erreicht.)*
@@ -197,14 +162,8 @@ konvergiert das geometrisch (Faktor ½ pro Runde, d. h. nach wenigen Runden prak
 zusammen). Das mittelt die **unabhängigen** Uhrfehler beider Seiten heraus (Vorteil
 gegenüber „einer folgt einem"). Der gemeinsame Bias durch Asymmetrie bleibt natürlich.
 
-```mermaid
-xychart-beta
-    title "Konsens: beide Knoten laufen auf die Mittenzeit zu (je ½ pro Runde)"
-    x-axis "Sync-Runde" [0, 1, 2, 3, 4, 5, 6]
-    y-axis "Abweichung von der Mittenzeit (µs)" -650 --> 650
-    line [600, 300, 150, 75, 37, 19, 9]
-    line [-600, -300, -150, -75, -37, -19, -9]
-```
+![Konsens: beide Knoten zur Mittenzeit](img/ntp_consensus.png)
+
 *(Knoten A und B korrigieren je die Hälfte des gemessenen Offsets → der Abstand
 halbiert sich pro Runde und beide treffen sich in der Mitte. Auf eine externe
 Referenz folgt das nicht — es ist gegenseitige, relative Synchronisation.)*
@@ -333,18 +292,7 @@ Konvergierende Zwei-Knoten-Synchronisation per Software-NTP auf einem T1S-Strang
    gegenseitige Konvergenz mit Selbstbewertung; die Differenz der wechselseitigen
    Offset-Schätzungen kalibriert die Restasymmetrie.
 
-```mermaid
-flowchart LR
-    EX["NTP-Austausch<br/>θ, δ"] --> FIL["Min-Delay-Filter<br/>+ robustes Mittel"]
-    FIL --> PI["PI-Regler<br/>(Offset + Drift)"]
-    PI -->|"Kp·θ/2 (Konsens)"| POS["Positions-Korrektur<br/>offset_ns"]
-    PI -->|"Ki·θ"| FRQ["Frequenz-Korrektur<br/>Δf"]
-    POS --> CLK["disziplinierte Uhr<br/>ntp_now_ns()"]
-    FRQ --> CLK
-    CLK -->|"nächster Austausch"| EX
-    FIL -.-> Q["Güte Λ<br/>δ_min/2 + σ/√N + |Δf|·t"]
-    style Q fill:#eef,stroke:#88a
-```
+![Regelkreis: Austausch → Filter → PI → Uhr → Güte](img/ntp_loop.png)
 
 Skizze einer Iteration (alle 250 ms, beide Knoten symmetrisch):
 
@@ -365,3 +313,10 @@ mitlaufender, ehrlicher Fehlerschranke. Für alles darunter (sub-µs, ns) führt
 > ist heute der Master/Slave-Sync gegen den PC ([NTP_TIMING.md](NTP_TIMING.md)); der
 > hier skizzierte Zwei-Knoten-Konsens-Regler ist ein möglicher Ausbau, kein
 > vorhandenes Feature.
+
+---
+
+*Die Diagramme (`img/ntp_*.png`) werden mit matplotlib aus
+[`ntp_convergence_diagrams.py`](ntp_convergence_diagrams.py) erzeugt
+(`pip install matplotlib && python ntp_convergence_diagrams.py`); die Zahlen sind
+illustrativ und entsprechen den im Text genannten Werten.*
