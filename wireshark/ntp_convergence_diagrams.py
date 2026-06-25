@@ -10,6 +10,7 @@ import os
 import math
 import matplotlib
 matplotlib.use("Agg")
+import numpy as np
 import matplotlib.pyplot as plt
 from matplotlib.patches import FancyBboxPatch, FancyArrowPatch
 
@@ -268,6 +269,47 @@ def fig_plca():
     save(fig, "ntp_plca_cycles.png")
 
 
+# 9) distributed sampling: phase error vs frequency for several sync jitters ----
+def fig_sample_phase():
+    fig, ax = plt.subplots(figsize=(7.6, 4.4))
+    f = np.logspace(1, 5, 300)            # 10 Hz .. 100 kHz
+    for st, lbl, c in [(10e-6, "σ_t = 10 µs (Software, solide)", C_B),
+                       (1e-6, "σ_t = 1 µs (Broadcast-One-Way)", "#ff7f0e"),
+                       (100e-9, "σ_t = 100 ns (HW/PTP, Vergleich)", "#2a8")]:
+        ax.plot(f, 360.0 * f * st, lw=2, color=c, label=lbl)
+    ax.axhline(1, color="0.4", ls="--", lw=1); ax.text(11, 1.15, "1° Phasenfehler", fontsize=8, color="0.4")
+    ax.axhline(5, color="0.6", ls=":", lw=1); ax.text(11, 5.6, "5°", fontsize=8, color="0.5")
+    for fx, t in [(50, "Netz 50 Hz"), (1000, "1 kHz"), (20000, "20 kHz (Audio/Vib.)")]:
+        ax.axvline(fx, color="0.85", lw=1)
+        ax.text(fx, 0.0013, t, rotation=90, va="bottom", ha="right", fontsize=8, color="0.5")
+    ax.set_xscale("log"); ax.set_yscale("log")
+    ax.set_xlim(10, 1e5); ax.set_ylim(1e-3, 1e3)
+    ax.set_xlabel("Signalfrequenz (Hz)"); ax.set_ylabel("Phasenfehler zwischen Knoten (°)")
+    ax.set_title("Verteilte Abtastung: Phasenfehler = 360°·f·σ_t")
+    ax.legend(loc="lower right", fontsize=8.5)
+    save(fig, "ntp_sample_phase.png")
+
+
+# 10) TDOA localization resolution dd = v * sync jitter -------------------------
+def fig_tdoa():
+    fig, ax = plt.subplots(figsize=(7.6, 4.4))
+    st = np.logspace(-7, -4, 200)         # 100 ns .. 100 µs
+    for v, lbl, c in [(343.0, "Schall (343 m/s)", C_A),
+                      (3000.0, "Seismik (~3 km/s)", "#8a5"),
+                      (2e8, "EM im Kabel (~2·10⁸ m/s)", C_B)]:
+        ax.plot(st * 1e6, v * st, lw=2, color=c, label=lbl)
+    for y, t in [(1e-3, "1 mm"), (1e-2, "1 cm"), (1.0, "1 m"), (1e3, "1 km")]:
+        ax.axhline(y, color="0.85", lw=1); ax.text(0.11, y * 1.15, t, fontsize=8, color="0.5")
+    for sx, t in [(1, "1 µs"), (10, "10 µs")]:
+        ax.axvline(sx, color="0.7", ls=":", lw=1); ax.text(sx, 4e-5, t, rotation=90, va="bottom", fontsize=8, color="0.5")
+    ax.set_xscale("log"); ax.set_yscale("log")
+    ax.set_xlim(0.1, 100); ax.set_ylim(2e-5, 5e4)
+    ax.set_xlabel("Sync-Jitter σ_t (µs)"); ax.set_ylabel("Ortsauflösung Δd = v·σ_t (m)")
+    ax.set_title("Laufzeit-Ortung (TDOA): Auflösung = Ausbreitungs­geschwindigkeit × σ_t")
+    ax.legend(loc="upper left", fontsize=8.5)
+    save(fig, "ntp_tdoa.png")
+
+
 if __name__ == "__main__":
     fig_exchange()
     fig_sawtooth()
@@ -277,4 +319,6 @@ if __name__ == "__main__":
     fig_master_slave()
     fig_bias_cancel()
     fig_plca()
+    fig_sample_phase()
+    fig_tdoa()
     print("done.")

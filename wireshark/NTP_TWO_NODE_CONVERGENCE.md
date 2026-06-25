@@ -50,7 +50,12 @@ Grundlage sind die in diesem Repo **real gemessenen** Werte (siehe
 - [9. Bester Fall: nur Embedded-Knoten, Master/Slave auf einem Strang](#9-bester-fall-nur-embedded-knoten-masterslave-auf-einem-strang)
   - [9.1 Noch besser: Broadcast-One-Way statt Einzel-Round-Trips](#91-noch-besser-broadcast-one-way-statt-einzel-round-trips)
   - [9.2 Erreichbar in diesem Fall](#92-erreichbar-in-diesem-fall)
-- [10. Fazit & ein konkreter Algorithmus-Vorschlag](#10-fazit--ein-konkreter-algorithmus-vorschlag)
+- [10. Anwendung: verteilte synchrone Abtastung — welche Grenzfrequenz?](#10-anwendung-verteilte-synchrone-abtastung--welche-grenzfrequenz)
+  - [10.1 Die Grundbeziehung: σ_t → Phasenfehler → Grenzfrequenz](#101-die-grundbeziehung-σ_t--phasenfehler--grenzfrequenz)
+  - [10.2 Laufzeit-Ortung (TDOA): hier zählt σ_t direkt](#102-laufzeit-ortung-tdoa-hier-zählt-σ_t-direkt)
+  - [10.3 Was damit möglich wird](#103-was-damit-möglich-wird)
+  - [10.4 Wo reine Software an die Grenze kommt](#104-wo-reine-software-an-die-grenze-kommt)
+- [11. Fazit & ein konkreter Algorithmus-Vorschlag](#11-fazit--ein-konkreter-algorithmus-vorschlag)
 
 ---
 
@@ -484,7 +489,106 @@ darunter braucht Hardware-Zeitstempelung (PTP/802.1AS, `net_10base_t1s`).
 
 ---
 
-## 10. Fazit & ein konkreter Algorithmus-Vorschlag
+## 10. Anwendung: verteilte synchrone Abtastung — welche Grenzfrequenz?
+
+Läuft auf **jedem Knoten ein ADC** und teilen sich alle Knoten die hier erreichte
+Zeitbasis, entsteht eine **verteilte, kohärente Abtastung**. Die Genauigkeit dieser
+gemeinsamen Abtastung — und damit die nutzbare Grenzfrequenz — wird direkt vom
+**Sync-Jitter `σ_t`** bestimmt (aus den vorigen Abschnitten: ~**10 µs** solide Software,
+~**1 µs** mit Broadcast-One-Way im Master/Slave-Fall).
+
+### 10.1 Die Grundbeziehung: σ_t → Phasenfehler → Grenzfrequenz
+
+Ein Zeitversatz `σ_t` zwischen zwei Knoten wird bei einem Signal der Frequenz `f` zu
+einem **Phasenfehler**:
+
+```
+Δφ = 2π · f · σ_t            (bzw. in Grad:  Δφ[°] = 360 · f · σ_t)
+```
+
+Fordert man Phasenkohärenz besser als `Δφ_max`, ergibt sich die **Grenzfrequenz**:
+
+```
+f_max = Δφ_max / (2π · σ_t)
+```
+
+![Phasenfehler über Frequenz für verschiedene σ_t](img/ntp_sample_phase.png)
+
+| σ_t | Phasenfehler @ 50 Hz | f für 1° Phase | f für ~8 bit (Jitter-SNR) | nutzbar für… |
+|---|---|---|---|---|
+| **10 µs** (Software) | 0,18° | ~280 Hz | ~50 Hz | Netz + niedrige Oberschwingungen, Modal/Vib. bis ~1–2 kHz |
+| **1 µs** (Broadcast-One-Way) | 0,018° | ~2,8 kHz | ~500 Hz | volle Oberschwingungsanalyse, Vib./Audio bis ~10–20 kHz |
+| **100 ns** (HW/PTP, Vergleich) | 0,0018° | ~28 kHz | ~5 kHz | hochfreq. phasenkohärent, Beamforming |
+
+Zwei „Grenzfrequenz"-Lesarten: die **Phasen-Lesart** (Tabelle/Diagramm, für
+Wirk-/Blindleistung, Beamforming, Modalanalyse) und die strengere **Jitter-SNR-Lesart**
+(`SNR = −20·log₁₀(2π f σ_t)`, für die effektive Bit-Auflösung der kohärenten Summe).
+
+### 10.2 Laufzeit-Ortung (TDOA): hier zählt σ_t direkt
+
+Wird ein Ereignis an mehreren Knoten erfasst, ist der Laufzeitunterschied direkt
+messbar — die **Ortsauflösung** ist `Δd = v · σ_t` mit der Ausbreitungsgeschwindigkeit `v`:
+
+![TDOA-Ortsauflösung Δd = v·σ_t](img/ntp_tdoa.png)
+
+| Medium | v | Δd @ 10 µs | Δd @ 1 µs |
+|---|---|---|---|
+| **Schall** (Luft) | 343 m/s | 3,4 mm | 0,34 mm |
+| **Seismik / Körperschall** | ~3 km/s | 30 mm | 3 mm |
+| **EM im Kabel** | ~2·10⁸ m/s | 2 km | 200 m |
+
+Je **langsamer** das Medium, desto besser die Ortung bei gegebenem σ_t — Akustik und
+Körperschall sind daher die **idealen** Anwendungen, EM-Laufzeit (Kabelfehlerortung)
+**nicht** (dafür braucht es ns → Hardware).
+
+### 10.3 Was damit möglich wird
+
+- **Verteilte Leistungsmessung (Wirk-/Blind-/Scheinleistung, Power Factor):** der
+  Phasenfehler bei 50/60 Hz ist mit 10 µs nur ~0,18° → PF-/Leistungsfehler
+  vernachlässigbar; bis ~280 Hz (≈ 5.–6. Oberschwingung) bleibt man unter 1°. Mit 1 µs
+  ist die **volle Oberschwingungsanalyse** bis einige kHz drin. Sogar **synchrophasor-
+  artige** Messung (PMU, TVE 1 % ≈ 0,57° @ 50 Hz) ist am Fundamental schon mit
+  10–30 µs erreichbar — verteilte Netzanalyse über einen Strang, rein in Software.
+- **Vibrations-/Zustandsüberwachung:** reine **Amplituden-Spektren** brauchen kaum
+  Sync (es genügt, die FFT-Fenster grob auszurichten) — die Bandbreite setzt allein die
+  ADC-Rate. **Phasenkohärente** Mehrpunkt-Analyse (Betriebsschwingformen/ODS, Modal,
+  Kreuzspektren, Kohärenz) ist mit 10 µs bis ~1–2 kHz, mit 1 µs bis ~10–20 kHz nutzbar
+  — deckt den Großteil der Maschinenschwingungen ab.
+- **Akustische Quellenortung (TDOA):** `Δd = 343 m/s · σ_t` → **mm-Klasse** (3,4 mm bei
+  10 µs, 0,34 mm bei 1 µs). Genau der „höhere Frequenz + Laufzeit durch das System"-Fall
+  — funktioniert für Schall hervorragend, weil `v` klein ist; die Audio-Bandbreite für
+  die Korrelation liefert der ADC mühelos.
+
+Weitere tragfähige Anwendungen (alle nutzen *langsame* Medien oder *niedrige* Frequenzen):
+
+- **Akustisches Beamforming / Geräuschquellen-Kartierung** (Mikrofon-Array, niederes
+  bis mittleres Audio) — phasenkohärent, σ_t-begrenzt nach 10.1.
+- **Seismik-/Geophon-Arrays** zur Quellenortung (v ~ km/s → mm–cm-Auflösung).
+- **Modalanalyse großer Strukturen** (Brücken, Windrad-Blätter; meist < 100 Hz →
+  schon mit 10 µs trivial phasenkohärent).
+- **Teilentladungs-/Lichtbogen-Ortung in Schaltanlagen** akustisch (TDOA, cm-Klasse).
+- **Ultraschall-Laufzeit** (Durchfluss, Leck) über Hüllkurven-Korrelation — mm-Klasse.
+- **Verteilte „Snapshot"-Erfassung** langsam veränderlicher Felder (Temperatur, Dehnung,
+  Druck über eine Struktur zu *einem* Zeitpunkt) — Sync ≪ Signal-Zeitskala, trivial.
+- **Mehrachs-Koordination / Stromaufteilung** in Leistungselektronik (kHz, phasenrichtig).
+
+### 10.4 Wo reine Software an die Grenze kommt
+
+- **EM-Laufzeit-Fehlerortung** (Wanderwellen im Kabel): braucht **ns** → 200 m @ 1 µs
+  ist zu grob → Hardware/PTP.
+- **Hochfrequent phasenkohärent** (> ~20 kHz, HF-Beamforming, RF-Teilentladung,
+  Ultraschall-*Phase*): `2π f σ_t` wird zu groß → Hardware-Zeitstempelung nötig.
+
+Kurz: Die erreichbare Synchronität (~µs in Software) eröffnet ein **breites Feld bei
+niedrigen/mittleren Frequenzen und in langsamen Medien** — verteilte Leistungs- und
+Netzanalyse, Vibrations-/Modal- und Zustandsüberwachung, akustische/seismische
+Quellenortung. Die Schallquellen-Ortung profitiert dabei am stärksten (mm-Klasse). Für
+hohe Frequenzen oder EM-Laufzeit endet die reine Software-Lösung und es beginnt das
+Hardware-Timestamping-Territorium (PTP).
+
+---
+
+## 11. Fazit & ein konkreter Algorithmus-Vorschlag
 
 Konvergierende Zwei-Knoten-Synchronisation per Software-NTP auf einem T1S-Strang ist
 **machbar und sinnvoll** — wenn man drei Dinge kombiniert:
