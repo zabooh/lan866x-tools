@@ -250,6 +250,10 @@ symmetry assumption needed.
 - **For sub-µs / hardware-grade timing**, use PTP / hardware timestamping rather than
   software NTP — see `net_10base_t1s`.
 
+> 🧭 **Could two T1S nodes sync to each other (convergingly) with this same software
+> NTP — and how accurate/reliable could that get?** A theoretical treatment (German,
+> with diagrams) is in **[NTP_TWO_NODE_CONVERGENCE.md](NTP_TWO_NODE_CONVERGENCE.md)**.
+
 ### 5.5 Why the UART does not corrupt the measurement
 
 The eth0 timestamp is taken **in the packet hook** with `ntp_now_ns()`, before any
