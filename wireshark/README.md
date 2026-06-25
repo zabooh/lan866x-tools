@@ -167,6 +167,11 @@ Live capture needs **Npcap + admin**; the board must be reachable through the
 bridge on `--iface` (run with the PC on the bridge's `eth1`). Per-scenario `.pcapng`
 files land in `captures/` and `report.html` in this folder (both git-ignored).
 
+A committed sample run is in **[`example-report.html`](example-report.html)** —
+open it in a browser to see the layout (timing diagrams + per-method RTT tables)
+without any hardware. It captured 8 / 63 / 7485 RCP round-trips for
+discovery / diag / gpiomax.
+
 ---
 
 ## Troubleshooting
