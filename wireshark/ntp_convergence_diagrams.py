@@ -167,10 +167,74 @@ def fig_loop():
     save(fig, "ntp_loop.png")
 
 
+# 6) master/slave broadcast one-way sync (sequence sketch) ----------------------
+def fig_master_slave():
+    fig, ax = plt.subplots(figsize=(7.8, 4.4))
+    xM, xS1, xS2 = 0.12, 0.50, 0.86
+    for x, name, col in [(xM, "Master (PLCA Node 0)", "#2a8"), (xS1, "Slave 1", C_A),
+                         (xS2, "Slave 2", C_B)]:
+        ax.plot([x, x], [0.05, 0.92], color="0.45", lw=1.5)
+        ax.text(x, 0.97, name, ha="center", va="bottom", fontweight="bold", fontsize=10)
+    # one master TX event fans out to both slaves (near-simultaneous, ~ns apart)
+    yTX, yR1, yR2 = 0.80, 0.70, 0.685
+    ax.plot(xM, yTX, "o", color="#2a8", ms=6)
+    ax.text(xM - 0.02, yTX, "TX-Stempel", ha="right", va="center", fontsize=9, color="#2a8")
+    ax.annotate("", xy=(xS1, yR1), xytext=(xM, yTX),
+                arrowprops=dict(arrowstyle="-|>", color="#2a8", lw=2))
+    ax.annotate("", xy=(xS2, yR2), xytext=(xM, yTX),
+                arrowprops=dict(arrowstyle="-|>", color="#2a8", lw=2))
+    ax.text((xM + xS2) / 2, yTX + 0.015, "Broadcast-Sync", ha="center", color="#2a8", fontsize=9.5)
+    for x, y in [(xS1, yR1), (xS2, yR2)]:
+        ax.plot(x, y, "o", color="0.2", ms=5)
+        ax.text(x + 0.02, y, "RX-Stempel", ha="left", va="center", fontsize=9)
+    # follow-up carrying the master TX timestamp (dashed)
+    yFU = 0.42
+    ax.annotate("", xy=(xS1, yFU - 0.02), xytext=(xM, yFU + 0.04),
+                arrowprops=dict(arrowstyle="-|>", color="0.45", lw=1.4, ls="--"))
+    ax.annotate("", xy=(xS2, yFU - 0.03), xytext=(xM, yFU + 0.04),
+                arrowprops=dict(arrowstyle="-|>", color="0.45", lw=1.4, ls="--"))
+    ax.text((xM + xS2) / 2, yFU + 0.05, "Follow-up: Master_TX-Zeit", ha="center",
+            color="0.4", fontsize=9)
+    ax.text(0.5, 0.13,
+            "Offset$_{Slave}$ = (Master_TX + t$_{Kabel}$) − Slave_RX\n"
+            "t$_{Kabel}$ ≈ ns (für alle Slaves gleich)  →  Slave↔Slave nur RX-Stempel-Jitter",
+            ha="center", va="center", fontsize=9.5,
+            bbox=dict(boxstyle="round", fc="#eef", ec="#88a"))
+    ax.set_title("Master/Slave: Broadcast-One-Way-Sync (Asymmetrie fällt slave↔slave weg)")
+    ax.set_xlim(0, 1); ax.set_ylim(0, 1.03); ax.axis("off")
+    save(fig, "ntp_master_slave.png")
+
+
+# 7) error budget: slave<->master vs slave<->slave (bias cancels) ----------------
+def fig_bias_cancel():
+    fig, ax = plt.subplots(figsize=(6.6, 4.2))
+    cats = ["Slave ↔ Master", "Slave ↔ Slave"]
+    x = [0, 1]
+    bias = [40, 0]        # systematic asymmetry bias (cancels for slave-slave)
+    jit = [15, 12]        # random residual (averaged)
+    ax.bar(x, jit, width=0.5, color="#ff7f0e", label="Zufalls-Rest (mittelbar)")
+    ax.bar(x, bias, width=0.5, bottom=jit, color="#9aa", label="Asymmetrie-Bias b")
+    # show the cancelled bias on slave-slave as a hatched ghost
+    ax.bar([1], [40], width=0.5, bottom=[12], color="none", edgecolor="#bbb",
+           hatch="///", label="Bias b — kürzt sich weg")
+    ax.annotate("b kürzt sich weg\n(gleiche HW, gleicher Strang)", xy=(1, 32),
+                xytext=(1.15, 48), fontsize=9, ha="left",
+                arrowprops=dict(arrowstyle="->", color="0.4"))
+    ax.text(0, 57, "≈55 µs", ha="center", fontsize=9)
+    ax.text(1, 14.5, "≈12 µs", ha="center", fontsize=9)
+    ax.set_xticks(x); ax.set_xticklabels(cats)
+    ax.set_ylabel("Fehlerbudget (µs)"); ax.set_ylim(0, 70)
+    ax.set_title("Warum Slave↔Slave besser ist: der gemeinsame Bias kürzt sich weg")
+    ax.legend(loc="upper right", fontsize=8.5)
+    save(fig, "ntp_bias_cancel.png")
+
+
 if __name__ == "__main__":
     fig_exchange()
     fig_sawtooth()
     fig_convergence()
     fig_consensus()
     fig_loop()
+    fig_master_slave()
+    fig_bias_cancel()
     print("done.")
