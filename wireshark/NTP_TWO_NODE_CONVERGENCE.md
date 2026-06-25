@@ -204,6 +204,11 @@ genügt ein ordentlicher **Quarz**; **TCXO/MEMS** lohnen, wenn die Temperatur st
 schwankt, Vibration herrscht oder man den Sync-Verkehr reduzieren will. Der mit Abstand
 größte Sprung ist aber zuerst: **weg vom internen RC, hin zu irgendeinem Quarz.**
 
+> 🔎 Konkret in dieser Firmware: `SYS_TIME` (TC0, 60 MHz) hängt vollständig am
+> **internen DFLL48M im Open-Loop** — kein externer Quarz im Pfad. Die verifizierte
+> Clock-Ableitung (Baum + Register) steht in
+> [NTP_SYNC.md §5](NTP_SYNC.md#5-accuracy-limits--whats-next).
+
 ---
 
 ## 4. Konvergenz-Mathematik

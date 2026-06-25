@@ -258,9 +258,33 @@ dedicated holdover test elsewhere measured **~58 µs after 6 s**.
 - **Frequency discipline (this doc):** removes the drift/sawtooth — the big lever. It
   is why the holdover is ~58 µs instead of ~9.6 ms over 6 s, and why the live mean is
   unbiased.
-- **Oscillator:** the ~1850 ppm comes from the internal RC/DFLL timebase; clocking
-  `SYS_TIME` from an external crystal/TCXO/MEMS would shrink the drift (and the
-  drift-wander) and improve holdover — see
+- **Oscillator / where the timer comes from:** the ~1850 ppm is not arbitrary — it is
+  exactly what the clock tree predicts. `SYS_TIME` is **TC0** (16-bit, prescaler
+  DIV1), and its 60 MHz derives — verified in
+  `config/default/peripheral/clock/plib_clock.c` — from the **internal DFLL48M running
+  open-loop** (both `OSCCTRL_Initialize()` and `DFLL_Initialize()` are empty stubs, so
+  **no external crystal** (XOSC0/XOSC1) is enabled and the DFLL stays in its
+  free-running reset default):
+
+```
+internal DFLL48M  (open-loop, RC-based, factory-trimmed only → temperature-dependent)
+   │  GCLK_GENCTRL[2] = SRC(6)=DFLL ÷48
+ 1 MHz ──► FDPLL0 reference (DPLLCTRLB.REFCLK=GCLK, PCHCTRL[1]=GEN2); DPLLRATIO LDR=119 → ×120
+   ▼
+120 MHz (FDPLL0)
+   ├─ GCLK_GENCTRL[0] SRC(7)=DPLL0 ÷1 → 120 MHz  (CPU / main clock)
+   └─ GCLK_GENCTRL[1] SRC(7)=DPLL0 ÷2 →  60 MHz  (GCLK1) ─ PCHCTRL[9] → TC0 (DIV1)
+                                                          → 60 MHz SYS_TIME tick (~16 ns)
+```
+
+  So the *entire* timebase (CPU and the NTP counter) is rooted in the internal,
+  open-loop DFLL48M — an RC-class source specified to ~±0.4–1 % and temperature-
+  dependent, which is precisely why the measured drift is ~1800–2000 ppm and rises as
+  the board warms. The *absolute* error is irrelevant to the follower (the PI loop
+  learns it), but clocking the DFLL/PLL reference — or `SYS_TIME` itself — from an
+  **external crystal / TCXO / MEMS** would shrink the drift to tens of ppm (crystal)
+  or ~1 ppm (TCXO/MEMS), improving the drift-wander and holdover (the per-sync jitter
+  floor is unaffected). See the oscillator comparison in
   [NTP_TWO_NODE_CONVERGENCE.md §3.2](NTP_TWO_NODE_CONVERGENCE.md).
 - **Earlier timestamping (`#2`)** via a UDP RX signal handler was evaluated and
   **rejected**: on this cooperative-superloop + SPI-stack architecture it stamps at the
