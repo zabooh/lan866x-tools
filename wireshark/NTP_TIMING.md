@@ -85,8 +85,22 @@ lan866x-ntpsync --interval 500  :: continuous, 500 ms period
 ```
 On the board:
 ```text
-ntp            # status snapshot (source/resolution, offset, last delay/adjust, NTP time)
+ntp            # status snapshot: source/resolution, offset, last delay/adjust,
+               #   whether/when the last sync was, the estimated oscillator drift
+               #   (ppm) and how far the counter has likely drifted since the last
+               #   sync, plus the NTP time and local (GMT+2) wall clock
 ntp watch      # one line per sync (throttled to ~1/s), GMT+2, until q / Ctrl-C
+```
+The one-shot `ntp` status projects the deviation since the last sync from the last
+correction over the last sync interval (`drift ≈ −adjust / interval`), so you can see
+at a glance whether the counter is still trustworthy or has drifted (it drifts ~ms/s
+free-running — re-sync to pull it back). Example after syncing then idling ~8 s:
+```text
+  synced     : YES (8 sync msg)
+  last sync  : 7.801 s ago
+  est. drift : +1600 ppm  (last -506.476 us correction over 316.506 ms)
+  est. dev.  : ~12.483 ms drifted off since last sync (projected)
+  local time : 15:17:20.557 (GMT+2)
 ```
 Offset and delay are printed **human-readable** (ns/us/ms/s) on both sides. The
 board shows local time in **GMT+2** (display only; the stored counter is UTC epoch).

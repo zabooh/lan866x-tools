@@ -308,7 +308,7 @@ The remaining host tools are mirrored in the **`gpio`**, **`i2c`**, **`spi`**,
 
 | Command | Description |
 |---|---|
-| `ntp` | show the NTP time-counter status (source/resolution, offset, synced, current PC-aligned time) |
+| `ntp` | show the NTP time-counter status: source/resolution, offset, synced, **time since last sync, estimated drift (ppm) + deviation accumulated since that sync**, PC-aligned time + local (GMT+2) clock |
 
 Harmony stack commands (`netinfo`, `bridge`, `ping`, etc.) are also available.
 
@@ -772,15 +772,25 @@ lan866x-ntpsync --ip 192.168.0.180 --once --no-set   :: eth0, measure only
 PC (continuous):
 [13:54:39.478] offset 543.624 us      delay 671.417 us
 
-# on the board, query the disciplined counter:
+# on the board, query the disciplined counter (here ~8 s after the last sync):
 ntp
   source     : SYS_TIME, 60000000 Hz  (resolution ~16 ns/tick)
-  offset     : 1782388445.914 s
-  last delay : 555.000 us
-  last adjust: 1782388445.914 s
-  synced     : YES (1 sync msg)
-  NTP time   : 1782388457.152289300 s  (PC-aligned, Unix epoch)
+  offset     : 1782393377.904 s
+  last delay : 969.500 us
+  last adjust: -506.476 us
+  synced     : YES (8 sync msg)
+  last sync  : 7.801 s ago
+  est. drift : +1600 ppm  (last -506.476 us correction over 316.506 ms)
+  est. dev.  : ~12.483 ms drifted off since last sync (projected)
+  NTP time   : 1782393440.557288016 s  (PC-aligned, Unix epoch)
+  local time : 15:17:20.557 (GMT+2)
 ```
+The one-shot `ntp` status reports **whether/when the last sync happened** (`never`
+before the first one, else *“N ago”*) and — projected from the last correction over
+the last sync interval (`drift ≈ −adjust / interval`) — the **estimated oscillator
+drift** and **how far the free-running counter has likely drifted since that sync**.
+Free-running it drifts ~ms/s, so a stale `last sync` with a large `est. dev.` means
+the counter needs a re-sync. (`est. drift` needs ≥ 2 syncs to have an interval.)
 
 `ntp watch [secs]` on the board prints the latest sync in the same format as the
 PC tool (timestamp is UTC, derived from the disciplined counter), **throttled to

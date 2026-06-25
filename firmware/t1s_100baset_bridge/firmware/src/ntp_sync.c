@@ -51,6 +51,8 @@ static int64_t    s_last_adjust_ns = 0;  /* last correction the PC applied      
 static int64_t    s_last_delay_ns = 0;   /* last round-trip delay the PC measured         */
 static int        s_synced = 0;
 static uint32_t   s_syncCount = 0;
+static uint64_t   s_lastSyncRaw = 0;     /* raw (monotonic) counter at the last SET_OFFSET */
+static int64_t    s_lastInterval = 0;    /* raw interval between the last two syncs         */
 
 /* Format a ns duration human-readable (ASCII, integer math, signed): ns / us / ms / s. */
 static const char *fmt_dur(char *b, int n, int64_t ns)
@@ -160,10 +162,40 @@ static void ntp_print_status(void)
     SYS_CONSOLE_PRINT("  last delay : %s\r\n", s_synced ? fmt_dur(b2, sizeof b2, s_last_delay_ns) : "(n/a)");
     SYS_CONSOLE_PRINT("  last adjust: %s\r\n", s_synced ? fmt_dur(b3, sizeof b3, s_last_adjust_ns) : "(n/a)");
     SYS_CONSOLE_PRINT("  synced     : %s (%lu sync msg)\r\n", s_synced ? "YES" : "no", (unsigned long)s_syncCount);
+
+    /* How long ago the last sync was, and - projected from the last correction over
+     * the last sync interval - how far the free-running counter has likely drifted
+     * since then (the firmware oscillator is undisciplined, ~ms/s). */
+    if (!s_synced) {
+        SYS_CONSOLE_PRINT("  last sync  : never (no sync received yet)\r\n");
+    } else {
+        int64_t elapsed = (int64_t)(up - s_lastSyncRaw);
+        char b4[40], b5[40];
+        SYS_CONSOLE_PRINT("  last sync  : %s ago\r\n", fmt_dur(b4, sizeof b4, elapsed));
+        if (s_syncCount >= 2u && s_lastInterval > 0) {
+            int64_t iv_us = s_lastInterval / 1000;                       /* keep the products small */
+            long    ppm   = (long)(((-s_last_adjust_ns) * 1000000) / s_lastInterval);
+            int64_t dev   = (iv_us > 0) ? ((-s_last_adjust_ns) * (elapsed / 1000)) / iv_us : 0;
+            SYS_CONSOLE_PRINT("  est. drift : %+ld ppm  (last %s correction over %s)\r\n",
+                              ppm, fmt_dur(b4, sizeof b4, s_last_adjust_ns),
+                              fmt_dur(b5, sizeof b5, s_lastInterval));
+            SYS_CONSOLE_PRINT("  est. dev.  : ~%s drifted off since last sync (projected)\r\n",
+                              fmt_dur(b4, sizeof b4, dev));
+        } else {
+            SYS_CONSOLE_PRINT("  est. drift : n/a (need >= 2 syncs to estimate)\r\n");
+        }
+    }
+
     SYS_CONSOLE_PRINT("  NTP time   : %llu.%09llu s",
                       (unsigned long long)(now / 1000000000ULL), (unsigned long long)(now % 1000000000ULL));
     if (s_synced) SYS_CONSOLE_PRINT("  (PC-aligned, Unix epoch)");
     SYS_CONSOLE_PRINT("\r\n");
+    if (s_synced) {
+        uint64_t sod = ((now / 1000000000ULL) + NTP_LOCAL_TZ_OFFSET_S) % 86400ULL;  /* GMT+2 */
+        SYS_CONSOLE_PRINT("  local time : %02u:%02u:%02u.%03u (GMT+2)\r\n",
+                          (unsigned)(sod / 3600u), (unsigned)((sod % 3600u) / 60u), (unsigned)(sod % 60u),
+                          (unsigned)((now / 1000000ULL) % 1000ULL));
+    }
 }
 
 /* Continuous watch: one line per sync received from the PC (same format as the PC
@@ -252,9 +284,12 @@ void NTP_Task(void)
             reply_to(&info, out, 25u);
         } else if (in[0] == OP_SET_OFFSET && got >= 9u) {
             int64_t adjust = (int64_t)get64(&in[1]);
+            uint64_t raw = ntp_raw_ns();
             s_offset_ns += adjust;
             s_last_adjust_ns = adjust;
             if (got >= 17u) s_last_delay_ns = (int64_t)get64(&in[9]);  /* PC-measured round-trip */
+            if (s_synced) s_lastInterval = (int64_t)(raw - s_lastSyncRaw);  /* gap since prior sync */
+            s_lastSyncRaw = raw;
             s_synced = 1; s_syncCount++;
             out[0] = OP_SET_ACK;
             put64(&out[1], ntp_now_ns());
