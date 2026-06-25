@@ -385,6 +385,7 @@ lan866x-tools/
 ├── video.c              loop-play a video file on the 2× RGB displays (ffmpeg → RTP)
 ├── dncpmon.c            passive DNCP monitor (standalone, Winsock)
 ├── dncpdisc.c           active DNCP discovery (standalone, Winsock)
+├── ntpsync.c            software NTP time sync to the bridge firmware (standalone, Winsock)
 ├── src/
 │   ├── rcp.h / rcp.c    RCP over libsomeip — typed methods + async API
 │   ├── someip_stub.c    platform-neutral SOMEIP_CB_* on the plat.h layer

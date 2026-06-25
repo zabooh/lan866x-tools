@@ -115,7 +115,8 @@ side is real, not hypothetical. Full docs: `firmware/t1s_100baset_bridge/README.
   `i2c_cli.c`), `spi` (`spi`, `spiid`, `thumbmon`, `adc`, `pwm` → `spi_cli.c`),
   `sys` (`servicetest`, `boot`, `uart`, `video` (built-in RTP test pattern) →
   `sys_cli.c`), `dncp` (`dncpmon`, `dncpdisc` over raw `plat_udp_*` → `dncp_cli.c`),
-  and `Test` (`mirror`, `ipdump`, `stats`, `plca_node`, `lan_read/lan_write`,
+  `ntp` (`ntp` status → `ntp_sync.c`, software time-sync service, see below),
+  and `Test` (`mirror`, `ipdump`, `stats`, `meminfo`, `plca_node`, `lan_read/lan_write`,
   `noip_send/noip_stat`, `logstat`). Each `*_cli.c` registers its group from
   `APP_Initialize`; long-runners are bounded (`[secs]`) + Ctrl-C/`q`. Shared
   helpers `sel_first_ep()`/`led_set()` live in `lan866x_cli.h`. Two preserved
@@ -126,6 +127,13 @@ side is real, not hypothetical. Full docs: `firmware/t1s_100baset_bridge/README.
   with dst==eth0 MAC (`pktEth0Handler`), TX mirrors frames with src==eth0 MAC from
   the single egress hook in `DRV_LAN865X_PacketTx` (a small edit in the otherwise
   MCC-generated `config/default` driver — preserve it).
+- **Software NTP time sync (`ntp_sync.c` + host `lan866x-ntpsync`):** the bridge runs
+  a free-running high-res NTP counter (`SYS_TIME` ns + signed offset, 60 MHz/~16 ns
+  on SAME54) and a UDP service on **port 30491** (unpinned → reachable on eth1/eth0).
+  The PC tool runs a t1/t2/t3/t4 exchange, then `SET_OFFSET`s the counter to PC
+  Unix-epoch time; `ntp_now_ns()` then timestamps firmware events on the PC timebase.
+  Software-NTP accuracy ≈ round-trip/2 jitter (~hundreds of µs here), not the 16 ns
+  tick — sub-µs/PTP lives in `net_10base_t1s`.
 - **Build (two paths):** primary is `firmware/t1s_100baset_bridge/build.bat`
   (CMake/Ninja, XC32) → copies the HEX to `release/`; flash with `python flash.py`
   (MDB, auto-finds MPLAB X). Per-machine `setup.bat` (setup_compiler/flasher/debug)

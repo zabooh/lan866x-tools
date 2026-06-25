@@ -28,6 +28,12 @@ void SPI_CLI_Init(void);    /* spi, spiid, thumbmon, adc, pwm */
 void SYS_CLI_Init(void);    /* servicetest, boot, uart, video */
 void DNCP_CLI_Init(void);   /* dncpmon, dncpdisc */
 
+/* NTP software time sync (ntp_sync.c): a free-running high-res counter the PC
+ * disciplines to its wall clock via a UDP t1/t2/t3/t4 exchange (port 30491). */
+void     NTP_Init(void);    /* open the UDP service + register the "ntp" CLI group */
+void     NTP_Task(void);    /* service the UDP socket; call once per superloop tick */
+uint64_t ntp_now_ns(void);  /* disciplined NTP time in ns (PC-aligned once synced) */
+
 /* Drive the SOME/IP client: lazily runs rcp_init() once an interface is up,
  * then pumps rcp_poll() each call. Call once per superloop iteration from
  * APP_Tasks (cooperative single-thread - do NOT block the superloop). */

@@ -67,8 +67,8 @@ if(CMAKE_C_COMPILER_ID STREQUAL "GNU")
     target_link_options(lan866x-flashpkg PRIVATE -static -static-libgcc)
 endif()
 
-# --- standalone DNCP tools (Winsock only, not SOME/IP) ----------------------
-foreach(tool dncpmon dncpdisc)
+# --- standalone tools (Winsock only, not SOME/IP) ---------------------------
+foreach(tool dncpmon dncpdisc ntpsync)
     add_executable(lan866x-${tool} ${tool}.c)
     set_target_properties(lan866x-${tool} PROPERTIES C_STANDARD 11)
     if(WIN32)

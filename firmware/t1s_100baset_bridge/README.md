@@ -53,6 +53,7 @@ on-board, straight from a serial console.
   - [7.8 spi group](#78-spi-group-spi--spiid--thumbmon--adc--pwm)
   - [7.9 sys group](#79-sys-group-servicetest--boot--uart--video)
   - [7.10 dncp group](#710-dncp-group-dncpmon--dncpdisc)
+- [8. Software time sync (NTP)](#8-software-time-sync-ntp)
 
 ---
 
@@ -302,6 +303,12 @@ running. Run `discovery` first so a target endpoint is selected.
 The remaining host tools are mirrored in the **`gpio`**, **`i2c`**, **`spi`**,
 **`sys`** and **`dncp`** command groups — documented per command in
 [§7.6–§7.10](#76-gpio-group-gpio--gpioevents--ledtoggle--ledpwm).
+
+**`ntp` group** — software time sync (see [§8](#8-software-time-sync-ntp)):
+
+| Command | Description |
+|---|---|
+| `ntp` | show the NTP time-counter status (source/resolution, offset, synced, current PC-aligned time) |
 
 Harmony stack commands (`netinfo`, `bridge`, `ping`, etc.) are also available.
 
@@ -728,3 +735,45 @@ SOME/IP — these use `plat_udp_*` directly.
 > implemented (e.g. ADC is absent on the minimal Lighting build — `servicetest`
 > tells you what's present). `ledscan` (interactive + writes `led_map.json`) stays
 > host-only.
+
+---
+
+## 8. Software time sync (NTP)
+
+The bridge keeps a free-running, high-resolution **NTP time counter** that starts
+at boot. A PC tool disciplines it to the PC's wall clock over a small UDP
+exchange, so afterwards the firmware can timestamp events on the **PC timebase**
+(`ntp_sync.c`, host tool `lan866x-ntpsync`).
+
+- **Counter / resolution:** the counter is `SYS_TIME` (ns) plus a signed offset.
+  On the SAME54 it runs at **60 MHz → ~16 ns/tick** (reported by the `ntp`
+  command). The achievable *sync accuracy* is far coarser than the tick — it is
+  bounded by the software round-trip jitter (see below), not the counter.
+- **Service:** UDP **port 30491** on the bridge (not pinned to an interface, so
+  the PC reaches it directly, e.g. `192.168.0.181:30491`). Protocol: a 4-timestamp
+  exchange (`REQUEST`/`REPLY` carrying t1/t2/t3/t4) plus a `SET_OFFSET` that
+  disciplines the counter; all integers are big-endian signed-64-bit ns.
+- **Flow:** the PC tool runs several t1/t2/t3/t4 rounds, keeps the lowest-delay
+  sample, computes the offset `((t2−t1)+(t3−t4))/2`, then sends `SET_OFFSET` so the
+  firmware counter reads PC time (Unix-epoch ns). The firmware then runs
+  autonomously on the disciplined counter.
+
+```bat
+:: PC side (built with the host tools)
+lan866x-ntpsync --ip 192.168.0.181            :: sync the bridge clock to the PC
+lan866x-ntpsync --ip 192.168.0.181 --no-set   :: measure offset/delay only
+```
+```text
+# on the board, query the disciplined counter:
+ntp
+  source   : SYS_TIME, 60000000 Hz  (resolution ~16 ns/tick)
+  synced   : YES (2 sync msg)
+  NTP time : 1782386905.742093567 s  (PC-aligned, Unix epoch)
+```
+
+**Accuracy.** This is *software* NTP: both ends take software timestamps and the
+exchange crosses the 100BASE-T link, so the residual after sync is on the order of
+the **round-trip delay / 2 plus jitter — typically a few hundred microseconds**
+here (the tool prints the round-trip delay and the residual). That is the limit of
+the machine, not the 16 ns counter; for sub-µs/absolute timing you need hardware
+timestamping / PTP (which lives in the newer `net_10base_t1s` project).

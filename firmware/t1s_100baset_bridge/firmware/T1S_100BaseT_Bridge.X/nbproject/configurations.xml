@@ -681,6 +681,7 @@
         <itemPath>../src/spi_cli.c</itemPath>
         <itemPath>../src/sys_cli.c</itemPath>
         <itemPath>../src/dncp_cli.c</itemPath>
+        <itemPath>../src/ntp_sync.c</itemPath>
         <itemPath>../../../../src/rcp.c</itemPath>
         <itemPath>../../../../src/someip_stub.c</itemPath>
         <itemPath>../../../../libepmicrochip/libsomeip/src/someip-client.c</itemPath>

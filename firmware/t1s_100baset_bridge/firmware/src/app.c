@@ -377,6 +377,7 @@ void APP_Initialize(void) {
     SPI_CLI_Init();       /* spi, spiid, thumbmon, adc, pwm */
     SYS_CLI_Init();       /* servicetest, boot, uart, video */
     DNCP_CLI_Init();      /* dncpmon, dncpdisc */
+    NTP_Init();           /* software NTP time sync service (UDP 30491) + "ntp" CLI */
     /* TODO: Initialize your application's state machine and other
      * parameters.
      */
@@ -437,6 +438,9 @@ void APP_Tasks(void) {
 
             /* === LAN866x SOME/IP client: drive SD + replies once per tick === */
             LAN866X_CLI_Task();
+
+            /* === Software NTP time-sync service (UDP 30491) === */
+            NTP_Task();
 
             /* === Manual LAN865x register access service (Test commands) === */
             switch (app_lan_state) {
