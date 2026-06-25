@@ -138,24 +138,32 @@ static void ntp_print_status(void)
 static void ntp_watch(uint32_t secs)
 {
     SYS_CONSOLE_HANDLE con = SYS_CONSOLE_HandleGet(SYS_CONSOLE_INDEX_0);
-    uint32_t last = s_syncCount, start = plat_now_ms();
+    uint32_t last = s_syncCount, start = plat_now_ms(), lastPrint = 0u;
     int aborted = 0;
-    SYS_CONSOLE_PRINT("Watching NTP syncs (one line per sync; 'q' or Ctrl-C to stop)...\r\n");
+    SYS_CONSOLE_PRINT("Watching NTP syncs (~1 line/s, latest sync; 'q' or Ctrl-C to stop)...\r\n");
     while (!aborted && (secs == 0u || (plat_now_ms() - start) < secs * 1000u)) {
-        NTP_Task();                              /* process incoming SET_OFFSET while we block */
+        /* Service the NTP socket promptly so a request is not left sitting in the
+         * UDP buffer (which would inflate the measured delay). EVERY sync is
+         * processed; printing is throttled to ~1/s so the console I/O never
+         * competes with the time exchange. */
+        NTP_Task();
         if (s_syncCount != last) {
-            char b1[40], b2[40];
-            uint64_t now = ntp_now_ns();
-            uint64_t sod = (now / 1000000000ULL) % 86400ULL;   /* UTC seconds-of-day */
+            uint32_t ms = plat_now_ms();
             last = s_syncCount;
-            SYS_CONSOLE_PRINT("[%02u:%02u:%02u.%03u] offset %-14s delay %-14s\r\n",
-                (unsigned)(sod / 3600u), (unsigned)((sod % 3600u) / 60u), (unsigned)(sod % 60u),
-                (unsigned)((now / 1000000ULL) % 1000ULL),
-                fmt_dur(b1, sizeof b1, -s_last_adjust_ns),   /* PC-measured offset = -adjust */
-                fmt_dur(b2, sizeof b2, s_last_delay_ns));
+            if (ms - lastPrint >= 1000u) {           /* at most one line per second */
+                char b1[40], b2[40];
+                uint64_t now = ntp_now_ns();
+                uint64_t sod = (now / 1000000000ULL) % 86400ULL;   /* UTC seconds-of-day */
+                lastPrint = ms;
+                SYS_CONSOLE_PRINT("[%02u:%02u:%02u.%03u] offset %-14s delay %-14s\r\n",
+                    (unsigned)(sod / 3600u), (unsigned)((sod % 3600u) / 60u), (unsigned)(sod % 60u),
+                    (unsigned)((now / 1000000ULL) % 1000ULL),
+                    fmt_dur(b1, sizeof b1, -s_last_adjust_ns),   /* PC-measured offset = -adjust */
+                    fmt_dur(b2, sizeof b2, s_last_delay_ns));
+            }
         }
         if (chk_abort(con)) aborted = 1;
-        plat_sleep_ms(10);
+        plat_sleep_ms(1);                            /* snappy NTP servicing (was 10) */
     }
     SYS_CONSOLE_PRINT("watch stopped.\r\n");
 }

@@ -782,9 +782,11 @@ ntp
   NTP time   : 1782388457.152289300 s  (PC-aligned, Unix epoch)
 ```
 
-`ntp watch [secs]` on the board prints **one line per received sync** in the same
-format as the PC tool (timestamp is UTC, derived from the disciplined counter),
-until `q`/Ctrl-C:
+`ntp watch [secs]` on the board prints the latest sync in the same format as the
+PC tool (timestamp is UTC, derived from the disciplined counter), **throttled to
+~1 line/s** so the console I/O never competes with the time exchange (every sync is
+still processed; the socket is serviced every ~1 ms to keep the measured delay
+low). Runs until `q`/Ctrl-C:
 ```text
 ntp watch
 [12:12:21.158] offset 41.675 us      delay 3.009 ms
