@@ -806,19 +806,25 @@ PC tool (timestamp is UTC, derived from the disciplined counter), **throttled to
 ~1 line/s** so the console I/O never competes with the time exchange (every sync is
 still processed; the socket is serviced every ~1 ms to keep the measured delay
 low). Runs until `q`/Ctrl-C:
+`watch` shows three things per line so the **convergence is visible** even though the
+raw per-sync offset never shrinks (it is the measurement jitter floor): `offset` =
+this sync's raw measured offset (bounces ±~200 µs); `mean` = rolling mean of the last
+16 offsets (**converges to ~0** as the loop locks); `drift` = the **frequency-locked**
+oscillator drift (**ramps up and settles**). Fresh-start capture:
 ```text
-ntp watch
-[12:12:21.158] offset 41.675 us      delay 3.009 ms
-[12:12:21.487] offset 807.800 us     delay 951.584 us
+ntp watch 12
+[18:34:33.986] offset 538.799 us   mean 538.799 us   drift  +461 ppm  delay 574.967 us
+[18:34:35.147] offset 131.479 us   mean 328.680 us   drift +1408 ppm  delay 664.124 us
+[18:34:37.332] offset -109.699 us  mean 173.710 us   drift +1766 ppm  delay 736.402 us
+[18:34:39.425] offset 109.214 us   mean 55.346 us    drift +1740 ppm  delay 733.397 us
+[18:34:41.549] offset 14.691 us    mean 15.355 us    drift +1839 ppm  delay 838.968 us
+[18:34:44.696] offset -228.204 us  mean 811 ns       drift +1670 ppm  delay 671.201 us
 ```
-> Note: each `watch` line is the **single-shot measured offset of that sync** — i.e.
-> the per-exchange measurement *jitter*, bounded by ~`delay/2` (hundreds of µs). This
-> is **not** what the frequency discipline improves: the PI loop removes the *drift
-> between* syncs (holdover), which shows up in the `ntp` status and the holdover test
-> above (~58 µs after 6 s), not in the live per-sync `watch` numbers. Those straddle
-> zero (rather than sitting at a constant ~+400 µs drift bias), which is the visible
-> sign the loop is working. Shrinking the per-sync jitter itself needs earlier
-> (hook-level) timestamping, not frequency discipline.
+> The `offset` jitter (~`delay/2`, hundreds of µs) is **not** what frequency discipline
+> improves — the PI loop removes the *drift between* syncs (holdover: ~58 µs after 6 s,
+> see above). Convergence lives in `mean → 0` and `drift` locking in, not in the raw
+> per-sync offset. Shrinking the per-sync jitter itself needs hook-level/hardware
+> timestamping (PTP), not frequency discipline.
 
 **Accuracy.** This is *software* NTP: both ends take software timestamps and the
 exchange crosses the 100BASE-T link, so the residual after sync is on the order of

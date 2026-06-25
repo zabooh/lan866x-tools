@@ -225,7 +225,10 @@ static void ntp_watch(uint32_t secs)
     SYS_CONSOLE_HANDLE con = SYS_CONSOLE_HandleGet(SYS_CONSOLE_INDEX_0);
     uint32_t last = s_syncCount, start = plat_now_ms(), lastPrint = 0u;
     int aborted = 0;
-    SYS_CONSOLE_PRINT("Watching NTP syncs (~1 line/s, latest sync; 'q' or Ctrl-C to stop)...\r\n");
+    int64_t  ring[16]; int rn = 0, ri = 0; int64_t rsum = 0;   /* rolling mean of recent offsets */
+    SYS_CONSOLE_PRINT("Watching NTP syncs (~1/s): 'offset' = this sync (raw jitter);"
+                      " 'mean' = last 16 -> converges to ~0; 'drift' = locked frequency."
+                      "  'q'/Ctrl-C to stop...\r\n");
     while (!aborted && (secs == 0u || (plat_now_ms() - start) < secs * 1000u)) {
         /* Service the NTP socket promptly so a request is not left sitting in the
          * UDP buffer (which would inflate the measured delay). EVERY sync is
@@ -234,17 +237,30 @@ static void ntp_watch(uint32_t secs)
         NTP_Task();
         if (s_syncCount != last) {
             uint32_t ms = plat_now_ms();
+            int64_t  off = -s_last_adjust_ns;        /* PC-measured offset of this sync */
             last = s_syncCount;
+            /* Accumulate the rolling mean on EVERY sync (not only the printed ones).
+             * Skip the huge initial phase-lock offset (>100 ms) so it never poisons
+             * the mean - the mean then visibly converges toward ~0 as the loop locks. */
+            if (off < 100000000LL && off > -100000000LL) {
+                if (rn < 16) { ring[ri] = off; rsum += off; rn++; }
+                else         { rsum -= ring[ri]; ring[ri] = off; rsum += off; }
+                ri = (ri + 1) & 15;
+            }
             if (ms - lastPrint >= 1000u) {           /* at most one line per second */
-                char b1[40], b2[40];
-                uint64_t now = ntp_now_ns();
-                uint64_t sod = ((now / 1000000000ULL) + NTP_LOCAL_TZ_OFFSET_S) % 86400ULL;  /* GMT+2 local */
+                char b1[40], b2[40], b3[40];
+                uint64_t now  = ntp_now_ns();
+                uint64_t sod  = ((now / 1000000000ULL) + NTP_LOCAL_TZ_OFFSET_S) % 86400ULL;  /* GMT+2 */
+                int64_t  mean = rn ? rsum / rn : 0;
+                long     oscppm = (long)(-(s_rate_ppb) / 1000);
                 lastPrint = ms;
-                SYS_CONSOLE_PRINT("[%02u:%02u:%02u.%03u] offset %-14s delay %-14s\r\n",
+                SYS_CONSOLE_PRINT("[%02u:%02u:%02u.%03u] offset %-12s mean %-12s drift %+5ld ppm  delay %s\r\n",
                     (unsigned)(sod / 3600u), (unsigned)((sod % 3600u) / 60u), (unsigned)(sod % 60u),
                     (unsigned)((now / 1000000ULL) % 1000ULL),
-                    fmt_dur(b1, sizeof b1, -s_last_adjust_ns),   /* PC-measured offset = -adjust */
-                    fmt_dur(b2, sizeof b2, s_last_delay_ns));
+                    fmt_dur(b1, sizeof b1, off),
+                    fmt_dur(b2, sizeof b2, mean),
+                    oscppm,
+                    fmt_dur(b3, sizeof b3, s_last_delay_ns));
             }
         }
         if (chk_abort(con)) aborted = 1;
