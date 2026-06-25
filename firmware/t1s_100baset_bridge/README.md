@@ -782,6 +782,15 @@ ntp
   NTP time   : 1782388457.152289300 s  (PC-aligned, Unix epoch)
 ```
 
+`ntp watch [secs]` on the board prints **one line per received sync** in the same
+format as the PC tool (timestamp is UTC, derived from the disciplined counter),
+until `q`/Ctrl-C:
+```text
+ntp watch
+[12:12:21.158] offset 41.675 us      delay 3.009 ms
+[12:12:21.487] offset 807.800 us     delay 951.584 us
+```
+
 **Accuracy.** This is *software* NTP: both ends take software timestamps and the
 exchange crosses the 100BASE-T link, so the residual after sync is on the order of
 the **round-trip delay / 2 plus jitter — typically a few hundred microseconds**

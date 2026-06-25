@@ -25,12 +25,14 @@
 #include <stdint.h>
 #include <string.h>
 #include <stdio.h>
+#include <stdlib.h>
 
 #include "definitions.h"
 #include "config/default/library/tcpip/tcpip.h"
 #include "config/default/system/console/sys_console.h"
 #include "config/default/system/time/sys_time.h"
 #include "system/command/sys_command.h"
+#include "plat.h"            /* plat_now_ms()/plat_sleep_ms() - pump stack while watching */
 #include "lan866x_cli.h"
 
 #define NTP_PORT      30491u
@@ -99,14 +101,21 @@ static void reply_to(const UDP_SOCKET_INFO *info, const uint8_t *buf, uint16_t l
     if (TCPIP_UDP_ArrayPut(s_sock, buf, len) == len) TCPIP_UDP_Flush(s_sock);
 }
 
-/* Register the "ntp" CLI group (status query). Call once from APP_Initialize. */
-static void cmd_ntp(SYS_CMD_DEVICE_NODE *pCmdIO, int argc, char **argv)
+/* abort key from the console RX ring (pumped via plat_sleep_ms): Ctrl-C / 'q'. */
+static int chk_abort(SYS_CONSOLE_HANDLE con)
+{
+    char ch; int hit = 0;
+    while (SYS_CONSOLE_Read(con, &ch, 1) > 0)
+        if (ch == 0x03 || ch == 'q' || ch == 'Q') hit = 1;
+    return hit;
+}
+
+static void ntp_print_status(void)
 {
     uint64_t freq = (uint64_t)SYS_TIME_FrequencyGet();
     uint64_t up = ntp_raw_ns();
     uint64_t now = ntp_now_ns();
     char b1[40], b2[40], b3[40];
-    (void)pCmdIO; (void)argc; (void)argv;
     SYS_CONSOLE_PRINT("NTP time counter:\r\n");
     SYS_CONSOLE_PRINT("  source     : SYS_TIME, %lu Hz  (resolution ~%lu ns/tick)\r\n",
                       (unsigned long)freq, (unsigned long)(freq ? (1000000000ULL / freq) : 0));
@@ -122,8 +131,49 @@ static void cmd_ntp(SYS_CMD_DEVICE_NODE *pCmdIO, int argc, char **argv)
     SYS_CONSOLE_PRINT("\r\n");
 }
 
+/* Continuous watch: one line per sync received from the PC (same format as the PC
+ * tool), until 'q'/Ctrl-C (or the optional [secs] cap). The loop pumps NTP_Task()
+ * so syncs are processed while this handler blocks, and plat_sleep_ms() pumps the
+ * stack + console so bridging and the abort key keep working. */
+static void ntp_watch(uint32_t secs)
+{
+    SYS_CONSOLE_HANDLE con = SYS_CONSOLE_HandleGet(SYS_CONSOLE_INDEX_0);
+    uint32_t last = s_syncCount, start = plat_now_ms();
+    int aborted = 0;
+    SYS_CONSOLE_PRINT("Watching NTP syncs (one line per sync; 'q' or Ctrl-C to stop)...\r\n");
+    while (!aborted && (secs == 0u || (plat_now_ms() - start) < secs * 1000u)) {
+        NTP_Task();                              /* process incoming SET_OFFSET while we block */
+        if (s_syncCount != last) {
+            char b1[40], b2[40];
+            uint64_t now = ntp_now_ns();
+            uint64_t sod = (now / 1000000000ULL) % 86400ULL;   /* UTC seconds-of-day */
+            last = s_syncCount;
+            SYS_CONSOLE_PRINT("[%02u:%02u:%02u.%03u] offset %-14s delay %-14s\r\n",
+                (unsigned)(sod / 3600u), (unsigned)((sod % 3600u) / 60u), (unsigned)(sod % 60u),
+                (unsigned)((now / 1000000ULL) % 1000ULL),
+                fmt_dur(b1, sizeof b1, -s_last_adjust_ns),   /* PC-measured offset = -adjust */
+                fmt_dur(b2, sizeof b2, s_last_delay_ns));
+        }
+        if (chk_abort(con)) aborted = 1;
+        plat_sleep_ms(10);
+    }
+    SYS_CONSOLE_PRINT("watch stopped.\r\n");
+}
+
+/* "ntp" = status snapshot; "ntp watch [secs]" = continuous per-sync output (UTC). */
+static void cmd_ntp(SYS_CMD_DEVICE_NODE *pCmdIO, int argc, char **argv)
+{
+    (void)pCmdIO;
+    if (argc >= 2 && (strcmp(argv[1], "watch") == 0 || strcmp(argv[1], "-w") == 0)) {
+        uint32_t secs = (argc >= 3) ? (uint32_t)strtoul(argv[2], NULL, 10) : 0u;
+        ntp_watch(secs);
+    } else {
+        ntp_print_status();
+    }
+}
+
 static const SYS_CMD_DESCRIPTOR ntp_cmd_tbl[] = {
-    {"ntp", (SYS_CMD_FNC) cmd_ntp, ": show the NTP time-counter status (sync state, offset, now)"},
+    {"ntp", (SYS_CMD_FNC) cmd_ntp, ": NTP time-counter status; 'ntp watch [secs]' = live per-sync output (q/Ctrl-C)"},
 };
 
 void NTP_Init(void)
