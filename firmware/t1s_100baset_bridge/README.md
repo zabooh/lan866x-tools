@@ -826,6 +826,28 @@ ntp watch 12
 > per-sync offset. Shrinking the per-sync jitter itself needs hook-level/hardware
 > timestamping (PTP), not frequency discipline.
 
+**Reading a `watch` trace** (a long run, fresh boot):
+
+1. **Phase lock (line 1):** `offset -1782405437 s` — the one-shot phase jump (FW
+   counter near 0 at boot, PC at Unix epoch). Excluded from the mean; `drift` still 0.
+2. **Frequency lock-in (~first 5 s):** `drift` climbs to its level (~1850 ppm here) and
+   `mean` collapses (`411 → 185 → 25 µs`). This is the convergence.
+3. **Steady state:** `offset` keeps bouncing ±~200 µs (the jitter floor — unchanged),
+   but `mean` **pendulums around 0** (±~20 µs). Mean ≈ 0 means converged *and unbiased*:
+   no constant offset → **no significant path asymmetry** (a one-time calibration would
+   buy nothing here). `drift` **wanders** ±~300 ppm around its mean — partly noise (see
+   below), partly real thermal drift the loop tracks.
+4. **Holdover proof:** if a sync is missed (e.g. an ~8 s gap mid-trace, or the final
+   `ntp` status `last sync 7 s ago`), the offset stays **sub-millisecond** instead of
+   `gap × 1835 ppm` (~ms/s) — the locked rate keeps compensating.
+
+Why `drift` jitters: the integral is nudged by `(adjust/interval)/NTP_KI_DEN` each sync,
+and `adjust` carries the per-sync offset noise (±200 µs over 250 ms ≈ ±800 ppm), so each
+step moves the rate by ±~200 ppm. This is cosmetic — timekeeping quality shows in
+`mean ≈ 0` and holdover, not in how steady the `drift` column looks. For a *quieter*
+drift estimate (slightly better holdover, slower thermal tracking) increase
+`NTP_KI_DEN` (smaller Ki = more smoothing).
+
 **Accuracy.** This is *software* NTP: both ends take software timestamps and the
 exchange crosses the 100BASE-T link, so the residual after sync is on the order of
 the **round-trip delay / 2 plus jitter — typically a few hundred microseconds**
