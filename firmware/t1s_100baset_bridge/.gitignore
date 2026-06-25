@@ -97,6 +97,17 @@ Curiosity/
 # MCC and IDE generated
 MCC_Test.mc3
 MCC_Alternatives.md
+
+# --- MCC v5.6 YAML configuration (migrated from the monolithic .mc3) ---
+# The config now lives in <project>.X/<config>_default/ (mcc-config.mc4 + components/**.yml).
+# Override the broad '*_default/' rule above so this directory IS tracked:
+!**/T1S_100BaseT_Bridge.X/T1S_100BaseT_Bridge_default/
+!**/T1S_100BaseT_Bridge.X/T1S_100BaseT_Bridge_default/**
+# MCC regeneration artifacts that must NOT be committed (mcc_fixup.sh also strips these):
+**/T1S_100BaseT_Bridge.X/mcc-manifest-*.yml
+firmware/src/config/default/ATSAME54P20A.ld
+firmware/src/packs/CMSIS/
+harmony-templates/
 # Python cache
 __pycache__/
 *.pyc

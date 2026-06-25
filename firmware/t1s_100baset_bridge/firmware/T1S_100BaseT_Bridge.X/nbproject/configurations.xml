@@ -330,6 +330,25 @@
             <itemPath>../src/packs/ATSAME54P20A_DFP/component/eic.h</itemPath>
             <itemPath>../src/packs/ATSAME54P20A_DFP/component/cmcc.h</itemPath>
             <itemPath>../src/packs/ATSAME54P20A_DFP/component/pukcc.h</itemPath>
+            <itemPath>../src/packs/ATSAME54P20A_DFP/component/adc.h</itemPath>
+            <itemPath>../src/packs/ATSAME54P20A_DFP/component/can.h</itemPath>
+            <itemPath>../src/packs/ATSAME54P20A_DFP/component/dsu.h</itemPath>
+            <itemPath>../src/packs/ATSAME54P20A_DFP/component/fuses.h</itemPath>
+            <itemPath>../src/packs/ATSAME54P20A_DFP/component/gmac.h</itemPath>
+            <itemPath>../src/packs/ATSAME54P20A_DFP/component/i2s.h</itemPath>
+            <itemPath>../src/packs/ATSAME54P20A_DFP/component/icm.h</itemPath>
+            <itemPath>../src/packs/ATSAME54P20A_DFP/component/nvmctrl.h</itemPath>
+            <itemPath>../src/packs/ATSAME54P20A_DFP/component/osc32kctrl.h</itemPath>
+            <itemPath>../src/packs/ATSAME54P20A_DFP/component/pac.h</itemPath>
+            <itemPath>../src/packs/ATSAME54P20A_DFP/component/pm.h</itemPath>
+            <itemPath>../src/packs/ATSAME54P20A_DFP/component/port.h</itemPath>
+            <itemPath>../src/packs/ATSAME54P20A_DFP/component/qspi.h</itemPath>
+            <itemPath>../src/packs/ATSAME54P20A_DFP/component/rstc.h</itemPath>
+            <itemPath>../src/packs/ATSAME54P20A_DFP/component/sdhc.h</itemPath>
+            <itemPath>../src/packs/ATSAME54P20A_DFP/component/supc.h</itemPath>
+            <itemPath>../src/packs/ATSAME54P20A_DFP/component/tc.h</itemPath>
+            <itemPath>../src/packs/ATSAME54P20A_DFP/component/tcc.h</itemPath>
+            <itemPath>../src/packs/ATSAME54P20A_DFP/component/wdt.h</itemPath>
           </logicalFolder>
           <logicalFolder name="instance" displayName="instance" projectFiles="true">
             <itemPath>../src/packs/ATSAME54P20A_DFP/instance/tc4.h</itemPath>
@@ -353,6 +372,67 @@
             <itemPath>../src/packs/ATSAME54P20A_DFP/instance/trng.h</itemPath>
             <itemPath>../src/packs/ATSAME54P20A_DFP/instance/adc0.h</itemPath>
             <itemPath>../src/packs/ATSAME54P20A_DFP/instance/tcc2.h</itemPath>
+            <itemPath>../src/packs/ATSAME54P20A_DFP/instance/ac.h</itemPath>
+            <itemPath>../src/packs/ATSAME54P20A_DFP/instance/aes.h</itemPath>
+            <itemPath>../src/packs/ATSAME54P20A_DFP/instance/can0.h</itemPath>
+            <itemPath>../src/packs/ATSAME54P20A_DFP/instance/can1.h</itemPath>
+            <itemPath>../src/packs/ATSAME54P20A_DFP/instance/ccl.h</itemPath>
+            <itemPath>../src/packs/ATSAME54P20A_DFP/instance/dac.h</itemPath>
+            <itemPath>../src/packs/ATSAME54P20A_DFP/instance/eic.h</itemPath>
+            <itemPath>../src/packs/ATSAME54P20A_DFP/instance/evsys.h</itemPath>
+            <itemPath>../src/packs/ATSAME54P20A_DFP/instance/freqm.h</itemPath>
+            <itemPath>../src/packs/ATSAME54P20A_DFP/instance/gmac.h</itemPath>
+            <itemPath>../src/packs/ATSAME54P20A_DFP/instance/hmatrix.h</itemPath>
+            <itemPath>../src/packs/ATSAME54P20A_DFP/instance/mclk.h</itemPath>
+            <itemPath>../src/packs/ATSAME54P20A_DFP/instance/osc32kctrl.h</itemPath>
+            <itemPath>../src/packs/ATSAME54P20A_DFP/instance/oscctrl.h</itemPath>
+            <itemPath>../src/packs/ATSAME54P20A_DFP/instance/pac.h</itemPath>
+            <itemPath>../src/packs/ATSAME54P20A_DFP/instance/pcc.h</itemPath>
+            <itemPath>../src/packs/ATSAME54P20A_DFP/instance/pdec.h</itemPath>
+            <itemPath>../src/packs/ATSAME54P20A_DFP/instance/pm.h</itemPath>
+            <itemPath>../src/packs/ATSAME54P20A_DFP/instance/port.h</itemPath>
+            <itemPath>../src/packs/ATSAME54P20A_DFP/instance/qspi.h</itemPath>
+            <itemPath>../src/packs/ATSAME54P20A_DFP/instance/ramecc.h</itemPath>
+            <itemPath>../src/packs/ATSAME54P20A_DFP/instance/rtc.h</itemPath>
+            <itemPath>../src/packs/ATSAME54P20A_DFP/instance/sdhc0.h</itemPath>
+            <itemPath>../src/packs/ATSAME54P20A_DFP/instance/sdhc1.h</itemPath>
+            <itemPath>../src/packs/ATSAME54P20A_DFP/instance/sercom0.h</itemPath>
+            <itemPath>../src/packs/ATSAME54P20A_DFP/instance/sercom1.h</itemPath>
+            <itemPath>../src/packs/ATSAME54P20A_DFP/instance/sercom2.h</itemPath>
+            <itemPath>../src/packs/ATSAME54P20A_DFP/instance/sercom3.h</itemPath>
+            <itemPath>../src/packs/ATSAME54P20A_DFP/instance/sercom4.h</itemPath>
+            <itemPath>../src/packs/ATSAME54P20A_DFP/instance/sercom5.h</itemPath>
+            <itemPath>../src/packs/ATSAME54P20A_DFP/instance/sercom6.h</itemPath>
+            <itemPath>../src/packs/ATSAME54P20A_DFP/instance/sercom7.h</itemPath>
+            <itemPath>../src/packs/ATSAME54P20A_DFP/instance/supc.h</itemPath>
+            <itemPath>../src/packs/ATSAME54P20A_DFP/instance/tc5.h</itemPath>
+            <itemPath>../src/packs/ATSAME54P20A_DFP/instance/tc6.h</itemPath>
+            <itemPath>../src/packs/ATSAME54P20A_DFP/instance/tc7.h</itemPath>
+            <itemPath>../src/packs/ATSAME54P20A_DFP/instance/tcc0.h</itemPath>
+            <itemPath>../src/packs/ATSAME54P20A_DFP/instance/tcc1.h</itemPath>
+            <itemPath>../src/packs/ATSAME54P20A_DFP/instance/usb.h</itemPath>
+          </logicalFolder>
+          <logicalFolder name="pio" displayName="pio" projectFiles="true">
+            <itemPath>../src/packs/ATSAME54P20A_DFP/pio/same54p20a.h</itemPath>
+          </logicalFolder>
+          <itemPath>../src/packs/ATSAME54P20A_DFP/same54p20a.h</itemPath>
+        </logicalFolder>
+        <logicalFolder name="CMSIS" displayName="CMSIS" projectFiles="true">
+          <logicalFolder name="CMSIS" displayName="CMSIS" projectFiles="true">
+            <logicalFolder name="Core" displayName="Core" projectFiles="true">
+              <logicalFolder name="Include" displayName="Include" projectFiles="true">
+                <itemPath>../src/packs/CMSIS/CMSIS/Core/Include/cmsis_version.h</itemPath>
+                <itemPath>../src/packs/CMSIS/CMSIS/Core/Include/cmsis_compiler.h</itemPath>
+                <itemPath>../src/packs/CMSIS/CMSIS/Core/Include/cmsis_iccarm.h</itemPath>
+                <itemPath>../src/packs/CMSIS/CMSIS/Core/Include/cmsis_gcc.h</itemPath>
+                <itemPath>../src/packs/CMSIS/CMSIS/Core/Include/cmsis_armcc.h</itemPath>
+                <itemPath>../src/packs/CMSIS/CMSIS/Core/Include/cmsis_armclang.h</itemPath>
+                <itemPath>../src/packs/CMSIS/CMSIS/Core/Include/cmsis_armclang_ltm.h</itemPath>
+                <itemPath>../src/packs/CMSIS/CMSIS/Core/Include/core_cm4.h</itemPath>
+                <itemPath>../src/packs/CMSIS/CMSIS/Core/Include/mpu_armv7.h</itemPath>
+                <itemPath>../src/packs/CMSIS/CMSIS/Core/Include/cachel1_armv7.h</itemPath>
+              </logicalFolder>
+            </logicalFolder>
           </logicalFolder>
         </logicalFolder>
       </logicalFolder>
@@ -505,12 +585,114 @@
     <logicalFolder name="ExternalFiles"
                    displayName="Important Files"
                    projectFiles="true">
+      <logicalFolder name="T1S_100BaseT_Bridge_default"
+                     displayName="T1S_100BaseT_Bridge_default"
+                     projectFiles="true">
+        <logicalFolder name="components" displayName="components" projectFiles="true">
+          <logicalFolder name="TCP_forwardSlash_IP STACK"
+                         displayName="TCP_forwardSlash_IP STACK"
+                         projectFiles="true">
+            <logicalFolder name="components" displayName="components" projectFiles="true">
+              <logicalFolder name="APPLICATION LAYER"
+                             displayName="APPLICATION LAYER"
+                             projectFiles="true">
+                <logicalFolder name="components" displayName="components" projectFiles="true">
+                  <itemPath>T1S_100BaseT_Bridge_default/components/TCP_forwardSlash_IP STACK/components/APPLICATION LAYER/components/tcpipIperf.yml</itemPath>
+                  <itemPath>T1S_100BaseT_Bridge_default/components/TCP_forwardSlash_IP STACK/components/APPLICATION LAYER/components/tcpipTelnet.yml</itemPath>
+                </logicalFolder>
+                <itemPath>T1S_100BaseT_Bridge_default/components/TCP_forwardSlash_IP STACK/components/APPLICATION LAYER/APPLICATION LAYER.yml</itemPath>
+              </logicalFolder>
+              <logicalFolder name="BASIC CONFIGURATION"
+                             displayName="BASIC CONFIGURATION"
+                             projectFiles="true">
+                <logicalFolder name="components" displayName="components" projectFiles="true">
+                  <itemPath>T1S_100BaseT_Bridge_default/components/TCP_forwardSlash_IP STACK/components/BASIC CONFIGURATION/components/tcpipCmd.yml</itemPath>
+                  <itemPath>T1S_100BaseT_Bridge_default/components/TCP_forwardSlash_IP STACK/components/BASIC CONFIGURATION/components/tcpipStack.yml</itemPath>
+                </logicalFolder>
+                <itemPath>T1S_100BaseT_Bridge_default/components/TCP_forwardSlash_IP STACK/components/BASIC CONFIGURATION/BASIC CONFIGURATION.yml</itemPath>
+              </logicalFolder>
+              <logicalFolder name="DATA LINK LAYER"
+                             displayName="DATA LINK LAYER"
+                             projectFiles="true">
+                <logicalFolder name="components" displayName="components" projectFiles="true">
+                  <itemPath>T1S_100BaseT_Bridge_default/components/TCP_forwardSlash_IP STACK/components/DATA LINK LAYER/components/drvGmac.yml</itemPath>
+                  <itemPath>T1S_100BaseT_Bridge_default/components/TCP_forwardSlash_IP STACK/components/DATA LINK LAYER/components/drvExtPhyLan8740.yml</itemPath>
+                  <itemPath>T1S_100BaseT_Bridge_default/components/TCP_forwardSlash_IP STACK/components/DATA LINK LAYER/components/tcpipNetConfig.yml</itemPath>
+                  <itemPath>T1S_100BaseT_Bridge_default/components/TCP_forwardSlash_IP STACK/components/DATA LINK LAYER/components/sercom0.yml</itemPath>
+                  <itemPath>T1S_100BaseT_Bridge_default/components/TCP_forwardSlash_IP STACK/components/DATA LINK LAYER/components/drvMiim.yml</itemPath>
+                  <itemPath>T1S_100BaseT_Bridge_default/components/TCP_forwardSlash_IP STACK/components/DATA LINK LAYER/components/drvExtMacLan865x.yml</itemPath>
+                  <itemPath>T1S_100BaseT_Bridge_default/components/TCP_forwardSlash_IP STACK/components/DATA LINK LAYER/components/drv_spi.yml</itemPath>
+                </logicalFolder>
+                <itemPath>T1S_100BaseT_Bridge_default/components/TCP_forwardSlash_IP STACK/components/DATA LINK LAYER/DATA LINK LAYER.yml</itemPath>
+              </logicalFolder>
+              <logicalFolder name="NETWORK LAYER"
+                             displayName="NETWORK LAYER"
+                             projectFiles="true">
+                <logicalFolder name="components" displayName="components" projectFiles="true">
+                  <itemPath>T1S_100BaseT_Bridge_default/components/TCP_forwardSlash_IP STACK/components/NETWORK LAYER/components/tcpipIPv4.yml</itemPath>
+                  <itemPath>T1S_100BaseT_Bridge_default/components/TCP_forwardSlash_IP STACK/components/NETWORK LAYER/components/tcpipArp.yml</itemPath>
+                  <itemPath>T1S_100BaseT_Bridge_default/components/TCP_forwardSlash_IP STACK/components/NETWORK LAYER/components/tcpipIcmp.yml</itemPath>
+                </logicalFolder>
+                <itemPath>T1S_100BaseT_Bridge_default/components/TCP_forwardSlash_IP STACK/components/NETWORK LAYER/NETWORK LAYER.yml</itemPath>
+              </logicalFolder>
+              <logicalFolder name="PRESENTATION LAYER"
+                             displayName="PRESENTATION LAYER"
+                             projectFiles="true">
+                <logicalFolder name="components" displayName="components" projectFiles="true">
+                  <itemPath>T1S_100BaseT_Bridge_default/components/TCP_forwardSlash_IP STACK/components/PRESENTATION LAYER/components/net_Pres.yml</itemPath>
+                </logicalFolder>
+                <itemPath>T1S_100BaseT_Bridge_default/components/TCP_forwardSlash_IP STACK/components/PRESENTATION LAYER/PRESENTATION LAYER.yml</itemPath>
+              </logicalFolder>
+              <logicalFolder name="TRANSPORT LAYER"
+                             displayName="TRANSPORT LAYER"
+                             projectFiles="true">
+                <logicalFolder name="components" displayName="components" projectFiles="true">
+                  <itemPath>T1S_100BaseT_Bridge_default/components/TCP_forwardSlash_IP STACK/components/TRANSPORT LAYER/components/tcpipUdp.yml</itemPath>
+                  <itemPath>T1S_100BaseT_Bridge_default/components/TCP_forwardSlash_IP STACK/components/TRANSPORT LAYER/components/tcpipTcp.yml</itemPath>
+                </logicalFolder>
+                <itemPath>T1S_100BaseT_Bridge_default/components/TCP_forwardSlash_IP STACK/components/TRANSPORT LAYER/TRANSPORT LAYER.yml</itemPath>
+              </logicalFolder>
+            </logicalFolder>
+            <itemPath>T1S_100BaseT_Bridge_default/components/TCP_forwardSlash_IP STACK/TCP_forwardSlash_IP STACK.yml</itemPath>
+          </logicalFolder>
+          <itemPath>T1S_100BaseT_Bridge_default/components/evsys.yml</itemPath>
+          <itemPath>T1S_100BaseT_Bridge_default/components/HarmonyCore.yml</itemPath>
+          <itemPath>T1S_100BaseT_Bridge_default/components/drv_spi_0.yml</itemPath>
+          <itemPath>T1S_100BaseT_Bridge_default/components/cmsis.yml</itemPath>
+          <itemPath>T1S_100BaseT_Bridge_default/components/lib_wolfcrypt.yml</itemPath>
+          <itemPath>T1S_100BaseT_Bridge_default/components/sys_console.yml</itemPath>
+          <itemPath>T1S_100BaseT_Bridge_default/components/lib_crypto.yml</itemPath>
+          <itemPath>T1S_100BaseT_Bridge_default/components/tc0.yml</itemPath>
+          <itemPath>T1S_100BaseT_Bridge_default/components/sercom1.yml</itemPath>
+          <itemPath>T1S_100BaseT_Bridge_default/components/sys_debug.yml</itemPath>
+          <itemPath>T1S_100BaseT_Bridge_default/components/sys_console_0.yml</itemPath>
+          <itemPath>T1S_100BaseT_Bridge_default/components/tcpipNetConfig_1.yml</itemPath>
+          <itemPath>T1S_100BaseT_Bridge_default/components/sys_time.yml</itemPath>
+          <itemPath>T1S_100BaseT_Bridge_default/components/tcpipNetConfig_0.yml</itemPath>
+          <itemPath>T1S_100BaseT_Bridge_default/components/sys_command.yml</itemPath>
+          <itemPath>T1S_100BaseT_Bridge_default/components/drvExtMacLan865x_0.yml</itemPath>
+          <itemPath>T1S_100BaseT_Bridge_default/components/dfp.yml</itemPath>
+          <itemPath>T1S_100BaseT_Bridge_default/components/nvmctrl.yml</itemPath>
+          <itemPath>T1S_100BaseT_Bridge_default/components/core.yml</itemPath>
+        </logicalFolder>
+        <itemPath>T1S_100BaseT_Bridge_default/mcc-config.mc4</itemPath>
+      </logicalFolder>
+      <logicalFolder name="wolfcrypt" displayName="wolfcrypt" projectFiles="true">
+      </logicalFolder>
       <itemPath>Makefile</itemPath>
-      <itemPath>T1S_100BaseT_Bridge.mc3</itemPath>
+    </logicalFolder>
+    <logicalFolder name="LibraryFiles"
+                   displayName="LibraryFiles"
+                   projectFiles="true">
     </logicalFolder>
     <logicalFolder name="LinkerScript"
                    displayName="Linker Files"
                    projectFiles="true">
+      <logicalFolder name="config" displayName="config" projectFiles="true">
+        <logicalFolder name="default" displayName="default" projectFiles="true">
+          <itemPath>../src/config/default/ATSAME54P20A.ld</itemPath>
+        </logicalFolder>
+      </logicalFolder>
     </logicalFolder>
     <logicalFolder name="SourceFiles"
                    displayName="Source Files"
@@ -849,7 +1031,7 @@
         <property key="enable-unroll-loops" value="false"/>
         <property key="exclude-floating-point" value="false"/>
         <property key="extra-include-directories"
-                  value="../src;../src/config/default;../src/config/default/library;../src/config/default/library/tcpip/src;../src/config/default/library/tcpip/src/common;../src/packs/ATSAME54P20A_DFP;../src/packs/CMSIS/;../src/packs/CMSIS/CMSIS/Core/Include;../src/third_party/wolfssl;../src/third_party/wolfssl/wolfssl;../../../../src;../../../../include;../../../../libepmicrochip/libsomeip/inc;../../../../libepmicrochip/libsomeip/src;../../../../libepmicrochip/libsomeip/stub"/>
+                  value="../../../../include;../../../../libepmicrochip/libsomeip/inc;../../../../libepmicrochip/libsomeip/src;../../../../libepmicrochip/libsomeip/stub;../../../../src;../src;../src/config/default;../src/config/default/library;../src/config/default/library/tcpip/src;../src/config/default/library/tcpip/src/common;../src/packs/ATSAME54P20A_DFP;../src/packs/CMSIS/;../src/packs/CMSIS/CMSIS/Core/Include;../src/third_party/wolfssl;../src/third_party/wolfssl/wolfssl"/>
         <property key="generate-16-bit-code" value="false"/>
         <property key="generate-micro-compressed-code" value="false"/>
         <property key="isolate-each-function" value="true"/>

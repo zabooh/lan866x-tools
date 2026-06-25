@@ -1,0 +1,109 @@
+configVersion: 1.0.0
+componentName: sys_command
+coreVersion: 5.8.4
+device: ATSAME54P20A
+library: []
+dependency:
+- dependencyPackage: class com.microchip.mcc.harmony.HarmonyModule
+  name: sys_command
+  type: module
+  version: ''
+- dependencyPackage: ''
+  name: CMSIS_5
+  type: package
+  version: 5.9.1-dev
+- dependencyPackage: ''
+  name: core
+  type: package
+  version: v3.13.4
+- dependencyPackage: ''
+  name: crypto
+  type: package
+  version: v3.8.1
+- dependencyPackage: ''
+  name: csp
+  type: package
+  version: v3.18.5
+- dependencyPackage: ''
+  name: net
+  type: package
+  version: v3.11.1
+- dependencyPackage: ''
+  name: net_10base_t1s
+  type: package
+  version: v1.3.2
+- dependencyPackage: ''
+  name: wolfssl
+  type: package
+  version: v5.4.0
+customDataClassName: com.microchip.utils_mh3.utils.persistence.CustomModuleData
+data:
+  attachments:
+    children:
+    - children:
+      - attributes:
+          id: sys_command_SYS_CONSOLE_dependency
+        children:
+        - children:
+          - attributes:
+              id: targetComponentID
+            children:
+            - type: Value
+              value: sys_console_0
+            type: String
+          - attributes:
+              id: targetAttachmentID
+            children:
+            - type: Value
+              value: sys_console
+            type: String
+          type: Attributes
+        type: DirectDependency
+      type: Attachments
+    type: sys_command
+  elementPosition:
+    attributes:
+      id: __ROOTVIEW
+    children:
+    - children:
+      - attributes:
+          id: sys_command
+          x: '492'
+          y: '481'
+        type: ElementPosition
+      type: ElementPositions
+    type: ComponentGraph
+  symbols:
+    SYS_COMMAND_PRINT_BUFFER_SIZE:
+      attributes:
+        id: SYS_COMMAND_PRINT_BUFFER_SIZE
+      children:
+      - children:
+        - attributes:
+            value: '2048'
+          type: User
+        type: Values
+      type: Integer
+    SYS_CONSOLE_DEVICE:
+      attributes:
+        id: SYS_CONSOLE_DEVICE
+      children:
+      - children:
+        - attributes:
+            id: sys_command
+            value: SYS_CONSOLE_0
+          type: Dynamic
+        type: Values
+      type: String
+    SYS_CONSOLE_INDEX:
+      attributes:
+        id: SYS_CONSOLE_INDEX
+      children:
+      - children:
+        - attributes:
+            id: sys_command
+            value: '0'
+          type: Dynamic
+        type: Values
+      type: String
+  userData: {}

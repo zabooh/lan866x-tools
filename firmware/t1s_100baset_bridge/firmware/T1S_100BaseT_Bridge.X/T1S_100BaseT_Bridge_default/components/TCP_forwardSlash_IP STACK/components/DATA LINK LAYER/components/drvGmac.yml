@@ -1,0 +1,158 @@
+configVersion: 1.0.0
+componentName: drvGmac
+coreVersion: 5.8.4
+device: ATSAME54P20A
+library: []
+dependency:
+- dependencyPackage: class com.microchip.mcc.harmony.HarmonyModule
+  name: drvGmac
+  type: module
+  version: ''
+- dependencyPackage: ''
+  name: CMSIS_5
+  type: package
+  version: 5.9.1-dev
+- dependencyPackage: ''
+  name: core
+  type: package
+  version: v3.13.4
+- dependencyPackage: ''
+  name: crypto
+  type: package
+  version: v3.8.1
+- dependencyPackage: ''
+  name: csp
+  type: package
+  version: v3.18.5
+- dependencyPackage: ''
+  name: net
+  type: package
+  version: v3.11.1
+- dependencyPackage: ''
+  name: net_10base_t1s
+  type: package
+  version: v1.3.2
+- dependencyPackage: ''
+  name: wolfssl
+  type: package
+  version: v5.4.0
+customDataClassName: com.microchip.utils_mh3.utils.persistence.CustomModuleData
+data:
+  attachments:
+    children:
+    - children:
+      - attributes:
+          id: GMAC_PHY_Dependency
+        children:
+        - children:
+          - attributes:
+              id: targetComponentID
+            children:
+            - type: Value
+              value: drvExtPhyLan8740
+            type: String
+          - attributes:
+              id: targetAttachmentID
+            children:
+            - type: Value
+              value: libdrvExtPhyLan8740
+            type: String
+          type: Attributes
+        type: DirectDependency
+      type: Attachments
+    type: drvGmac
+  elementPosition:
+    attributes:
+      id: DATA LINK LAYER
+    children:
+    - children:
+      - attributes:
+          id: drvGmac
+          x: '439'
+          y: '235'
+        type: ElementPosition
+      type: ElementPositions
+    type: ComponentGraph
+  symbols:
+    DRV_GMAC_PHY_TYPE:
+      attributes:
+        id: DRV_GMAC_PHY_TYPE
+      children:
+      - children:
+        - attributes:
+            id: drvGmac
+            value: LAN8740
+          type: Dynamic
+        type: Values
+      type: String
+    TCPIP_GMAC_ETH_FILTER_ALL_ACCEPT:
+      attributes:
+        id: TCPIP_GMAC_ETH_FILTER_ALL_ACCEPT
+      children:
+      - children:
+        - attributes:
+            value: 'true'
+          type: User
+        type: Values
+      type: Boolean
+    TCPIP_GMAC_ETH_FILTER_CRC_ERROR_ACCEPT:
+      attributes:
+        id: TCPIP_GMAC_ETH_FILTER_CRC_ERROR_ACCEPT
+      children:
+      - children:
+        - attributes:
+            value: 'true'
+          type: User
+        type: Values
+      type: Boolean
+    TCPIP_GMAC_ETH_FILTER_CRC_ERROR_REJECT:
+      attributes:
+        id: TCPIP_GMAC_ETH_FILTER_CRC_ERROR_REJECT
+      children:
+      - children:
+        - attributes:
+            value: 'true'
+          type: User
+        type: Values
+      type: Boolean
+    TCPIP_GMAC_ETH_FILTER_FRAME_ERROR_ACCEPT:
+      attributes:
+        id: TCPIP_GMAC_ETH_FILTER_FRAME_ERROR_ACCEPT
+      children:
+      - children:
+        - attributes:
+            value: 'true'
+          type: User
+        type: Values
+      type: Boolean
+    TCPIP_GMAC_ETH_FILTER_MAX_FRAME_ACCEPT:
+      attributes:
+        id: TCPIP_GMAC_ETH_FILTER_MAX_FRAME_ACCEPT
+      children:
+      - children:
+        - attributes:
+            value: 'true'
+          type: User
+        type: Values
+      type: Boolean
+    TCPIP_GMAC_ETH_FILTER_MCAST_HASH_ACCEPT:
+      attributes:
+        id: TCPIP_GMAC_ETH_FILTER_MCAST_HASH_ACCEPT
+      children:
+      - children:
+        - attributes:
+            value: 'true'
+          type: User
+        type: Values
+      type: Boolean
+    TCPIP_GMAC_ETH_FILTER_UCAST_HASH_ACCEPT:
+      attributes:
+        id: TCPIP_GMAC_ETH_FILTER_UCAST_HASH_ACCEPT
+      children:
+      - children:
+        - attributes:
+            value: 'true'
+          type: User
+        type: Values
+      type: Boolean
+  userData: {}
