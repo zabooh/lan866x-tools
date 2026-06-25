@@ -53,3 +53,7 @@ firmware/**/defmplabxtrace.log*
 # Per-machine tool-setup configs (written by setup_compiler.py / setup_flasher.py)
 firmware/**/setup_compiler.config
 firmware/**/setup_flasher.config
+
+# Wireshark report tool — generated run artifacts
+wireshark/captures/
+wireshark/report.html

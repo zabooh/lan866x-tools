@@ -132,6 +132,43 @@ udp.port == 5001                         # the RTP video stream
 
 ---
 
+## 5. Python tooling (live sniff + automated report)
+
+Two Python helpers in this folder drive capture/analysis from the command line.
+
+```bash
+pip install pyshark matplotlib pyserial     # tshark + Npcap must already be installed
+```
+
+### `sniff_someip.py` — live SOME/IP sniffer
+A pyshark live sniffer that decodes RCP methods by name (GetStatus, SetGpio, …),
+reusing Wireshark's dissectors. The RCP ports (6800/49153/30490) are forced to
+SOME/IP via Decode-As, so it works even without the port preference set.
+```bash
+python sniff_someip.py --iface "Ethernet 8" --ip 192.168.0.54
+```
+
+### `t1s_report.py` — capture + timing/protocol HTML report
+Orchestrates an end-to-end measurement and renders a self-contained
+**`report.html`** with timing diagrams:
+1. enables the bridge **port mirror** (`mirror 1` on the board, over `--port`);
+2. runs `discovery`, `diag` and `gpiomax` on the board while **tshark** captures
+   the mirrored T1S traffic on `--iface`;
+3. analyses each scenario — **request→response round-trip times** (per SOME/IP
+   method), inter-packet timing, throughput, and the **protocol/method mix**;
+4. writes `report.html` (RTT-over-time, RTT histogram and protocol-mix diagrams
+   embedded as PNGs, plus per-method RTT tables); disables the mirror.
+```bash
+python t1s_report.py --iface "Ethernet 8" --port COM8 --ip 192.168.0.54
+# offline (analyse an existing capture, no board needed):
+python t1s_report.py --pcap captures/diag.pcapng --out report.html
+```
+Live capture needs **Npcap + admin**; the board must be reachable through the
+bridge on `--iface` (run with the PC on the bridge's `eth1`). Per-scenario `.pcapng`
+files land in `captures/` and `report.html` in this folder (both git-ignored).
+
+---
+
 ## Troubleshooting
 
 - **Fields still show "Unparsed Payload":** confirm the 8 `SOMEIP_*` files are in
