@@ -40,6 +40,10 @@
 #define OP_REPLY      0x02u
 #define OP_SET_OFFSET 0x03u
 #define OP_SET_ACK    0x04u
+#define OP_TAP_SET    0x05u    /* PC->FW : [op][enable:1][port:2]  set/clear eth0-timestamp tap   */
+#define OP_TAP_REC    0x06u    /* FW->PC : [op][dir][t:8][ipid:2][proto][iplen:2][src:4][dst:4]    */
+
+#define NTP_LOCAL_TZ_OFFSET_S  7200   /* firmware shown in GMT+2 (display only; epoch stays UTC) */
 
 static UDP_SOCKET s_sock = INVALID_UDP_SOCKET;
 static int64_t    s_offset_ns = 0;       /* added to the raw counter to align to PC time */
@@ -89,6 +93,37 @@ static uint64_t get64(const uint8_t *p)
     uint64_t v = 0; int i;
     for (i = 0; i < 8; i++) v = (v << 8) | p[i];
     return v;
+}
+static void put32(uint8_t *p, uint32_t v) { p[0]=(uint8_t)(v>>24); p[1]=(uint8_t)(v>>16); p[2]=(uint8_t)(v>>8); p[3]=(uint8_t)v; }
+
+/* --- eth0 timestamp tap: stamp every IPv4 frame crossing eth0 with the synced NTP
+ * time and stream the records to a PC collector, so the PC can compute the bridge's
+ * one-way delay vs its own NIC capture. The timestamp is taken in the packet hook
+ * (no UART/console in the timing path); records are sent later from NTP_Task. */
+#define TAP_RING 128u   /* power of two */
+typedef struct { uint64_t t; uint32_t src, dst; uint16_t ipid, iplen; uint8_t dir, proto; } tap_rec_t;
+static tap_rec_t        s_tring[TAP_RING];
+static volatile uint16_t s_thead = 0, s_ttail = 0;
+static IPV4_ADDR        s_tap_ip = {0};
+static uint16_t         s_tap_port = 0;
+static int              s_tap_on = 0;
+
+/* dir 0 = eth0 RX (from bus), 1 = eth0 TX (to bus). Called from the eth0 hooks. */
+void ntp_tap_eth0(uint8_t dir, const uint8_t *f, uint16_t len)
+{
+    uint16_t nh;
+    if (!s_tap_on || f == NULL || len < 34u) return;
+    if (f[12] != 0x08u || f[13] != 0x00u) return;          /* IPv4 only */
+    nh = (uint16_t)((s_thead + 1u) & (TAP_RING - 1u));
+    if (nh == s_ttail) return;                             /* ring full: drop */
+    s_tring[s_thead].t     = ntp_now_ns();
+    s_tring[s_thead].dir   = dir;
+    s_tring[s_thead].iplen = (uint16_t)((f[16] << 8) | f[17]);
+    s_tring[s_thead].ipid  = (uint16_t)((f[18] << 8) | f[19]);
+    s_tring[s_thead].proto = f[23];
+    s_tring[s_thead].src   = ((uint32_t)f[26]<<24)|((uint32_t)f[27]<<16)|((uint32_t)f[28]<<8)|f[29];
+    s_tring[s_thead].dst   = ((uint32_t)f[30]<<24)|((uint32_t)f[31]<<16)|((uint32_t)f[32]<<8)|f[33];
+    s_thead = nh;
 }
 
 static void reply_to(const UDP_SOCKET_INFO *info, const uint8_t *buf, uint16_t len)
@@ -153,7 +188,7 @@ static void ntp_watch(uint32_t secs)
             if (ms - lastPrint >= 1000u) {           /* at most one line per second */
                 char b1[40], b2[40];
                 uint64_t now = ntp_now_ns();
-                uint64_t sod = (now / 1000000000ULL) % 86400ULL;   /* UTC seconds-of-day */
+                uint64_t sod = ((now / 1000000000ULL) + NTP_LOCAL_TZ_OFFSET_S) % 86400ULL;  /* GMT+2 local */
                 lastPrint = ms;
                 SYS_CONSOLE_PRINT("[%02u:%02u:%02u.%03u] offset %-14s delay %-14s\r\n",
                     (unsigned)(sod / 3600u), (unsigned)((sod % 3600u) / 60u), (unsigned)(sod % 60u),
@@ -224,6 +259,31 @@ void NTP_Task(void)
             out[0] = OP_SET_ACK;
             put64(&out[1], ntp_now_ns());
             reply_to(&info, out, 9u);
+        } else if (in[0] == OP_TAP_SET && got >= 4u) {
+            s_tap_on   = in[1] ? 1 : 0;
+            s_tap_port = (uint16_t)((in[2] << 8) | in[3]);
+            s_tap_ip.Val = info.sourceIPaddress.v4Add.Val;   /* collector = the PC that asked */
+            s_thead = s_ttail = 0;                            /* flush stale records */
+            out[0] = OP_SET_ACK; put64(&out[1], ntp_now_ns());
+            reply_to(&info, out, 9u);
         }
+    }
+
+    /* stream queued eth0 tap records to the PC collector (one UDP datagram each) */
+    while (s_tap_on && s_tap_port != 0u && s_ttail != s_thead) {
+        const tap_rec_t *r = &s_tring[s_ttail];
+        uint8_t rec[23];
+        IP_MULTI_ADDRESS dst; dst.v4Add = s_tap_ip;
+        if (TCPIP_UDP_TxPutIsReady(s_sock, sizeof rec) < sizeof rec) break;
+        rec[0] = OP_TAP_REC; rec[1] = r->dir;
+        put64(&rec[2], r->t);
+        rec[10] = (uint8_t)(r->ipid >> 8); rec[11] = (uint8_t)r->ipid;
+        rec[12] = r->proto;
+        rec[13] = (uint8_t)(r->iplen >> 8); rec[14] = (uint8_t)r->iplen;
+        put32(&rec[15], r->src); put32(&rec[19], r->dst);
+        if (!TCPIP_UDP_DestinationIPAddressSet(s_sock, IP_ADDRESS_TYPE_IPV4, &dst)) break;
+        if (!TCPIP_UDP_DestinationPortSet(s_sock, (UDP_PORT)s_tap_port)) break;
+        if (TCPIP_UDP_ArrayPut(s_sock, rec, sizeof rec) == sizeof rec) TCPIP_UDP_Flush(s_sock);
+        s_ttail = (uint16_t)((s_ttail + 1u) & (TAP_RING - 1u));
     }
 }

@@ -172,6 +172,29 @@ open it in a browser to see the layout (timing diagrams + per-method RTT tables)
 without any hardware. It captured 8 / 63 / 7485 RCP round-trips for
 discovery / diag / gpiomax.
 
+### `bridge_delay.py` — measure the bridge's one-way forwarding delay
+Uses the NTP-synced firmware clock + the eth0 timestamp tap to measure how long a
+frame takes **through the bridge** in each direction. It runs `lan866x-ntpsync`
+(so the bridge and PC share one epoch timebase), enables the firmware eth0 tap
+(every IPv4 frame on the T1S side is stamped with the synced NTP time and streamed
+to the PC), captures the same frames at the NIC, runs `lan866x-discovery` to
+generate traffic, and matches the two by IPv4 id:
+```bash
+python bridge_delay.py --iface "Ethernet 8" --bridge 192.168.0.181 --endpoint 192.168.0.54
+```
+```text
+  bridge round-trip transport (NIC<->eth0, skew-free) : 733 us
+  -> per direction (assuming symmetry)                : 366 us each
+  estimated capture-vs-sync clock skew S              : ~13 ms
+```
+The NIC capture clock (Npcap) and the clock `ntpsync` disciplines to differ by a
+**constant** skew that appears with opposite sign in the two directions, so the
+**sum cancels it** — the skew-free round-trip (and its half) is the meaningful
+bridge-delay figure; an exact per-direction split needs the symmetry assumption.
+Floor = the software-NTP sync residual (~hundreds of us), so it aggregates over
+many frames. The firmware-side stamp is taken in the eth0 packet hook (no UART in
+the timing path), so console output does not perturb the measurement.
+
 ---
 
 ## Troubleshooting

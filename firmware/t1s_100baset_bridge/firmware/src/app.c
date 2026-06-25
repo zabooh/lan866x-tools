@@ -640,11 +640,14 @@ void mirror_eth0_tx_hook(struct _tag_TCPIP_MAC_PACKET *txPkt)
 {
     const uint8_t *frame;
     const uint8_t *mac;
-    if (!mirror_mode || txPkt == NULL || txPkt->pDSeg == NULL) return;
+    if (txPkt == NULL || txPkt->pDSeg == NULL) return;
     frame = txPkt->pDSeg->segLoad;
-    mac   = eth0_own_mac();
-    if (mac == NULL || frame == NULL) return;
-    if (memcmp(frame + 6, mac, 6) != 0) return;      /* src MAC != eth0 -> forwarded, skip */
+    if (frame == NULL) return;
+    ntp_tap_eth0(1u, frame, txPkt->pDSeg->segLen);   /* eth0 egress timestamp (forwarded + originated) */
+    if (!mirror_mode) return;
+    mac = eth0_own_mac();
+    if (mac == NULL) return;
+    if (memcmp(frame + 6, mac, 6) != 0) return;      /* src MAC != eth0 -> forwarded, skip mirror */
     mirror_ethpkt_to_eth1(frame, txPkt->pDSeg->segLen);
 }
 
@@ -653,6 +656,8 @@ bool pktEth0Handler(TCPIP_NET_HANDLE hNet, struct _tag_TCPIP_MAC_PACKET* rxPkt, 
     bool ret_val = false;
 
     packet_counter++;
+
+    ntp_tap_eth0(0u, rxPkt->pMacLayer, rxPkt->pDSeg->segLen);   /* eth0 ingress timestamp (from bus) */
 
     if (mirror_mode) {
         mirror_eth0_rx_to_eth1(rxPkt);   /* clone endpoint->bridge frames to eth1 (dst-MAC filtered) */

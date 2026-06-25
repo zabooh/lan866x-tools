@@ -33,6 +33,7 @@ void DNCP_CLI_Init(void);   /* dncpmon, dncpdisc */
 void     NTP_Init(void);    /* open the UDP service + register the "ntp" CLI group */
 void     NTP_Task(void);    /* service the UDP socket; call once per superloop tick */
 uint64_t ntp_now_ns(void);  /* disciplined NTP time in ns (PC-aligned once synced) */
+void     ntp_tap_eth0(uint8_t dir, const uint8_t *frame, uint16_t len);  /* eth0 timestamp tap (0=RX,1=TX) */
 
 /* Drive the SOME/IP client: lazily runs rcp_init() once an interface is up,
  * then pumps rcp_poll() each call. Call once per superloop iteration from
