@@ -38,6 +38,14 @@
 static volatile sig_atomic_t g_run = 1;
 static void on_sigint(int sig) { (void)sig; g_run = 0; }
 
+typedef UINT (WINAPI *timeBeginPeriod_t)(UINT);   /* winmm, loaded dynamically (no link dep) */
+
+static int cmp_i64(const void *a, const void *b)
+{
+    int64_t x = *(const int64_t *)a, y = *(const int64_t *)b;
+    return (x > y) - (x < y);
+}
+
 static void put64(uint8_t *p, uint64_t v) { int i; for (i = 0; i < 8; i++) p[i] = (uint8_t)(v >> (56 - 8 * i)); }
 static uint64_t get64(const uint8_t *p) { uint64_t v = 0; int i; for (i = 0; i < 8; i++) v = (v << 8) | p[i]; return v; }
 
@@ -84,16 +92,24 @@ static int round_once(SOCKET s, int64_t *offset, int64_t *delay)
  * Returns 0 on success, filling *bestOffset/*bestDelay (the pre-correction values). */
 static int sync_once(SOCKET s, int rounds, int doSet, int64_t *bestOffset, int64_t *bestDelay)
 {
-    int i, ok = 0; int64_t bo = 0, bd = INT64_MAX;
+    int i, ok = 0, m = 0; int64_t offs[64], dels[64], lo[64], bd = INT64_MAX, bo, win;
+    if (rounds > 64) rounds = 64;
     for (i = 0; i < rounds; ++i) {
         int64_t off, del;
         if (round_once(s, &off, &del) == 0) {
-            ok++;
-            if (del < bd) { bd = del; bo = off; }
+            offs[ok] = off; dels[ok] = del; ok++;
+            if (del < bd) bd = del;
         }
         if (rounds > 1) Sleep(5);
     }
     if (!ok) return -1;
+    /* Robust estimator: median offset of the rounds whose delay is within a window of
+     * the minimum delay (least-contended, most symmetric round-trips). Beats picking a
+     * single min-delay sample - averages out per-round jitter without trusting outliers. */
+    win = bd / 2; if (win < 30000) win = 30000;          /* >= 30 us window */
+    for (i = 0; i < ok; ++i) if (dels[i] <= bd + win) lo[m++] = offs[i];
+    qsort(lo, (size_t)m, sizeof lo[0], cmp_i64);
+    bo = lo[m / 2];
     *bestOffset = bo; *bestDelay = bd;
     if (doSet) {
         uint8_t set[17], ack[32];
@@ -121,7 +137,7 @@ int main(int argc, char **argv)
                    "  --interval <ms> continuous re-sync period (default 250)\n"
                    "  --ip <addr>     firmware NTP service IP (default 192.168.0.181)\n"
                    "  --port <n>      UDP port (default 30491)\n"
-                   "  --rounds <n>    rounds per sync, best (min-delay) used (default 8 once / 4 cont.)\n"
+                   "  --rounds <n>    rounds per sync; median of the min-delay ones used (default 8 once / 6 cont.)\n"
                    "  --no-set        measure only; do not discipline the firmware counter\n");
             return 0;
         } else if (!strcmp(argv[i], "--ip")       && i + 1 < argc) ip = argv[++i];
@@ -131,8 +147,15 @@ int main(int argc, char **argv)
         else if (!strcmp(argv[i], "--once"))                       once = 1;
         else if (!strcmp(argv[i], "--no-set"))                     doSet = 0;
     }
-    if (rounds < 1) rounds = once ? 8 : 4;
+    if (rounds < 1) rounds = once ? 8 : 6;
     if (interval < 20) interval = 20;
+
+    /* Raise the system timer resolution to 1 ms so Sleep()/recv pacing is crisp
+     * (default ~15.6 ms granularity smears the round spacing). winmm loaded
+     * dynamically so there is no link-time dependency on winmm.lib. */
+    { HMODULE wm = LoadLibraryA("winmm.dll");
+      timeBeginPeriod_t tbp = wm ? (timeBeginPeriod_t)(void *)GetProcAddress(wm, "timeBeginPeriod") : NULL;
+      if (tbp) tbp(1); }
 
     if (WSAStartup(MAKEWORD(2, 2), &w)) { printf("WSAStartup failed\n"); return 1; }
     s = socket(AF_INET, SOCK_DGRAM, IPPROTO_UDP);

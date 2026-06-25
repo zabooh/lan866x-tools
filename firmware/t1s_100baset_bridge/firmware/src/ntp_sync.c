@@ -8,6 +8,12 @@
  * the PC's wall-clock time. After that the firmware runs autonomously on its own
  * disciplined counter - usable to timestamp firmware events on the PC timebase.
  *
+ * The follower runs a small PI discipline on the SET_OFFSET stream: it applies the
+ * phase correction (P) AND integrates the residual into a frequency term s_rate_ppb
+ * (I), which ntp_now_ns() accrues between syncs. This cancels the free-running
+ * oscillator drift (~ms/s) instead of leaving a sawtooth - the single biggest
+ * accuracy lever. The wire protocol is unchanged (the PC still only sends 'adjust').
+ *
  * Resolution is bounded by the SAME54 / Harmony SYS_TIME counter; the actual
  * tick frequency (and hence the ns resolution) is reported by the "ntp" CLI.
  *
@@ -53,6 +59,16 @@ static int        s_synced = 0;
 static uint32_t   s_syncCount = 0;
 static uint64_t   s_lastSyncRaw = 0;     /* raw (monotonic) counter at the last SET_OFFSET */
 static int64_t    s_lastInterval = 0;    /* raw interval between the last two syncs         */
+static int64_t    s_rate_ppb = 0;        /* learned frequency correction, ns/s (ppb) - PI integral */
+
+#define NTP_KI_DEN  4    /* frequency-loop integral gain Ki = 1/NTP_KI_DEN (Kp = 1, full phase step) */
+
+/* ns of frequency correction accrued since the last sync (integer, overflow-safe:
+ * scale the elapsed counter to us first so the product stays well inside int64). */
+static int64_t ntp_rate_held(uint64_t raw)
+{
+    return ((int64_t)((raw - s_lastSyncRaw) / 1000ULL) * s_rate_ppb) / 1000000;
+}
 
 /* Format a ns duration human-readable (ASCII, integer math, signed): ns / us / ms / s. */
 static const char *fmt_dur(char *b, int n, int64_t ns)
@@ -79,10 +95,13 @@ static uint64_t ntp_raw_ns(void)
     return sec * 1000000000ULL + (frac * 1000000000ULL) / freq;
 }
 
-/* Disciplined NTP time in ns (PC-aligned once a SET_OFFSET has been applied). */
+/* Disciplined NTP time in ns (PC-aligned once a SET_OFFSET has been applied).
+ * = raw + phase offset + the frequency correction accrued since the last sync,
+ * so the counter keeps tracking PC time *between* syncs instead of drifting. */
 uint64_t ntp_now_ns(void)
 {
-    return (uint64_t)((int64_t)ntp_raw_ns() + s_offset_ns);
+    uint64_t raw = ntp_raw_ns();
+    return (uint64_t)((int64_t)raw + s_offset_ns + ntp_rate_held(raw));
 }
 
 static void put64(uint8_t *p, uint64_t v)
@@ -170,19 +189,18 @@ static void ntp_print_status(void)
         SYS_CONSOLE_PRINT("  last sync  : never (no sync received yet)\r\n");
     } else {
         int64_t elapsed = (int64_t)(up - s_lastSyncRaw);
-        char b4[40], b5[40];
+        char b4[40];
         SYS_CONSOLE_PRINT("  last sync  : %s ago\r\n", fmt_dur(b4, sizeof b4, elapsed));
         if (s_syncCount >= 2u && s_lastInterval > 0) {
-            int64_t iv_us = s_lastInterval / 1000;                       /* keep the products small */
-            long    ppm   = (long)(((-s_last_adjust_ns) * 1000000) / s_lastInterval);
-            int64_t dev   = (iv_us > 0) ? ((-s_last_adjust_ns) * (elapsed / 1000)) / iv_us : 0;
-            SYS_CONSOLE_PRINT("  est. drift : %+ld ppm  (last %s correction over %s)\r\n",
-                              ppm, fmt_dur(b4, sizeof b4, s_last_adjust_ns),
-                              fmt_dur(b5, sizeof b5, s_lastInterval));
-            SYS_CONSOLE_PRINT("  est. dev.  : ~%s drifted off since last sync (projected)\r\n",
-                              fmt_dur(b4, sizeof b4, dev));
+            long oscppm = (long)(-(s_rate_ppb) / 1000);      /* oscillator drift the loop has locked to */
+            SYS_CONSOLE_PRINT("  osc. drift : %+ld ppm  (frequency-locked, applied)\r\n", oscppm);
+            /* The residual phase error caught at the last sync. Once frequency-locked
+             * this is mostly measurement jitter, not drift, so it does NOT grow ~linearly
+             * with 'elapsed' (holdover is slow) - reporting it directly is the honest figure. */
+            SYS_CONSOLE_PRINT("  residual   : ~%s offset at last sync (freq lock keeps holdover slow)\r\n",
+                              fmt_dur(b4, sizeof b4, -s_last_adjust_ns));
         } else {
-            SYS_CONSOLE_PRINT("  est. drift : n/a (need >= 2 syncs to estimate)\r\n");
+            SYS_CONSOLE_PRINT("  freq lock  : converging (need >= 2 syncs)\r\n");
         }
     }
 
@@ -285,11 +303,26 @@ void NTP_Task(void)
         } else if (in[0] == OP_SET_OFFSET && got >= 9u) {
             int64_t adjust = (int64_t)get64(&in[1]);
             uint64_t raw = ntp_raw_ns();
+            /* Consolidate the rate-accrued correction into the phase so the clock is
+             * continuous across this update, then re-base the rate accrual at 'raw'. */
+            s_offset_ns += ntp_rate_held(raw);
+            if (s_synced) s_lastInterval = (int64_t)(raw - s_lastSyncRaw);  /* gap since prior sync */
+            s_lastSyncRaw = raw;
+            /* PI frequency discipline: 'adjust' is the residual correction the PC wants
+             * (= -measured offset). Integrate it (over the interval -> ppb) into the
+             * rate term (I, Ki=1/NTP_KI_DEN); apply the phase correction now (P, Kp=1).
+             * The huge first-sync adjust is skipped (s_synced still 0) so only the small
+             * per-interval residual ever feeds the frequency loop. */
+            if (s_synced && s_lastInterval > 0) {
+                int64_t iv_us = s_lastInterval / 1000;
+                if (iv_us > 0) {
+                    int64_t drift_ppb = (adjust * 1000000LL) / iv_us;   /* ns/interval -> ppb */
+                    s_rate_ppb += drift_ppb / NTP_KI_DEN;
+                }
+            }
             s_offset_ns += adjust;
             s_last_adjust_ns = adjust;
             if (got >= 17u) s_last_delay_ns = (int64_t)get64(&in[9]);  /* PC-measured round-trip */
-            if (s_synced) s_lastInterval = (int64_t)(raw - s_lastSyncRaw);  /* gap since prior sync */
-            s_lastSyncRaw = raw;
             s_synced = 1; s_syncCount++;
             out[0] = OP_SET_ACK;
             put64(&out[1], ntp_now_ns());

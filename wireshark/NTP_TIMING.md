@@ -86,21 +86,20 @@ lan866x-ntpsync --interval 500  :: continuous, 500 ms period
 On the board:
 ```text
 ntp            # status snapshot: source/resolution, offset, last delay/adjust,
-               #   whether/when the last sync was, the estimated oscillator drift
-               #   (ppm) and how far the counter has likely drifted since the last
-               #   sync, plus the NTP time and local (GMT+2) wall clock
+               #   whether/when the last sync was, the frequency-locked oscillator
+               #   drift (ppm) and the residual offset, plus the NTP time and the
+               #   local (GMT+2) wall clock
 ntp watch      # one line per sync (throttled to ~1/s), GMT+2, until q / Ctrl-C
 ```
-The one-shot `ntp` status projects the deviation since the last sync from the last
-correction over the last sync interval (`drift ≈ −adjust / interval`), so you can see
-at a glance whether the counter is still trustworthy or has drifted (it drifts ~ms/s
-free-running — re-sync to pull it back). Example after syncing then idling ~8 s:
+The follower runs a **PI frequency discipline** (§3): it applies the phase correction
+*and* learns a frequency term, so the counter holds between syncs. The status shows
+the locked `osc. drift` (ppm) and the `residual` offset at the last sync. Example:
 ```text
-  synced     : YES (8 sync msg)
-  last sync  : 7.801 s ago
-  est. drift : +1600 ppm  (last -506.476 us correction over 316.506 ms)
-  est. dev.  : ~12.483 ms drifted off since last sync (projected)
-  local time : 15:17:20.557 (GMT+2)
+  synced     : YES (19 sync msg)
+  last sync  : 63.769 ms ago
+  osc. drift : +1736 ppm  (frequency-locked, applied)
+  residual   : ~69.518 us offset at last sync (freq lock keeps holdover slow)
+  local time : 18:08:38.159 (GMT+2)
 ```
 Offset and delay are printed **human-readable** (ns/us/ms/s) on both sides. The
 board shows local time in **GMT+2** (display only; the stored counter is UTC epoch).

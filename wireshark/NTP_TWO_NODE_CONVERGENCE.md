@@ -56,6 +56,7 @@ Grundlage sind die in diesem Repo **real gemessenen** Werte (siehe
   - [10.3 Was damit möglich wird](#103-was-damit-möglich-wird)
   - [10.4 Wo reine Software an die Grenze kommt](#104-wo-reine-software-an-die-grenze-kommt)
 - [11. Fazit & ein konkreter Algorithmus-Vorschlag](#11-fazit--ein-konkreter-algorithmus-vorschlag)
+- [Anhang A: Umsetzung — welche Maßnahme wo](#anhang-a-umsetzung--welche-maßnahme-wo)
 
 ---
 
@@ -622,6 +623,32 @@ mitlaufender, ehrlicher Fehlerschranke. Für alles darunter (sub-µs, ns) führt
 > ist heute der Master/Slave-Sync gegen den PC ([NTP_TIMING.md](NTP_TIMING.md)); der
 > hier skizzierte Zwei-Knoten-Konsens-Regler ist ein möglicher Ausbau, kein
 > vorhandenes Feature.
+
+---
+
+## Anhang A: Umsetzung — welche Maßnahme wo
+
+Heute existieren **zwei** Instanzen: der **PC-Master** [`ntpsync.c`](../ntpsync.c)
+(`lan866x-ntpsync`) und der **Firmware-Follower**
+[`ntp_sync.c`](../firmware/t1s_100baset_bridge/firmware/src/ntp_sync.c). Die
+besprochenen Maßnahmen ordnen sich so zu:
+
+| # | Maßnahme | Wo | Konkret | Effekt | Status |
+|---|---|---|---|---|---|
+| **1** | **Frequenz-Disziplinierung** | **Firmware** | aus dem `adjust`-Strom (= Residual-Offset) per PI eine **Rate** `s_rate_ppb` lernen; `ntp_now = raw + offset + rate·(raw − lastSync)`. Protokoll unverändert. | **größter** (~200 µs Sägezahn → <1 µs Holdover) | **umgesetzt** |
+| **2** | Früher Zeitstempel (t2/t3) | Firmware | Stempel im RX/TX-Hook bzw. UDP-Signal-Handler statt im gepollten `NTP_Task` | weg von den ~150–360 µs | offen (Folgeschritt, plattform­spezifisch) |
+| **3** | Min-Delay + robuster Schätzer | **PC** | mehrere Rounds, **Median der δ-kleinsten** Offsets statt Einzel-Sample | mittel | **umgesetzt** |
+| **4** | PC-Stempel straffen | **PC** | `timeBeginPeriod(1)` (per `winmm.dll`), t1/t4 eng um send/recv | klein–mittel | **umgesetzt** |
+| **5** | Taktquelle | Firmware-Clock-Config (MCC) | SYS_TIME vom **Quarz/TCXO/MEMS** statt internem RC | Holdover/Vorhersagbarkeit ↑ | offen (HW/Config) |
+| **6** | Asymmetrie-Kalibrierung | PC | konstanten Pfad-Bias einmal messen, vom Offset abziehen | nur *Richtigkeit* | offen (optional) |
+| **7** | Broadcast-One-Way | *(Zukunft)* FW-Master + Follower | erst bei **mehreren T1S-Followern** relevant; heutiges PC↔Bridge = Punkt-zu-Punkt | — | n/a heute |
+
+**Umsetzungs-Reihenfolge & -Logik:** **#1 zuerst** (größter Hebel, allein in der
+Firmware, Protokoll bleibt gleich — die `est. drift`-Schätzung war dort schon
+vorhanden und wird nun *angewendet* statt nur angezeigt). Danach **#2** (Firmware,
+Stempel früher) sowie **#3/#4** (PC, billig). **#5** ist der Hardware-Hebel für
+Holdover; **#6** nur für absolute Richtigkeit; **#7** erst beim Übergang auf einen
+Embedded-Master mit mehreren Followern.
 
 ---
 

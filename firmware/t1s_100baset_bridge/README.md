@@ -308,7 +308,7 @@ The remaining host tools are mirrored in the **`gpio`**, **`i2c`**, **`spi`**,
 
 | Command | Description |
 |---|---|
-| `ntp` | show the NTP time-counter status: source/resolution, offset, synced, **time since last sync, estimated drift (ppm) + deviation accumulated since that sync**, PC-aligned time + local (GMT+2) clock |
+| `ntp` | show the NTP time-counter status: source/resolution, offset, synced, **time since last sync, frequency-locked oscillator drift (ppm) + residual offset**, PC-aligned time + local (GMT+2) clock |
 
 Harmony stack commands (`netinfo`, `bridge`, `ping`, etc.) are also available.
 
@@ -753,13 +753,19 @@ exchange, so afterwards the firmware can timestamp events on the **PC timebase**
   the PC reaches it directly, e.g. `192.168.0.181:30491`). Protocol: a 4-timestamp
   exchange (`REQUEST`/`REPLY` carrying t1/t2/t3/t4) plus a `SET_OFFSET` that
   disciplines the counter; all integers are big-endian signed-64-bit ns.
-- **Flow:** the PC tool runs several t1/t2/t3/t4 rounds, keeps the lowest-delay
-  sample, computes the offset `((t2−t1)+(t3−t4))/2`, then sends `SET_OFFSET` (with
-  the measured round-trip delay) so the firmware counter reads PC time (Unix-epoch
-  ns). **By default the tool re-syncs every 250 ms** until Ctrl+C, so the counter
-  stays aligned despite drift; `--once` does a single sync. Offset and delay are
-  printed human-readable (ns/us/ms/s) on both sides — the firmware stores the last
-  delay/adjust and shows them in the `ntp` command.
+- **Flow:** the PC tool runs several t1/t2/t3/t4 rounds, takes the **median offset
+  of the lowest-delay rounds** (robust min-delay filter; it also raises the Windows
+  timer resolution to 1 ms so the round spacing is crisp), then sends `SET_OFFSET`
+  (with the measured round-trip delay) so the firmware counter reads PC time
+  (Unix-epoch ns). **By default the tool re-syncs every 250 ms** until Ctrl+C;
+  `--once` does a single sync.
+- **Frequency discipline:** the firmware does not just step the phase — it runs a
+  small **PI loop** on the `SET_OFFSET` stream, integrating the residual into a
+  frequency term that `ntp_now_ns()` accrues between syncs. This cancels the
+  free-running oscillator drift (~ms/s here, ~1600 ppm) so the counter *holds*
+  between syncs instead of sawtoothing: after **6 s without sync the FW↔PC offset
+  was ~58 µs** (vs ~9.6 ms un-disciplined). The wire protocol is unchanged. Offset
+  and delay are printed human-readable (ns/us/ms/s) on both sides.
 
 ```bat
 :: PC side (built with the host tools)
@@ -772,25 +778,28 @@ lan866x-ntpsync --ip 192.168.0.180 --once --no-set   :: eth0, measure only
 PC (continuous):
 [13:54:39.478] offset 543.624 us      delay 671.417 us
 
-# on the board, query the disciplined counter (here ~8 s after the last sync):
+# on the board, query the disciplined counter:
 ntp
   source     : SYS_TIME, 60000000 Hz  (resolution ~16 ns/tick)
-  offset     : 1782393377.904 s
-  last delay : 969.500 us
-  last adjust: -506.476 us
-  synced     : YES (8 sync msg)
-  last sync  : 7.801 s ago
-  est. drift : +1600 ppm  (last -506.476 us correction over 316.506 ms)
-  est. dev.  : ~12.483 ms drifted off since last sync (projected)
-  NTP time   : 1782393440.557288016 s  (PC-aligned, Unix epoch)
-  local time : 15:17:20.557 (GMT+2)
+  offset     : 1782403690.669 s
+  last delay : 763.782 us
+  last adjust: -69.518 us
+  synced     : YES (19 sync msg)
+  last sync  : 63.769 ms ago
+  osc. drift : +1736 ppm  (frequency-locked, applied)
+  residual   : ~69.518 us offset at last sync (freq lock keeps holdover slow)
+  NTP time   : 1782403718.159533771 s  (PC-aligned, Unix epoch)
+  local time : 18:08:38.159 (GMT+2)
 ```
-The one-shot `ntp` status reports **whether/when the last sync happened** (`never`
-before the first one, else *“N ago”*) and — projected from the last correction over
-the last sync interval (`drift ≈ −adjust / interval`) — the **estimated oscillator
-drift** and **how far the free-running counter has likely drifted since that sync**.
-Free-running it drifts ~ms/s, so a stale `last sync` with a large `est. dev.` means
-the counter needs a re-sync. (`est. drift` needs ≥ 2 syncs to have an interval.)
+The follower runs a small **PI frequency discipline** on the `SET_OFFSET` stream: it
+applies the phase correction *and* integrates the residual into a frequency term that
+`ntp_now_ns()` accrues between syncs — cancelling the free-running oscillator drift
+(~ms/s) instead of leaving a sawtooth. The one-shot `ntp` status reports
+**whether/when the last sync happened** (`never` before the first, else *“N ago”*),
+the **frequency-locked oscillator drift** (`osc. drift`, ppm; needs ≥ 2 syncs) and the
+**residual offset** caught at the last sync. Because the frequency is locked, holdover
+is slow: e.g. after **6 s without sync the FW↔PC offset was only ~58 µs** (vs ~9.6 ms
+the bare oscillator would drift) — verified on hardware.
 
 `ntp watch [secs]` on the board prints the latest sync in the same format as the
 PC tool (timestamp is UTC, derived from the disciplined counter), **throttled to
@@ -802,6 +811,14 @@ ntp watch
 [12:12:21.158] offset 41.675 us      delay 3.009 ms
 [12:12:21.487] offset 807.800 us     delay 951.584 us
 ```
+> Note: each `watch` line is the **single-shot measured offset of that sync** — i.e.
+> the per-exchange measurement *jitter*, bounded by ~`delay/2` (hundreds of µs). This
+> is **not** what the frequency discipline improves: the PI loop removes the *drift
+> between* syncs (holdover), which shows up in the `ntp` status and the holdover test
+> above (~58 µs after 6 s), not in the live per-sync `watch` numbers. Those straddle
+> zero (rather than sitting at a constant ~+400 µs drift bias), which is the visible
+> sign the loop is working. Shrinking the per-sync jitter itself needs earlier
+> (hook-level) timestamping, not frequency discipline.
 
 **Accuracy.** This is *software* NTP: both ends take software timestamps and the
 exchange crosses the 100BASE-T link, so the residual after sync is on the order of
