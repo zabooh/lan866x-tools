@@ -44,6 +44,7 @@ Companion document to the [README](README.md). It covers two things in depth:
 5. [Tool ↔ RCP method matrix](#5-tool--rcp-method-matrix)
 6. [Maintenance scripts](#6-maintenance-scripts)
    - 6.1 [`check_rcp_vs_proto.py` – drift checker](#61-check_rcp_vs_protopy--drift-checker)
+   - 6.2 [`rtp4175_to_video.py` – capture → playable video](#62-rtp4175_to_videopy--capture--playable-video)
 
 ---
 
@@ -1031,3 +1032,35 @@ clean run:
 [C2] struct types: every shared field agrees with the proto - OK
 clean (4 known divergence(s), 9 skew note(s))
 ```
+
+### 6.2 `rtp4175_to_video.py` – capture → playable video
+
+The **inverse of [`lan866x-video`](#413-lan866x-video)**: turns a Wireshark capture
+of the display stream back into a normal video file. Wireshark itself can't export
+RTP *video* (its player is audio-only), but the stream is **uncompressed** RGB so it
+reconstructs losslessly.
+
+It reads the capture with **tshark**, pulls the `udp.dstport==5001` payloads, strips
+the per-packet headers — 12 B RTP + 2 B extended-seq + 10×6 B RFC4175 SRD = 74 B —
+and pipes the remaining **600 B of RGB24** (20×10, see [video.c](video.c)) straight
+into **ffmpeg**, which up-scales (nearest-neighbour) and encodes. Needs `tshark` and
+`ffmpeg` (both ship with this repo's toolchain; the script also finds tshark in the
+default `C:\Program Files\Wireshark` install dir if it isn't on `PATH`).
+
+```bat
+REM mirror 1 on the bridge, capture the stream, then:
+python tools\rtp4175_to_video.py capture.pcapng -o out.mp4 --fps 15
+python tools\rtp4175_to_video.py capture.pcapng -o out.gif --scale 400x200
+python tools\rtp4175_to_video.py capture.pcapng --scale none           REM native 20x10
+```
+
+| Option | Default | Meaning |
+|---|---|---|
+| `<capture>` | — | the `.pcap`/`.pcapng` (positional, required) |
+| `-o <file>` | `video_out.mp4` | output; extension picks the container (mp4, gif, …) |
+| `--fps N` | 15 | output frame rate (the RTP timestamp is a 10 µs counter, **not** a frame clock — set this to match how the source was played) |
+| `--scale WxH` | `400x200` | nearest-neighbour upscale; `none` keeps the native 20×10 |
+| `--port N` | 5001 | RTP destination port to extract |
+
+> Source is physically **20×10** (the display size); both panels appear side by side
+> (left half = display 1, right half = display 2) exactly as sent.
