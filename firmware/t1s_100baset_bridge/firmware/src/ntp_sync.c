@@ -14,7 +14,8 @@
  * Wire protocol - UDP port 30491, all integers big-endian, signed 64-bit ns:
  *   0x01 REQUEST   PC->FW : [op][t1]                 (t1 = PC send time)
  *   0x02 REPLY     FW->PC : [op][t1][t2][t3]         (t2 = FW recv, t3 = FW send)
- *   0x03 SET_OFFSET PC->FW: [op][adjust]             (FW: offset_ns += adjust)
+ *   0x03 SET_OFFSET PC->FW: [op][adjust][delay]       (FW: offset_ns += adjust; stores
+ *                                                     the PC-measured round-trip delay)
  *   0x04 SET_ACK   FW->PC : [op][now]                (now = FW ntp time after set)
  *
  * The service socket is NOT pinned to an interface, so the PC reaches it directly
@@ -23,6 +24,7 @@
 #include <stdbool.h>
 #include <stdint.h>
 #include <string.h>
+#include <stdio.h>
 
 #include "definitions.h"
 #include "config/default/library/tcpip/tcpip.h"
@@ -38,9 +40,23 @@
 #define OP_SET_ACK    0x04u
 
 static UDP_SOCKET s_sock = INVALID_UDP_SOCKET;
-static int64_t    s_offset_ns = 0;     /* added to the raw counter to align to PC time */
+static int64_t    s_offset_ns = 0;       /* added to the raw counter to align to PC time */
+static int64_t    s_last_adjust_ns = 0;  /* last correction the PC applied               */
+static int64_t    s_last_delay_ns = 0;   /* last round-trip delay the PC measured         */
 static int        s_synced = 0;
 static uint32_t   s_syncCount = 0;
+
+/* Format a ns duration human-readable (ASCII, integer math, signed): ns / us / ms / s. */
+static const char *fmt_dur(char *b, int n, int64_t ns)
+{
+    const char *sg = (ns < 0) ? "-" : "";
+    uint64_t a = (ns < 0) ? (uint64_t)(-ns) : (uint64_t)ns;
+    if (a < 1000ULL)              snprintf(b, n, "%s%llu ns", sg, (unsigned long long)a);
+    else if (a < 1000000ULL)      snprintf(b, n, "%s%llu.%03llu us", sg, (unsigned long long)(a/1000ULL), (unsigned long long)(a%1000ULL));
+    else if (a < 1000000000ULL)   snprintf(b, n, "%s%llu.%03llu ms", sg, (unsigned long long)(a/1000000ULL), (unsigned long long)((a%1000000ULL)/1000ULL));
+    else                          snprintf(b, n, "%s%llu.%03llu s",  sg, (unsigned long long)(a/1000000000ULL), (unsigned long long)((a%1000000000ULL)/1000000ULL));
+    return b;
+}
 
 /* Raw monotonic ns since boot from the SYS_TIME counter, overflow-safe:
  * ns = sec*1e9 + (frac_ticks*1e9)/freq  (avoids ticks*1e9 overflowing uint64). */
@@ -89,13 +105,16 @@ static void cmd_ntp(SYS_CMD_DEVICE_NODE *pCmdIO, int argc, char **argv)
     uint64_t freq = (uint64_t)SYS_TIME_FrequencyGet();
     uint64_t up = ntp_raw_ns();
     uint64_t now = ntp_now_ns();
+    char b1[40], b2[40], b3[40];
     (void)pCmdIO; (void)argc; (void)argv;
     SYS_CONSOLE_PRINT("NTP time counter:\r\n");
     SYS_CONSOLE_PRINT("  source     : SYS_TIME, %lu Hz  (resolution ~%lu ns/tick)\r\n",
                       (unsigned long)freq, (unsigned long)(freq ? (1000000000ULL / freq) : 0));
     SYS_CONSOLE_PRINT("  uptime     : %lu.%09lu s (raw)\r\n",
                       (unsigned long)(up / 1000000000ULL), (unsigned long)(up % 1000000000ULL));
-    SYS_CONSOLE_PRINT("  offset     : %lld ns\r\n", (long long)s_offset_ns);
+    SYS_CONSOLE_PRINT("  offset     : %s\r\n", fmt_dur(b1, sizeof b1, s_offset_ns));
+    SYS_CONSOLE_PRINT("  last delay : %s\r\n", s_synced ? fmt_dur(b2, sizeof b2, s_last_delay_ns) : "(n/a)");
+    SYS_CONSOLE_PRINT("  last adjust: %s\r\n", s_synced ? fmt_dur(b3, sizeof b3, s_last_adjust_ns) : "(n/a)");
     SYS_CONSOLE_PRINT("  synced     : %s (%lu sync msg)\r\n", s_synced ? "YES" : "no", (unsigned long)s_syncCount);
     SYS_CONSOLE_PRINT("  NTP time   : %llu.%09llu s",
                       (unsigned long long)(now / 1000000000ULL), (unsigned long long)(now % 1000000000ULL));
@@ -141,6 +160,8 @@ void NTP_Task(void)
         } else if (in[0] == OP_SET_OFFSET && got >= 9u) {
             int64_t adjust = (int64_t)get64(&in[1]);
             s_offset_ns += adjust;
+            s_last_adjust_ns = adjust;
+            if (got >= 17u) s_last_delay_ns = (int64_t)get64(&in[9]);  /* PC-measured round-trip */
             s_synced = 1; s_syncCount++;
             out[0] = OP_SET_ACK;
             put64(&out[1], ntp_now_ns());

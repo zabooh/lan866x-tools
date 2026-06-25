@@ -754,21 +754,32 @@ exchange, so afterwards the firmware can timestamp events on the **PC timebase**
   exchange (`REQUEST`/`REPLY` carrying t1/t2/t3/t4) plus a `SET_OFFSET` that
   disciplines the counter; all integers are big-endian signed-64-bit ns.
 - **Flow:** the PC tool runs several t1/t2/t3/t4 rounds, keeps the lowest-delay
-  sample, computes the offset `((t2−t1)+(t3−t4))/2`, then sends `SET_OFFSET` so the
-  firmware counter reads PC time (Unix-epoch ns). The firmware then runs
-  autonomously on the disciplined counter.
+  sample, computes the offset `((t2−t1)+(t3−t4))/2`, then sends `SET_OFFSET` (with
+  the measured round-trip delay) so the firmware counter reads PC time (Unix-epoch
+  ns). **By default the tool re-syncs every 250 ms** until Ctrl+C, so the counter
+  stays aligned despite drift; `--once` does a single sync. Offset and delay are
+  printed human-readable (ns/us/ms/s) on both sides — the firmware stores the last
+  delay/adjust and shows them in the `ntp` command.
 
 ```bat
 :: PC side (built with the host tools)
-lan866x-ntpsync --ip 192.168.0.181            :: sync the bridge clock to the PC
-lan866x-ntpsync --ip 192.168.0.181 --no-set   :: measure offset/delay only
+lan866x-ntpsync                     :: continuous re-sync every 250 ms (Ctrl+C to stop)
+lan866x-ntpsync --once              :: sync once and exit
+lan866x-ntpsync --interval 500      :: continuous, 500 ms period
+lan866x-ntpsync --ip 192.168.0.180 --once --no-set   :: eth0, measure only
 ```
 ```text
+PC (continuous):
+[13:54:39.478] offset 543.624 us      delay 671.417 us
+
 # on the board, query the disciplined counter:
 ntp
-  source   : SYS_TIME, 60000000 Hz  (resolution ~16 ns/tick)
-  synced   : YES (2 sync msg)
-  NTP time : 1782386905.742093567 s  (PC-aligned, Unix epoch)
+  source     : SYS_TIME, 60000000 Hz  (resolution ~16 ns/tick)
+  offset     : 1782388445.914 s
+  last delay : 555.000 us
+  last adjust: 1782388445.914 s
+  synced     : YES (1 sync msg)
+  NTP time   : 1782388457.152289300 s  (PC-aligned, Unix epoch)
 ```
 
 **Accuracy.** This is *software* NTP: both ends take software timestamps and the
