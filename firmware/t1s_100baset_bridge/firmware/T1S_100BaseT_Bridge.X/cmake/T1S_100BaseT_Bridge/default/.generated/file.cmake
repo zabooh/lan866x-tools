@@ -39,6 +39,7 @@ set(T1S_100BaseT_Bridge_default_default_XC32_FILE_TYPE_compile
     "${CMAKE_CURRENT_SOURCE_DIR}/../../../../src/config/default/initialization.c"
     "${CMAKE_CURRENT_SOURCE_DIR}/../../../../src/config/default/interrupts.c"
     "${CMAKE_CURRENT_SOURCE_DIR}/../../../../src/config/default/libc_syscalls.c"
+    "${CMAKE_CURRENT_SOURCE_DIR}/../../../../src/config/default/library/emulated_eeprom/emulated_eeprom.c"
     "${CMAKE_CURRENT_SOURCE_DIR}/../../../../src/config/default/library/tcpip/src/arp.c"
     "${CMAKE_CURRENT_SOURCE_DIR}/../../../../src/config/default/library/tcpip/src/dhcp.c"
     "${CMAKE_CURRENT_SOURCE_DIR}/../../../../src/config/default/library/tcpip/src/dns.c"

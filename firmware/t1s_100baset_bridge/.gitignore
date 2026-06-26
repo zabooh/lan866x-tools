@@ -103,11 +103,14 @@ MCC_Alternatives.md
 # Override the broad '*_default/' rule above so this directory IS tracked:
 !**/T1S_100BaseT_Bridge.X/T1S_100BaseT_Bridge_default/
 !**/T1S_100BaseT_Bridge.X/T1S_100BaseT_Bridge_default/**
-# MCC regeneration artifacts that must NOT be committed (mcc_fixup.sh also strips these):
+# MCC regeneration artifacts that must NOT be committed:
 **/T1S_100BaseT_Bridge.X/mcc-manifest-*.yml
-firmware/src/config/default/ATSAME54P20A.ld
 firmware/src/packs/CMSIS/
 harmony-templates/
+# NOTE: config/default/ATSAME54P20A.ld is NOW TRACKED on purpose. build.bat (CMake,
+# via file.cmake LINKER_SCRIPT) and MPLAB X both link against this exact MCC-generated
+# script, so committing it keeps a fresh clone buildable and surfaces any MCC change
+# (heap, emulated-EEPROM flash reservation, bootloader offset) as a reviewable diff.
 # Python cache
 __pycache__/
 *.pyc

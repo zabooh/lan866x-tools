@@ -80,6 +80,7 @@
 #include "net_pres/pres/net_pres_encryptionproviderapi.h"
 #include "net_pres/pres/net_pres_transportapi.h"
 #include "net_pres/pres/net_pres_socketapi.h"
+#include "library/emulated_eeprom/emulated_eeprom.h"
 #include "system/console/sys_console.h"
 #include "system/console/src/sys_console_uart_definitions.h"
 #include "app.h"
@@ -230,6 +231,9 @@ typedef struct
     SYS_MODULE_OBJ  sysDebug;
 
     SYS_MODULE_OBJ  netPres;
+
+    /* libEMULATED_EEPROM0 library Object */
+    SYS_MODULE_OBJ libEMULATED_EEPROM0;
 
 
 } SYSTEM_OBJECTS;
