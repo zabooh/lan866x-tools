@@ -175,8 +175,15 @@ static void ntp_print_status(void)
     SYS_CONSOLE_PRINT("NTP time counter:\r\n");
     SYS_CONSOLE_PRINT("  source     : SYS_TIME, %lu Hz  (resolution ~%lu ns/tick)\r\n",
                       (unsigned long)freq, (unsigned long)(freq ? (1000000000ULL / freq) : 0));
-    SYS_CONSOLE_PRINT("  uptime     : %lu.%09lu s (raw)\r\n",
-                      (unsigned long)(up / 1000000000ULL), (unsigned long)(up % 1000000000ULL));
+    {
+        uint64_t up_s = up / 1000000000ULL;
+        SYS_CONSOLE_PRINT("  uptime     : %lu.%09lu s (raw)  =  %lud %02lu:%02lu:%02lu\r\n",
+                          (unsigned long)up_s, (unsigned long)(up % 1000000000ULL),
+                          (unsigned long)(up_s / 86400ULL),
+                          (unsigned long)((up_s % 86400ULL) / 3600ULL),
+                          (unsigned long)((up_s % 3600ULL) / 60ULL),
+                          (unsigned long)(up_s % 60ULL));
+    }
     SYS_CONSOLE_PRINT("  offset     : %s\r\n", fmt_dur(b1, sizeof b1, s_offset_ns));
     SYS_CONSOLE_PRINT("  last delay : %s\r\n", s_synced ? fmt_dur(b2, sizeof b2, s_last_delay_ns) : "(n/a)");
     SYS_CONSOLE_PRINT("  last adjust: %s\r\n", s_synced ? fmt_dur(b3, sizeof b3, s_last_adjust_ns) : "(n/a)");
