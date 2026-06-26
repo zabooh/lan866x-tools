@@ -172,6 +172,12 @@ void APP_Initialize ( void );
 
 void APP_Tasks( void );
 
+/* Apply PLCA settings to the LAN865x (eth0): set the driver node id and queue a
+ * PLCA_CTRL1 write (NODE_CNT<<8 | NODE_ID) via the app's LAN state machine. Used by
+ * the 'plca_node' command and by the persistent env layer (env.c). No-op if a LAN
+ * register operation is already in progress. */
+void APP_ApplyPlca(uint8_t node_id, uint8_t node_cnt);
+
 //DOM-IGNORE-BEGIN
 #ifdef __cplusplus
 }

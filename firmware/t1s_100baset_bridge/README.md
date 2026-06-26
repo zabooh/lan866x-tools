@@ -53,6 +53,7 @@ on-board, straight from a serial console.
   - [7.8 spi group](#78-spi-group-spi--spiid--thumbmon--adc--pwm)
   - [7.9 sys group](#79-sys-group-servicetest--boot--uart--video)
   - [7.10 dncp group](#710-dncp-group-dncpmon--dncpdisc)
+  - [7.11 env group (persistent network config)](#711-env-group-persistent-network-config)
 - [8. Software time sync (NTP)](#8-software-time-sync-ntp)
 
 ---
@@ -309,6 +310,16 @@ The remaining host tools are mirrored in the **`gpio`**, **`i2c`**, **`spi`**,
 | Command | Description |
 |---|---|
 | `ntp` | show the NTP time-counter status: source/resolution, offset, synced, **time since last sync, frequency-locked oscillator drift (ppm) + residual offset**, PC-aligned time + local (GMT+2) clock |
+
+**`env` group** — persistent network config on the Emulated EEPROM (see [§7.11](#711-env-group-persistent-network-config)):
+
+| Command | Description |
+|---|---|
+| `showenv` | show the current config: per-interface IP/mask/gw/dns, MAC, PLCA id/count |
+| `setenv <key> <val>` | edit the RAM shadow — keys: `ip0/mask0/gw0/dns0`, `ip1/…`, `mac0`/`mac1`, `plca_id`/`plca_cnt` |
+| `saveenv` | persist to EEPROM **and** apply (IP/PLCA live; MAC at next reset) |
+| `readenv` | reload from EEPROM and apply (discard unsaved edits) |
+| `resetenv` | restore the compiled defaults, persist and apply |
 
 Harmony stack commands (`netinfo`, `bridge`, `ping`, etc.) are also available.
 
@@ -735,6 +746,43 @@ SOME/IP — these use `plat_udp_*` directly.
 > implemented (e.g. ADC is absent on the minimal Lighting build — `servicetest`
 > tells you what's present). `ledscan` (interactive + writes `led_map.json`) stays
 > host-only.
+
+### 7.11 `env` group (persistent network config)
+
+A versioned, CRC32-protected record in the **Emulated EEPROM** (Harmony library, the
+top 16 KiB of flash at `0xFC000`, `env.c`) keeps the per-interface network config across
+power cycles: **IP / mask / gateway / DNS**, **MAC**, and **PLCA node id / count**.
+
+- **Defaults live in code, not as a pre-baked image.** They come from the
+  `TCPIP_NETWORK_DEFAULT_*` / `DRV_LAN865X_PLCA_*` values in `configuration.h`. On the
+  first boot (blank EEPROM) the record is **seeded** from those defaults — so "change the
+  build default" = change `configuration.h`.
+- **Per-board unique MAC from one firmware image.** The seeded eth0 MAC is OUI `00:04:25`
+  + the **low 3 bytes of the SAME54 serial number** (unique ID @ `0x008061FC`); eth1 is
+  eth0 with the lowest byte +1. It is then stored in the env and is changeable.
+- **Apply timing:** IP/mask/gw/dns and PLCA apply **live** on `saveenv`/`readenv`/boot
+  (`TCPIP_STACK_NetAddressSet` / the PLCA `PLCA_CTRL1` register write). The **MAC** applies
+  at the **next reset** — `ENV_Init()` runs in `initialization.c` before `TCPIP_STACK_Init`
+  and fills the stack's MAC strings.
+
+| Command | Description |
+|---|---|
+| `showenv` | show the RAM shadow: per-iface ip/mask/gw/dns, MAC, PLCA id/count |
+| `setenv <key> <val>` | edit a field. Keys: `ip0/mask0/gw0/dns0`, `ip1/mask1/gw1/dns1` (dotted-quad); `mac0`/`mac1` (`XX:XX:XX:XX:XX:XX`); `plca_id` (0..254), `plca_cnt` (1..255) |
+| `saveenv` | recompute CRC, write to EEPROM, and apply (IP/PLCA live; MAC on next reset) |
+| `readenv` | reload from EEPROM and apply (discards unsaved `setenv` edits) |
+| `resetenv` | restore the compiled defaults (incl. a fresh serial-derived MAC), persist and apply |
+
+Example — give a board a fixed management IP and check it survives a restart:
+
+```
+setenv ip1 192.168.0.57
+saveenv
+reset                      :: restart; eth1 comes back up on .57 from the EEPROM
+```
+
+> A bad/blank/old-version record (e.g. after a chip-erase `flash.py`, or an `ENV_VERSION`
+> bump) is detected via magic+version+CRC and transparently re-seeded from the defaults.
 
 ---
 

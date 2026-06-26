@@ -116,9 +116,13 @@ side is real, not hypothetical. Full docs: `firmware/t1s_100baset_bridge/README.
   `sys` (`servicetest`, `boot`, `uart`, `video` (built-in RTP test pattern) →
   `sys_cli.c`), `dncp` (`dncpmon`, `dncpdisc` over raw `plat_udp_*` → `dncp_cli.c`),
   `ntp` (`ntp` status → `ntp_sync.c`, software time-sync service, see below),
-  and `Test` (`mirror`, `ipdump`, `stats`, `meminfo`, `plca_node`, `lan_read/lan_write`,
-  `noip_send/noip_stat`, `logstat`). Each `*_cli.c` registers its group from
-  `APP_Initialize`; long-runners are bounded (`[secs]`) + Ctrl-C/`q`. Shared
+  `env` (`showenv`/`setenv`/`saveenv`/`readenv`/`resetenv` → `env.c`, persistent
+  network config on the Emulated EEPROM — per-iface IP/mask/gw/dns, MAC, PLCA id/count;
+  see below), and `Test` (`mirror`, `ipdump`, `stats`, `meminfo`, `plca_node`,
+  `lan_read/lan_write`, `noip_send/noip_stat`, `logstat`). Each `*_cli.c` registers its
+  group from `APP_Initialize` (except `env`, whose `ENV_Init()` runs earlier in
+  `initialization.c` before `TCPIP_STACK_Init` so the persistent MAC binds at stack init);
+  long-runners are bounded (`[secs]`) + Ctrl-C/`q`. Shared
   helpers `sel_first_ep()`/`led_set()` live in `lan866x_cli.h`. Two preserved
   generated-file edits: the `DRV_LAN865X_PacketTx` mirror hook **and**
   `MAX_CMD_GROUP` raised 8→16 in `system/command/sys_command.h` (re-apply after MCC).
@@ -134,6 +138,17 @@ side is real, not hypothetical. Full docs: `firmware/t1s_100baset_bridge/README.
   Unix-epoch time; `ntp_now_ns()` then timestamps firmware events on the PC timebase.
   Software-NTP accuracy ≈ round-trip/2 jitter (~hundreds of µs here), not the 16 ns
   tick — sub-µs/PTP lives in `net_10base_t1s`.
+- **Persistent config / `saveenv` (`env.c` + Emulated EEPROM):** a versioned, CRC32'd
+  record in the Emulated EEPROM (Harmony lib, top 16 KiB of flash @ `0xFC000`) holds
+  per-interface **IP/mask/gw/dns**, **MAC**, and **PLCA id/count**. Defaults live in code
+  (`configuration.h`); on first boot (blank EEPROM) they are **seeded**, including a
+  per-board **MAC derived from the SAME54 serial** (OUI `00:04:25` + the low 3 bytes of
+  the unique ID @ `0x008061FC`; eth1 = eth0 +1) → unique MAC from one firmware image, still
+  changeable. CLI: `showenv`/`setenv <key> <val>`/`saveenv`/`readenv`/`resetenv`. IP/PLCA
+  apply live (`env_apply()` → `TCPIP_STACK_NetAddressSet`/`APP_ApplyPlca`); MAC applies at
+  the next boot (filled into the stack's MAC strings in `initialization.c` before
+  `TCPIP_STACK_Init`). The `.ld` and the whole `config/default` tree (incl. the committed
+  MAC mechanism) are tracked; bump `ENV_VERSION` whenever the record layout changes.
 - **Build (two paths):** primary is `firmware/t1s_100baset_bridge/build.bat`
   (CMake/Ninja, XC32) → copies the HEX to `release/`; flash with `python flash.py`
   (MDB, auto-finds MPLAB X). Per-machine `setup.bat` (setup_compiler/flasher/debug)

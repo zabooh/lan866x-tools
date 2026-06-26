@@ -41,6 +41,7 @@
 #include "system/command/sys_command.h"
 #include "tcpip_manager_control.h"
 #include "lan866x_cli.h"
+#include "env.h"
 
 
 // *****************************************************************************
@@ -378,6 +379,8 @@ void APP_Initialize(void) {
     SYS_CLI_Init();       /* servicetest, boot, uart, video */
     DNCP_CLI_Init();      /* dncpmon, dncpdisc */
     NTP_Init();           /* software NTP time sync service (UDP 30491) + "ntp" CLI */
+    /* ENV_Init() runs earlier, in SYS_Initialize before TCPIP_STACK_Init (initialization.c),
+     * so the persistent MAC can be applied before the stack binds it. */
     /* TODO: Initialize your application's state machine and other
      * parameters.
      */
@@ -423,6 +426,7 @@ void APP_Tasks(void) {
             TCPIP_STACK_PacketHandlerRegister(eth0_net_hd, pktEth0Handler, MyEth0HandlerParam);
             TCPIP_NET_HANDLE eth1_net_hd = TCPIP_STACK_IndexToNet(1);
             TCPIP_STACK_PacketHandlerRegister(eth1_net_hd, pktEth1Handler, MyEth1HandlerParam);
+            env_apply();   /* push the persisted network config into the stack (once, stack is up) */
             appData.state = APP_STATE_IDLE;
             break;
         }
@@ -870,32 +874,37 @@ static void lan_write(SYS_CMD_DEVICE_NODE* pCmdIO, int argc, char** argv) {
 }
 
 
-static void cmd_plca_node(SYS_CMD_DEVICE_NODE *pCmdIO, int argc, char **argv) {
-    if (argc < 2) {
-        /* No parameter: show current node ID */
-        SYS_CONSOLE_PRINT("[PLCA] current node ID: %u (NODE_CNT=%u)\r\n",
-                          (unsigned)s_plca_node_id,
-                          (unsigned)DRV_LAN865X_PLCA_NODE_COUNT_IDX0);
-        return;
-    }
+/* Apply PLCA node id + node count to the LAN865x. Sets the driver node id and queues
+ * the PLCA_CTRL1 register write via the app's LAN state machine. Shared by cmd_plca_node
+ * and the persistent env layer. Skips if a LAN register op is already in progress. */
+void APP_ApplyPlca(uint8_t node_id, uint8_t node_cnt) {
     if (app_lan_state != APP_LAN_IDLE) {
-        SYS_CONSOLE_PRINT("ERROR: LAN operation still in progress\r\n");
+        SYS_CONSOLE_PRINT("[PLCA] LAN busy - apply skipped (retry when idle)\r\n");
         return;
     }
-    uint8_t nodeId = (uint8_t)strtoul(argv[1], NULL, 0);
-    s_plca_node_id = nodeId;
+    s_plca_node_id = node_id;
     /* Update driver internal state so LOFE re-init uses the new node ID */
-    DRV_LAN865X_SetPlcaNodeId(0u, nodeId);
+    DRV_LAN865X_SetPlcaNodeId(0u, node_id);
     /* Write PLCA_CTRL1 register: bits[15:8]=NODE_CNT, bits[7:0]=NODE_ID */
     app_lan_addr  = 0x0004CA02u;
-    app_lan_value = ((uint32_t)DRV_LAN865X_PLCA_NODE_COUNT_IDX0 << 8u) | nodeId;
+    app_lan_value = ((uint32_t)node_cnt << 8u) | node_id;
     app_lan_reg_operation_complete = false;
     app_lan_op_initiated = false;
     app_lan_state = APP_LAN_WAIT_WRITE;
     SYS_CONSOLE_PRINT("[PLCA] node ID set to %u (NODE_CNT=%u, reg=0x%08lX)\r\n",
-                      (unsigned)nodeId,
-                      (unsigned)DRV_LAN865X_PLCA_NODE_COUNT_IDX0,
-                      app_lan_value);
+                      (unsigned)node_id, (unsigned)node_cnt, app_lan_value);
+}
+
+static void cmd_plca_node(SYS_CMD_DEVICE_NODE *pCmdIO, int argc, char **argv) {
+    if (argc < 2) {
+        /* No parameter: show current node ID + the env-configured node count */
+        SYS_CONSOLE_PRINT("[PLCA] current node ID: %u (NODE_CNT=%u)\r\n",
+                          (unsigned)s_plca_node_id, (unsigned)env_plca_cnt());
+        return;
+    }
+    /* Live override (not persisted - use 'setenv plca_id'/'saveenv' for that). The
+     * node count comes from the persistent env config so the two stay consistent. */
+    APP_ApplyPlca((uint8_t)strtoul(argv[1], NULL, 0), env_plca_cnt());
 }
 
 uint8_t frame[60];

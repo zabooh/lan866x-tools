@@ -88,6 +88,7 @@ set(T1S_100BaseT_Bridge_default_default_XC32_FILE_TYPE_compile
     "${CMAKE_CURRENT_SOURCE_DIR}/../../../../src/config/default/system/time/src/sys_time.c"
     "${CMAKE_CURRENT_SOURCE_DIR}/../../../../src/config/default/tasks.c"
     "${CMAKE_CURRENT_SOURCE_DIR}/../../../../src/dncp_cli.c"
+    "${CMAKE_CURRENT_SOURCE_DIR}/../../../../src/env.c"
     "${CMAKE_CURRENT_SOURCE_DIR}/../../../../src/filters.c"
     "${CMAKE_CURRENT_SOURCE_DIR}/../../../../src/gpio_cli.c"
     "${CMAKE_CURRENT_SOURCE_DIR}/../../../../src/i2c_cli.c"
