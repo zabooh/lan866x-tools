@@ -16,7 +16,15 @@ foreach(source_file ${T1S_100BaseT_Bridge_default_default_XC32_FILE_TYPE_assembl
 endforeach()
 
 set(T1S_100BaseT_Bridge_default_default_XC32_FILE_TYPE_compile
+    "${CMAKE_CURRENT_SOURCE_DIR}/../../../../../../../libepmicrochip/libsomeip/src/someip-client.c"
+    "${CMAKE_CURRENT_SOURCE_DIR}/../../../../../../../libepmicrochip/libsomeip/src/someip-gen.c"
+    "${CMAKE_CURRENT_SOURCE_DIR}/../../../../../../../libepmicrochip/libsomeip/src/someip-pars.c"
+    "${CMAKE_CURRENT_SOURCE_DIR}/../../../../../../../libepmicrochip/libsomeip/src/someip-timer.c"
+    "${CMAKE_CURRENT_SOURCE_DIR}/../../../../../../../libepmicrochip/libsomeip/src/someip-transmit.c"
+    "${CMAKE_CURRENT_SOURCE_DIR}/../../../../../../../src/rcp.c"
+    "${CMAKE_CURRENT_SOURCE_DIR}/../../../../../../../src/someip_stub.c"
     "${CMAKE_CURRENT_SOURCE_DIR}/../../../../src/app.c"
+    "${CMAKE_CURRENT_SOURCE_DIR}/../../../../src/clickdemo_cli.c"
     "${CMAKE_CURRENT_SOURCE_DIR}/../../../../src/config/default/crypto/src/crypto.c"
     "${CMAKE_CURRENT_SOURCE_DIR}/../../../../src/config/default/driver/ethphy/src/dynamic/drv_ethphy.c"
     "${CMAKE_CURRENT_SOURCE_DIR}/../../../../src/config/default/driver/ethphy/src/dynamic/drv_extphy_lan8740.c"
@@ -78,8 +86,16 @@ set(T1S_100BaseT_Bridge_default_default_XC32_FILE_TYPE_compile
     "${CMAKE_CURRENT_SOURCE_DIR}/../../../../src/config/default/system/sys_time_h2_adapter.c"
     "${CMAKE_CURRENT_SOURCE_DIR}/../../../../src/config/default/system/time/src/sys_time.c"
     "${CMAKE_CURRENT_SOURCE_DIR}/../../../../src/config/default/tasks.c"
+    "${CMAKE_CURRENT_SOURCE_DIR}/../../../../src/dncp_cli.c"
     "${CMAKE_CURRENT_SOURCE_DIR}/../../../../src/filters.c"
+    "${CMAKE_CURRENT_SOURCE_DIR}/../../../../src/gpio_cli.c"
+    "${CMAKE_CURRENT_SOURCE_DIR}/../../../../src/i2c_cli.c"
+    "${CMAKE_CURRENT_SOURCE_DIR}/../../../../src/lan866x_cli.c"
     "${CMAKE_CURRENT_SOURCE_DIR}/../../../../src/main.c"
+    "${CMAKE_CURRENT_SOURCE_DIR}/../../../../src/ntp_sync.c"
+    "${CMAKE_CURRENT_SOURCE_DIR}/../../../../src/plat_h3tcpip.c"
+    "${CMAKE_CURRENT_SOURCE_DIR}/../../../../src/spi_cli.c"
+    "${CMAKE_CURRENT_SOURCE_DIR}/../../../../src/sys_cli.c"
     "${CMAKE_CURRENT_SOURCE_DIR}/../../../../src/third_party/wolfssl/wolfssl/wolfcrypt/src/aes.c"
     "${CMAKE_CURRENT_SOURCE_DIR}/../../../../src/third_party/wolfssl/wolfssl/wolfcrypt/src/arc4.c"
     "${CMAKE_CURRENT_SOURCE_DIR}/../../../../src/third_party/wolfssl/wolfssl/wolfcrypt/src/asm.c"
@@ -180,6 +196,9 @@ set(T1S_100BaseT_Bridge_default_default_XC32_FILE_TYPE_compile_cpp)
 set_source_files_properties(${T1S_100BaseT_Bridge_default_default_XC32_FILE_TYPE_compile_cpp} PROPERTIES LANGUAGE CXX)
 set(T1S_100BaseT_Bridge_default_default_XC32_FILE_TYPE_link)
 set(T1S_100BaseT_Bridge_default_default_XC32_FILE_TYPE_bin2hex)
+
+# The linker script used for the build.
+set(T1S_100BaseT_Bridge_default_LINKER_SCRIPT "${CMAKE_CURRENT_SOURCE_DIR}/../../../../src/config/default/ATSAME54P20A.ld")
 set(T1S_100BaseT_Bridge_default_image_name "default.elf")
 set(T1S_100BaseT_Bridge_default_image_base_name "default")
 

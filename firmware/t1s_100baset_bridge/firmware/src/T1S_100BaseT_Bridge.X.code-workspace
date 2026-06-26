@@ -1,0 +1,30 @@
+{
+	"folders": [
+		{
+			"path": "../T1S_100BaseT_Bridge.X"
+		},
+		{
+			"name": "src",
+			"path": "."
+		},
+		{
+			"name": "src",
+			"path": "../../../../libepmicrochip/libsomeip/src"
+		},
+		{
+			"name": "src",
+			"path": "../../../../src"
+		}
+	],
+	"settings": {
+		"memory-inspector.debugTypes": [
+			"arm-debugger",
+			"embedded-debug",
+			"gdb",
+			"mplab-core-da"
+		],
+		"mplab.clangd.compileCommandsDir": "${workspaceFolder}\\_build\\T1S_100BaseT_Bridge\\default",
+		"mplab.clangd.path": "c:\\Program Files\\Microchip\\xc32\\v4.60\\bin\\xc32-clangd.exe",
+		"C_Cpp.intelliSenseEngine": "disabled"
+	}
+}

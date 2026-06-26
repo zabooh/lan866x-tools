@@ -59,11 +59,10 @@ function(T1S_100BaseT_Bridge_default_default_XC32_compile_rule target)
         PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/../../../../src/config/default/library/tcpip/src"
         PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/../../../../src/config/default/library/tcpip/src/common"
         PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/../../../../src/packs/ATSAME54P20A_DFP"
-        PRIVATE "../src/packs/CMSIS"
-        PRIVATE "../src/packs/CMSIS/CMSIS/Core/Include"
+        PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/../../../../src/packs/CMSIS"
+        PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/../../../../src/packs/CMSIS/CMSIS/Core/Include"
         PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/../../../../src/third_party/wolfssl"
         PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/../../../../src/third_party/wolfssl/wolfssl"
-        PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/../../.."
         PRIVATE "${PACK_REPO_PATH}/ARM/CMSIS/5.8.0/CMSIS/Core/Include")
 endfunction()
 function(T1S_100BaseT_Bridge_default_default_XC32_compile_cpp_rule target)
@@ -89,9 +88,8 @@ function(T1S_100BaseT_Bridge_default_default_XC32_compile_cpp_rule target)
         PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/../../../../src"
         PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/../../../../src/config/default"
         PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/../../../../src/packs/ATSAME54P20A_DFP"
-        PRIVATE "../src/packs/CMSIS"
-        PRIVATE "../src/packs/CMSIS/CMSIS/Core/Include"
-        PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/../../.."
+        PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/../../../../src/packs/CMSIS"
+        PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/../../../../src/packs/CMSIS/CMSIS/Core/Include"
         PRIVATE "${PACK_REPO_PATH}/ARM/CMSIS/5.8.0/CMSIS/Core/Include")
 endfunction()
 function(T1S_100BaseT_Bridge_default_dependentObject_rule target)
@@ -110,7 +108,7 @@ function(T1S_100BaseT_Bridge_default_link_rule target)
         "-mprocessor=ATSAME54P20A"
         "-O1"
         "-mno-device-startup-code"
-        "-Wl,--defsym=__MPLAB_BUILD=1${MP_EXTRA_LD_POST},--defsym=__MPLAB_DEBUG=1,--defsym=__DEBUG=1,--defsym=_min_heap_size=98304,--gc-sections,-L${CMAKE_CURRENT_SOURCE_DIR}/../../..,-Map=mem.map,-DROM_LENGTH=0x100000,-DROM_ORIGIN=0x0,--memorysummary,memoryfile.xml"
+        "-Wl,--defsym=__MPLAB_BUILD=1${MP_EXTRA_LD_POST},--script=${T1S_100BaseT_Bridge_default_LINKER_SCRIPT},--defsym=__MPLAB_DEBUG=1,--defsym=__DEBUG=1,--defsym=_min_heap_size=98304,--gc-sections,-L${CMAKE_CURRENT_SOURCE_DIR}/../../..,-Map=mem.map,-DROM_LENGTH=0x100000,-DROM_ORIGIN=0x0,--memorysummary,memoryfile.xml"
         "-mdfp=${PACK_REPO_PATH}/Microchip/SAME54_DFP/3.8.234")
     list(REMOVE_ITEM options "")
     target_link_options(${target} PRIVATE "${options}")

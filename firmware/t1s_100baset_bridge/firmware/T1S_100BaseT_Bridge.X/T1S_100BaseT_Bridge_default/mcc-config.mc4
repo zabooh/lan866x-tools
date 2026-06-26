@@ -1,6 +1,6 @@
 configVersion: 1.0.0
-coreVersion: 5.8.4
-spaHostVersion: 1.2.1
+coreVersion: 5.9.0
+spaHostVersion: 1.3.0
 device: ATSAME54P20A
 deviceLibrary:
   className: com.microchip.mcc.harmony.Harmony3Library
