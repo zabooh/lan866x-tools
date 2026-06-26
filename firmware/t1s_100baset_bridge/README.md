@@ -797,7 +797,8 @@ exchange, so afterwards the firmware can timestamp events on the **PC timebase**
 > with a real `ntp watch` run analysed — is in
 > **[../../wireshark/NTP_SYNC.md](../../wireshark/NTP_SYNC.md)**
 > (usage + bridge-delay: [NTP_TIMING.md](../../wireshark/NTP_TIMING.md); theory:
-> [NTP_TWO_NODE_CONVERGENCE.md](../../wireshark/NTP_TWO_NODE_CONVERGENCE.md)).
+> [NTP_TWO_NODE_CONVERGENCE.md](../../wireshark/NTP_TWO_NODE_CONVERGENCE.md); the planned
+> multi-node concept: [NTP_MULTINODE_SZENARIO.md](../../wireshark/NTP_MULTINODE_SZENARIO.md)).
 
 - **Counter / resolution:** the counter is `SYS_TIME` (ns) plus a signed offset.
   On the SAME54 it runs at **60 MHz → ~16 ns/tick** (reported by the `ntp`

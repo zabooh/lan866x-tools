@@ -7,7 +7,10 @@ it works, and how the convergence is achieved** — illustrated with a **real
 
 It pulls the conceptual model and diagrams from the theory note
 [NTP_TWO_NODE_CONVERGENCE.md](NTP_TWO_NODE_CONVERGENCE.md) and complements the
-usage/bridge-delay write-up in [NTP_TIMING.md](NTP_TIMING.md).
+usage/bridge-delay write-up in [NTP_TIMING.md](NTP_TIMING.md). The planned
+**multi-node** extension (1:N discovery, configuration, sync and pin-toggle
+verification) is a design concept in
+[NTP_MULTINODE_SZENARIO.md](NTP_MULTINODE_SZENARIO.md).
 
 - Firmware (follower): `firmware/t1s_100baset_bridge/firmware/src/ntp_sync.c`
 - PC (master): `ntpsync.c` → `lan866x-ntpsync`

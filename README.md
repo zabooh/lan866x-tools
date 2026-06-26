@@ -433,7 +433,9 @@ The build produces a shared static lib **`rcpcore`** (rcp.c + someip_stub.c + pl
 > works (PI frequency discipline, with a real run analysed):
 > **[wireshark/NTP_SYNC.md](wireshark/NTP_SYNC.md)**; usage + the bridge-delay measurement:
 > **[wireshark/NTP_TIMING.md](wireshark/NTP_TIMING.md)**; the theory:
-> **[wireshark/NTP_TWO_NODE_CONVERGENCE.md](wireshark/NTP_TWO_NODE_CONVERGENCE.md)**.
+> **[wireshark/NTP_TWO_NODE_CONVERGENCE.md](wireshark/NTP_TWO_NODE_CONVERGENCE.md)**; and the
+> planned multi-node concept (discovery, config, 1:N sync, pin-toggle verification):
+> **[wireshark/NTP_MULTINODE_SZENARIO.md](wireshark/NTP_MULTINODE_SZENARIO.md)**.
 
 ---
 

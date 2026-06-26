@@ -205,8 +205,10 @@ console output does not perturb the measurement. **Full write-up + analysis:
 
 > 📖 Software NTP write-ups: **[NTP_SYNC.md](NTP_SYNC.md)** (implementation + how the
 > convergence works, with a real run analysed), **[NTP_TIMING.md](NTP_TIMING.md)**
-> (usage + this bridge-delay test), and
-> **[NTP_TWO_NODE_CONVERGENCE.md](NTP_TWO_NODE_CONVERGENCE.md)** (theory).
+> (usage + this bridge-delay test),
+> **[NTP_TWO_NODE_CONVERGENCE.md](NTP_TWO_NODE_CONVERGENCE.md)** (theory), and
+> **[NTP_MULTINODE_SZENARIO.md](NTP_MULTINODE_SZENARIO.md)** (multi-node concept:
+> discovery, configuration, 1:N sync, pin-toggle verification).
 
 ---
 

@@ -11,7 +11,9 @@ the bridge-delay test that builds on it, and an analysis of the measured results
 > works** (with a real `ntp watch` run analysed), see
 > **[NTP_SYNC.md](NTP_SYNC.md)**. For the **theory** (convergence maths, master/slave,
 > distributed-sampling bandwidth), see
-> [NTP_TWO_NODE_CONVERGENCE.md](NTP_TWO_NODE_CONVERGENCE.md).
+> [NTP_TWO_NODE_CONVERGENCE.md](NTP_TWO_NODE_CONVERGENCE.md). The planned **multi-node**
+> scenario (concept: discovery, config, 1:N sync, pin-toggle verification) is in
+> [NTP_MULTINODE_SZENARIO.md](NTP_MULTINODE_SZENARIO.md).
 
 ---
 

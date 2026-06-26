@@ -7,7 +7,9 @@ Quellcode in [../firmware/t1s_100baset_bridge/firmware/src/ntp_sync.c](../firmwa
 (Firmware) und [../ntpsync.c](../ntpsync.c) (PC-Tool `lan866x-ntpsync`).
 
 Vertiefende Analyse und Diagramme: [NTP_SYNC.md](NTP_SYNC.md), [NTP_TIMING.md](NTP_TIMING.md),
-[NTP_TWO_NODE_CONVERGENCE.md](NTP_TWO_NODE_CONVERGENCE.md).
+[NTP_TWO_NODE_CONVERGENCE.md](NTP_TWO_NODE_CONVERGENCE.md). Die geplante Erweiterung auf
+**mehrere Knoten** (Discovery, Konfiguration, 1:N-Sync, Pin-Toggle-Verifikation) ist als
+Konzept in [NTP_MULTINODE_SZENARIO.md](NTP_MULTINODE_SZENARIO.md) beschrieben.
 
 ---
 

@@ -10,7 +10,9 @@ das werden — und wo ist die physikalische Grenze?**
 > 📐 Dies ist die *Theorie*. Die tatsächliche **Implementierung, die PI-Frequenz­
 > regelung und wie die Konvergenz abläuft** (mit einem analysierten echten
 > `ntp watch`-Lauf) steht in **[NTP_SYNC.md](NTP_SYNC.md)**; Bedienung und die
-> Bridge-Delay-Messung in [NTP_TIMING.md](NTP_TIMING.md).
+> Bridge-Delay-Messung in [NTP_TIMING.md](NTP_TIMING.md). Die Erweiterung von zwei auf
+> **mehrere Knoten** (Discovery, Konfiguration, 1:N-Sync, Pin-Toggle-Verifikation) ist
+> als Konzept in [NTP_MULTINODE_SZENARIO.md](NTP_MULTINODE_SZENARIO.md) beschrieben.
 
 Grundlage sind die in diesem Repo **real gemessenen** Werte (siehe
 [NTP_TIMING.md](NTP_TIMING.md)):
