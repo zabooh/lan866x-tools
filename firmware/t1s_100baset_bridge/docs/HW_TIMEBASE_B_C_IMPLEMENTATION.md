@@ -18,6 +18,37 @@ TC-plib); **`TC2/TC3`, `TC4/TC5`, `TC6/TC7` frei**; **DPLL1 frei** (nur DPLL0 in
 
 ---
 
+## Realisierungsstand (Board getestet, Silizium Rev D) — Stand 2026-06
+
+> **Diese Datei ist der ursprüngliche Implementierungsplan.** Der schrittweise Bring-up
+> ist abgeschlossen und auf der MCU verifiziert — Protokoll mit PASS-Kriterien je Schritt:
+> [HW_TIMEBASE_BRINGUP_STEPS.md](HW_TIMEBASE_BRINGUP_STEPS.md). Die folgenden Punkte fassen
+> **Abweichungen zwischen Plan und realisiertem Code** zusammen; die betroffenen Abschnitte
+> unten tragen einen Hinweis-Block.
+>
+> - ✅ **Schritte 0–9 PASS** (Rev D, `DID=0x61840300`, Regulator=LDO). Die ganze Kette
+>   **XOSC1 → DPLL1 → TC2(64-bit) → NTP-Sync → EVSYS → GPIO/ADC/PPS** läuft hardwareseitig.
+> - 📁 **Realisierter Code:** [`hwclk_cli.c`](../firmware/src/hwclk_cli.c) (Taktketten-Bring-up
+>   + CLI-Testgruppe **`hwclk`**) und die Integration in [`ntp_sync.c`](../firmware/src/ntp_sync.c)
+>   (`hwclock_now_ns()` als Lesepfad). Es gibt **kein** separates `hwclock.c/.h` (anders als §4.5
+>   vorschlug).
+> - 🔧 **DPLL1-Parameter anders:** realisiert **`DIV=182`, `LDR=5855`, `LDRFRAC=0`** → f_ref ≈
+>   32,79 kHz, ×5856 = **exakt 192,000 MHz** (Plan war `DIV=186`/`LDR=5999`/`LDRFRAC=16` ≈ 192,5 MHz).
+>   Gemessen **+31 ppm** (= XOSC1-Roh-Drift). Siehe §4.1(b).
+> - ⛔ **Kernabweichung — HW-Frequenz-Disziplinierung (LDRFRAC) ist auf Rev D nicht machbar.**
+>   Ein **On-the-fly-`DPLLRATIO`-Write stoppt den DPLL1-Ausgang dauerhaft** — trotz vollständiger
+>   Errata-Workarounds (2.13.1 `WUF`+`LBYPASS`, 2.13.2 `INTFLAG.DPLLLDRTO`-Wait). **Konsequenz:
+>   die Frequenz bleibt in Software** (der `s_rate_ppb`-PI in `ntp_sync.c`); §4.3 ist damit der
+>   *nicht realisierte* Plan. Folge-Auflage: **bounded loops** in allen DPLL1-abhängigen Pfaden.
+> - 🔧 **EVSYS-Fan-Out realisiert** mit konkreten IDs: EVGEN **`TC2_MC0=0x50`**, User
+>   **`PORT_EV0` m=1**, **`ADC0_START` m=55**. Zwei nicht-offensichtliche Voraussetzungen
+>   (je ein Fehlversuch): **`MCLK.APBBMASK.EVSYS` einschalten** und für den ADC die
+>   **Bias-Kalibrierung aus den Fuses laden**. Siehe §4.4.
+> - 🔧 **Bring-up-Phase:** der Takt-Hochlauf busy-waitet → er läuft **einmalig im ersten
+>   `NTP_Task()` (RUNNING-Phase)**, **nicht** in `APP_Initialize` (sonst Boot-Hang). Siehe §4.5.
+
+---
+
 ## Inhalt
 
 - [1. Beschreibung / Architektur](#1-beschreibung--architektur)
@@ -148,6 +179,12 @@ unabhängig** und wird hier exklusiv für die NTP-Zeitbasis verwendet — CPU bl
 | **Roh-Drift (XOSC1 statt DFLL)** | **~±30 ppm** statt ~1800 ppm | MEMS-Oszillator über Temperatur |
 | **Unabhängige Trigger** | viele | TC2 CC0/CC1 + weitere TC/TCC, 32 EVSYS-Kanäle |
 
+> 🔧 **Rev-D-Realität:** die Zeilen **HW-Frequenzraster (LDRFRAC)** und **Holdover mit/ohne
+> Dither** beschreiben die *geplante* HW-Disziplinierung — die ist auf Rev D **nicht nutzbar**
+> (§4.3). Realisiert: **Frequenz in Software** (`s_rate_ppb`-PI), Restdrift rastet auf ~+28 ppm
+> ein, `mean`-Offset ~0 (±~10 µs NTP-Jitter). Roh-Drift (XOSC1) **+31 ppm gemessen** (statt
+> ~1800 ppm DFLL); TC-Auflösung (~10,4 ns) und EVSYS-Trigger-Jitter (~10–20 ns) gelten unverändert.
+
 **Ergebnis:** Das **10–100-µs-Ziel wird mit Reserve erreicht** — schon „nächstes LDRFRAC
 pro Sync" hält ≤ ~2,5 µs/s, der EVSYS-Trigger feuert mit ~10-ns-HW-Jitter (CPU-frei). Die
 **reale Obergrenze ist nicht der Takt, sondern die NTP-Transportgenauigkeit über die
@@ -173,8 +210,21 @@ while ((OSCCTRL_REGS->OSCCTRL_STATUS & OSCCTRL_STATUS_XOSCRDY1_Msk) == 0U) {}
 > Hinweis: `XOSCCTRL` ist ein **Array** — Index **`[1]`** = XOSC1. Der 32,768-kHz-Zweig
 > (`Y400 DSC6083CE2A`) ist ebenfalls ein MEMS-Takt; als FREQM-Referenz ggf. XOSC32K
 > (`XOSC32KCTRL`, `XTALEN=0`) statt der internen OSCULP32K nutzen.
+>
+> 🔧 **Realisiert/getestet (Board):** `RDY=1`, **XOSC1 = 12.000.155 Hz = +12 ppm** (FREQM gegen
+> XOSC32K). XOSC32K-Enable braucht **`CGM(XT)` + RDY-Poll bis ~1 s** (`ctrl=0x200A`); ohne CGM
+> bzw. zu kurzer Poll → Fallback auf OSCULP32K (nur Präsenz-Check, ~±%). `hwclk xosc` misst die
+> Frequenz, `hwclk xosc ulp` erzwingt OSCULP32K als Referenz.
 
 **(b) DPLL1 konfigurieren** (Ref ≈ 32 kHz aus XOSC1, ~192 MHz Ausgang, On-the-fly-fähig):
+
+> 🔧 **Realisiert (Rev D, [`hwclk_cli.c`](../firmware/src/hwclk_cli.c)):** **`DIV=182`**
+> (f_ref = 12e6/(2·183) ≈ **32,79 kHz**), **`LDR=5855`** ((5855+1)·32,79k = **exakt 192,000 MHz**),
+> **`LDRFRAC=0`** (kein „Mittelstellungs"-Reserve­bereich — Runtime-LDRFRAC entfällt, s. §4.3).
+> Rev D: `LBYPASS=1`+`WUF=1` gesetzt, auf **`CLKRDY`** (nicht `LOCK`) triggern, ~10 ms settlen.
+> Gemessen: `CLKRDY=1 LOCK=1`, **192,006 MHz = +31 ppm** (= XOSC1-Roh-Drift). Der untenstehende
+> Code (`DIV=186`/`LDR=5999`/`LDRFRAC=16`) ist der **ursprüngliche Plan** und überschätzt f_ref.
+
 ```c
 /* Lock-Timer-Takt für DPLL1 (PCHCTRL[3] = GCLK_OSCCTRL_FDPLL1_32K) aus einem 32k-Gen */
 GCLK_REGS->GCLK_PCHCTRL[3] = GCLK_PCHCTRL_GEN(0x?U) | GCLK_PCHCTRL_CHEN_Msk;  /* 32k-Generator */
@@ -195,6 +245,11 @@ while ((OSCCTRL_REGS->DPLL[1].OSCCTRL_DPLLSTATUS &
 ```
 
 **(c) GCLK-Generator (freier Index, z. B. 5) aus DPLL1, ÷2 → 96 MHz, an TC2/TC3:**
+
+> 🔧 **Realisiert:** dedizierter **GCLK-Gen `HWCLK_GEN_TC2 = 5`** (SRC=DPLL1, ÷2 = 96 MHz),
+> `PCHCTRL[TC2_GCLK_ID=26]`, `MCLK_APBBMASK.TC2` — exakt wie unten. Gemessene Rate ≈ 95,82 MHz
+> *gegen SYS_TIME* ist nur die DFLL-Drift von SYS_TIME (~+1950 ppm), nicht TC2 (Cross-Check ✓).
+
 ```c
 GCLK_REGS->GCLK_GENCTRL[5] = GCLK_GENCTRL_SRC(8U)   /* 8 = DPLL1 */
                            | GCLK_GENCTRL_DIV(2U)
@@ -207,6 +262,12 @@ MCLK_REGS->MCLK_APBBMASK |= MCLK_APBBMASK_TC2_Msk;  /* APB-Takt TC2 (Bus prüfen
 ```
 
 **(d) TC2 als 32-bit Free-Running + Overflow-Interrupt (64-bit-Basis):**
+
+> 🔧 **Realisiert/getestet:** TC2 `MODE=COUNT32`, OVF-IRQ (`TC2_Handler`) inkrementiert das
+> SW-High-Word; **glitch-freier 64-bit-Read per hi/lo/hi-Retry** (s. §4.2). `hwclk now` zeigt
+> Ticks+ns, `hwclk wrap` belegt OVF→High-Word++ (hi 0→1). **`PRESCALER` liegt in `CTRLA`** (nicht
+> CTRLB). Lesepfad `hwclock_now_ns() = tc2_read64() · 125/12 ns`.
+
 ```c
 TC2_REGS->COUNT32.TC_CTRLA = TC_CTRLA_SWRST_Msk;
 while (TC2_REGS->COUNT32.TC_SYNCBUSY & TC_SYNCBUSY_SWRST_Msk) {}
@@ -251,6 +312,22 @@ uint64_t ntp_now_ns(void) {                    /* ersetzt die SYS_TIME-Variante 
 ```
 
 ### 4.3 Disziplinierungs-Schleife (im `OP_SET_OFFSET`-Handler)
+
+> ⛔ **NICHT realisiert auf Rev D — HW-LDRFRAC-Disziplinierung ist hier tot.** Ein
+> **On-the-fly-`DPLLRATIO`-Write (auch nur `LDRFRAC`) stoppt den DPLL1-Ausgang dauerhaft**:
+> TC2 friert ein („advanced 0 ticks") und erholt sich nicht — **trotz** der vollständigen
+> Errata-Workarounds (2.13.1 `WUF=1`+`LBYPASS=1`, 2.13.2 `INTFLAG.DPLLLDRTO`-Wait). Die
+> „on-the-fly ratio change"-Funktion ist auf diesem Rev D praktisch unbrauchbar.
+> **Realisierung stattdessen:** die **Frequenz bleibt in Software** — der bestehende
+> `s_rate_ppb`-PI in [`ntp_sync.c`](../firmware/src/ntp_sync.c) nullt die Restdrift im
+> Lesepfad (Schritt 6 erreicht, in SW statt HW). Für getriggerte HW-Events (§4.4) werden
+> Compare-Ziele über die **effektive** Tick-Rate gerechnet, nicht nominal 96 MHz, damit sie
+> trotz des festen ~+28-ppm-HW-Offsets am richtigen Instant feuern. **Auflage:** alle
+> DPLL1-abhängigen Spin-Loops (`tc2_read64`/`gclk_sync`/FREQM) müssen **bounded** sein —
+> ein toter DPLL-Takt friert sonst den ganzen Superloop ein. `hwclk ldrfrac` ist nur noch
+> **read-only-Diagnose** (LDRFRAC + gemessene DPLL-Frequenz). Der folgende Code dokumentiert
+> den **ursprünglichen HW-Plan** zur Referenz.
+
 ```c
 /* aus dem PC-Sync: 'adjust' (ns) = -gemessener Offset; interval = Zeit seit letztem Sync */
 #define LDRFRAC_MID   16
@@ -290,6 +367,19 @@ if (ldrfrac != s_ldrfrac) {                    /* NUR LDRFRAC schreiben → Lock
 > `LDRFRAC` nudgen. Frequenz **in Hardware**, Phase **in Software** — niemals vermischen.
 
 ### 4.4 EVSYS-Fan-Out — Peripherie zum NTP-Instant treiben
+
+> 🔧 **Realisiert (Rev D, [`hwclk_cli.c`](../firmware/src/hwclk_cli.c)) — konkrete IDs & Gotchas:**
+> - EVGEN **`TC2_MC0 = 0x50`**; User **`PORT_EV0` m=1** und **`ADC0_START` m=55** (jeweils
+>   `EVSYS_USER[m] = EVSYS_USER_CHANNEL(ch+1)`, Kanal zuerst — vgl. unten).
+> - **`MCLK.APBBMASK.EVSYS` muss an sein** (zusätzlich `PORT` für den GPIO-Pfad) — sonst
+>   verpuffen alle EVSYS-Register-Writes (Kanal/User lesen 0 zurück). Kostete einen Fehlversuch.
+> - **ADC:** die **Bias-Kalibrierung aus den Fuses laden** (`FUSES_SW0_WORD_0` @ `0x00800080`
+>   → `ADC.CALIB` BIASCOMP[4:2]/BIASREFBUF[7:5]/BIASR2R[10:8]); ohne sie **wandelt die D5x-ADC
+>   nicht**. Nebenbei: `PRESCALER` liegt in **`CTRLA`**, nicht CTRLB.
+> - **GPIO-Pfad-Gotchas:** erst routen + ~2 ms settlen (Kanal-Konfig erzeugt eine Transient-Flanke),
+>   dann Startzustand + CC0 armen; async-**SWEVT** toggelt den PORT **nicht** (nur der echte HW-Pfad).
+> - Getestet: `hwclk evt` (GPIO-Toggle zur NTP-Sekunde), `hwclk adc N` (N Trigger → N Conversions),
+>   `hwclk pps on` (Dauer-PPS via `CC0 += 96e6`-Reload im `TC2 MC0`-ISR).
 
 **(a) TC2-Compare als Event-Generator scharf machen** (CC0 = Ziel-Tick, Double-Buffer):
 ```c
@@ -333,6 +423,20 @@ DAC_REGS->DAC_EVCTRL  = DAC_EVCTRL_STARTEI0_Msk;          /* DS §47.6.6 S.1523 
 Auto-Reload nutzen.
 
 ### 4.5 Code-Integration
+
+> 🔧 **Realisiert (abweichend vom Plan unten):** kein separates `hwclock.c/.h`, sondern
+> **[`hwclk_cli.c`](../firmware/src/hwclk_cli.c)** — es enthält den Taktketten-Bring-up
+> (`hwclk_timebase_start()` → `hwclk_tc2_init()`), den Lesepfad `hwclock_now_ns()`
+> (`tc2_read64() · 125/12 ns`) **und** die CLI-Testgruppe **`hwclk`** (ein Unterkommando
+> je Bring-up-Schritt). [`ntp_sync.c`](../firmware/src/ntp_sync.c): `ntp_raw_ns()` liest
+> `hwclock_now_ns()` (Fallback SYS_TIME); Phase → `s_offset_ns`; **Frequenz bleibt im
+> bestehenden `s_rate_ppb`-PI** (kein `hwclock_set_ldrfrac()` — s. §4.3).
+> **Bring-up läuft einmalig im ersten `NTP_Task()` (RUNNING-Phase)**, nicht in
+> `APP_Initialize` — der Hochlauf busy-waitet über `plat_sleep_ms()` und würde dort den
+> Boot aufhängen (Board tot, kein Ping/Konsole). Vgl. Schritt 5 in
+> [HW_TIMEBASE_BRINGUP_STEPS.md](HW_TIMEBASE_BRINGUP_STEPS.md).
+
+Ursprünglicher Plan (zur Referenz):
 - Neues Modul `hwclock.c/.h`: `hwclock_init()` (4.1), `hwclock_ticks64()`,
   `hwclock_set_ldrfrac()`, `ntp_ns_to_ticks()`/`hwclock_now_ns()`.
 - `ntp_sync.c`: `ntp_raw_ns()`/`ntp_now_ns()` lesen die HW-Uhr; im `OP_SET_OFFSET`-Pfad
@@ -355,7 +459,7 @@ Wahrscheinlichkeit **W** und Auswirkung **A** je 1–5; **R = W×A**; Ampel:
 | **R2** | **CPU-Takt-Kopplung** — versehentlich DPLL0/GCLK0 verändert | 2 | 5 | 10 | 🟡 | Strikt nur **DPLL1** + freier GCLK-Gen + freier PCHCTRL[26] anfassen; DPLL0/GCLK0/1/2 read-only behandeln; Code-Review der Clock-Init. |
 | **R3** | **TC-Kollision** — gewählter TC doch anderweitig genutzt | 2 | 4 | 8 | 🟡 | TC0=SYS_TIME meiden; **TC2/TC3** gewählt (im Projekt 0 Referenzen); vor Merge `grep -r 'TC2_\|TC3_'` gegen die LAN865x-/PWM-Pfade. Alternativen TC4/5, TC6/7. |
 | **R4** | **LDRFRAC-Raster zu grob** (~5 ppm/LSB) für engeres Ziel | 3 | 2 | 6 | 🟢 | Sigma-Delta-Dither (4.3) → mittlere Rate <0,5 ppm; ggf. f_ref kleiner (näher 32 kHz) / f_DPLL höher (näher 200 MHz). |
-| **R5** | **DPLL-Lock-Verlust** durch versehentliche `LDR`-Integer-/REFCLK-Änderung im Betrieb | 2 | 4 | 8 | 🟡 | Im Betrieb **ausschließlich `LDRFRAC`** schreiben (Lock bleibt, DS S.708); `LTIME=0`; `DPLLSYNCBUSY` abwarten; LDR/DIV nur in `hwclock_init()`. |
+| **R5** | **DPLL-Lock/Output-Verlust** durch `DPLLRATIO`-Write im Betrieb | 4 | 4 | 16 | 🔴 | **Eingetreten (Rev D):** *jeder* On-the-fly-`DPLLRATIO`-Write (auch nur `LDRFRAC`) stoppt den DPLL1-Ausgang dauerhaft, trotz 2.13.1/2.13.2-Workarounds. **Mitigation:** im Betrieb DPLLRATIO **gar nicht** schreiben → Frequenz in SW (§4.3); LDR/DIV/LDRFRAC nur im einmaligen Bring-up; **bounded loops** in allen DPLL1-Pfaden. |
 | **R6** | **Fractional-DPLL-Jitter** stört jitterkritische PWM/DAC | 2 | 3 | 6 | 🟢 | Für die TC-Zeitbasis unkritisch (mittelt sich); für PWM/DAC `DCOFILTER`/`FILTER` optimieren oder LDRFRAC nahe 0/voll halten + mehr Dither. |
 | **R7** | **MCC-Regenerierung** überschreibt Clock-/TC-Init | 3 | 3 | 9 | 🟡 | Clock-Kette idealerweise **in MCC** konfigurieren (statt Hand-Patch in `plib_clock.c`); andernfalls Init in eigenes, MCC-fernes Modul + dokumentierter Re-Apply-Schritt (wie der bestehende `DRV_LAN865X`-Hook). |
 | **R8** | **Compare-Wraparound-Race** — CC zu spät geschrieben → Event 1 Periode (≈44 s) zu spät | 3 | 4 | 12 | 🟡 | Immer `CCBUF` (Double-Buffer) + ausreichend Vorlauf (≫ Reload-/Sync-Latenz); im MC-ISR prüfen, ob Ziel schon passiert → überspringen/neu rechnen. |
@@ -392,15 +496,19 @@ mit Standard-Mitteln beherrschbar.
 
 ## 7. Errata-Bewertung (SAM D5x/E5x, DS80000748)
 
-**Gesamtbefund: KEIN Errata steht der Implementierung im Weg.** Alle relevanten Punkte
-sind abgedeckt durch (a) die ohnehin gewählte **ASYNC-EVSYS-Architektur**, (b) den
-**`INTFLAG.DPLLnLDRTO`-Workaround** (in 4.3 eingebaut) und (c) den **bereits erfüllten
-LDO-Mode**. Einzige Vorab-Prüfung: die **Silizium-Revision** (für 2.13.1).
+**Gesamtbefund (Plan): KEIN Errata steht der Implementierung im Weg** — abgedeckt durch
+(a) die **ASYNC-EVSYS-Architektur**, (b) den **`INTFLAG.DPLLnLDRTO`-Workaround** und (c) den
+**LDO-Mode**. **Befund nach Bring-up (Rev D):** für die *getriggerte I/O* gilt das auch —
+EVSYS/ADC/PPS laufen. **Ausnahme: die HW-Frequenz-Disziplinierung über LDRFRAC ist auf
+diesem Rev D nicht realisierbar** — ein On-the-fly-`DPLLRATIO`-Write stoppt den DPLL-Ausgang
+dauerhaft, **schlimmer als 2.13.1/2.13.2 vorhersagen** und durch deren Workarounds **nicht**
+behebbar (s. §4.3). Frequenz daher in Software. Die **Silizium-Revision** ist geprüft:
+**Rev D** (`DID=0x61840300`).
 
 | Errata | Modul | Rev | Relevanz hier | Bewertung | Workaround / Status |
 |---|---|---|---|---|---|
-| **2.13.2** | FDPLL | A/D/F/G | **LDRFRAC-Nudge** (4.3) | kein Blocker | `STATUS.DPLLnLDRTO` wird beim On-the-fly-Update nicht gesetzt → **auf `INTFLAG.DPLLnLDRTO` warten** (✅ in 4.3 eingebaut). |
-| **2.13.1** | FDPLL | **nur A/D** (F/G fixed) | DPLL1-Lock-Warten (4.1b) | kein Blocker | „FDPLL unlocks while output stable". Bei A/D: `LBYPASS=1`+`WUF=1`, auf `CLKRDY` (nicht `LOCK`) warten, 10 ms Delay. **DPLL0 läuft auf diesem Board bereits → FDPLL-Bring-up erprobt.** |
+| **2.13.2** | FDPLL | A/D/F/G | **LDRFRAC-Nudge** (4.3) | ⛔ **Blocker auf Rev D** | Plan: `STATUS.DPLLnLDRTO` nicht gesetzt → auf `INTFLAG.DPLLnLDRTO` warten. **Befund:** der Workaround genügt **nicht** — der On-the-fly-Ratio-Write stoppt DPLL1 trotzdem dauerhaft (TC2 friert) → **HW-LDRFRAC verworfen, Frequenz in SW** (§4.3). |
+| **2.13.1** | FDPLL | **nur A/D** (F/G fixed) | DPLL1-Lock-Warten (4.1b) | kein Blocker (Initial-Lock) | „FDPLL unlocks while output stable". Rev D bestätigt: Initial-Lock mit `LBYPASS=1`+`WUF=1`, auf `CLKRDY` triggern, ~10 ms — funktioniert (`CLKRDY=1 LOCK=1`). **Aber:** schützt nicht den On-the-fly-Ratio-Change (s. 2.13.2). |
 | **2.19.1** | SUPC | alle | FDPLL braucht **LDO** | **Vorbedingung erfüllt** | „PLLs nicht im Buck-Mode". DPLL0/CPU läuft schon mit FDPLL → Board ist bereits LDO. Neue DPLL1 fügt kein Risiko hinzu. |
 | **2.24.1 / 2.24.2 / 2.24.3** | EVSYS | alle | Fan-Out (4.4) | **vermieden** | Sync/Resync-Bugs (Spurious-Overrun, keine SW-Events, Spurious-Detection). → **ASYNC-Pfad** (ADC erzwingt async; ohnehin gewählt). Optional zusätzlich EVSYS via PAC `WRCTRL` schreibschützen. |
 | **2.21.1** | TCC | nur A/D (F/G fixed) | TCC-PWM mit Event | kein Blocker | „TCC nicht kompatibel mit EVSYS SYNC/RESYNC" → **TCC-EVSYS in ASYNC**. |
@@ -411,15 +519,20 @@ LDO-Mode**. Einzige Vorab-Prüfung: die **Silizium-Revision** (für 2.13.1).
 | **2.28.1 / 2.28.2 + 2.15.1** | FREQM/PAC | alle | **nur M0** (XOSC1-Messung) | kein Blocker | DONE-IRQ kann verloren gehen (Ref-Periode > 4 APB), kein Timeout (SW-Timeout beim `BUSY`-Pollen), `FREQM.CTRLB` nicht lesen (PAC-Error). |
 | **2.27.1** | OSCCTRL | alle | nur falls CFD auf XOSC1 | n/a | Clock-Switch-Back-Limit. CFD ist optional; wird CFD nicht genutzt (`CFDEN=0`) → irrelevant. |
 
-**Aktionspunkte aus den Errata:**
-1. **2.13.2** → erledigt (4.3 wartet auf `INTFLAG.DPLLnLDRTO`).
-2. **2.13.1** → **Silizium-Rev prüfen** (DSU `DID.REVISION`, oder Chip-Marking): Rev **F/G = fixed**; nur **A/D** brauchen den `LBYPASS/WUF/CLKRDY`-Bring-up. Da DPLL0 bereits läuft, ist der Pfad auf diesem Board validiert.
-3. **2.19.1** → sicherstellen, dass der Main-Regler im **LDO**-Mode bleibt (ist er, weil DPLL0/CPU schon FDPLL nutzt).
-4. **EVSYS/TCC** → strikt **ASYNC** (bereits so vorgesehen).
+**Aktionspunkte aus den Errata (Stand nach Bring-up):**
+1. **2.13.2 / On-the-fly-Ratio** → **HW-LDRFRAC verworfen** (stoppt DPLL1 auf Rev D trotz
+   Workaround) → **Frequenz-Disziplinierung in Software** (`s_rate_ppb`, §4.3).
+2. **2.13.1** → Silizium = **Rev D** (`DID=0x61840300`). Initial-Lock mit `LBYPASS/WUF/CLKRDY`
+   ✅ erprobt; reicht aber nicht für den Ratio-Change (s. 1.).
+3. **2.19.1** → Main-Regler im **LDO**-Mode (bestätigt, da DPLL0/CPU FDPLL nutzt).
+4. **EVSYS/TCC** → strikt **ASYNC** (realisiert).
+5. **Neu (Rev D):** **bounded loops** in allen DPLL1-abhängigen Pfaden — ein durch einen
+   versehentlichen Ratio-Write toter DPLL-Takt friert sonst den Superloop ein.
 
-> Die Errata ändern die **Risiko-Matrix (§5)** nicht grundlegend: R5 (DPLL-Lock) bekommt
-> mit 2.13.2 einen konkreten, eingebauten Workaround; ein neuer Punkt **R13 = „Silizium-Rev
-> A/D wegen 2.13.1"** (W2×A3=6 🟢, Mitigation: Rev prüfen / Bring-up wie DPLL0).
+> Auswirkung auf die **Risiko-Matrix (§5):** R5 (DPLL-Lock) ist real eingetreten — der
+> On-the-fly-Ratio-Change ist auf Rev D **nicht nutzbar** (über 2.13.2 hinaus); Mitigation =
+> Frequenz in SW + bounded loops. **R13 = „Silizium-Rev A/D wegen 2.13.1"** ist damit von
+> einem 🟢-Restrisiko zu einem **realisierten Befund** geworden (W5×A3, gelöst durch SW-Disziplin).
 
 ---
 
