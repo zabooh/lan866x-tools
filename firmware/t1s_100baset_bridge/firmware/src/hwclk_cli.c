@@ -47,6 +47,7 @@
  * incremented in the TC2 overflow ISR; the low 32 bits are the live TC2 COUNT. */
 static volatile uint32_t s_tc2_hi    = 0;
 static int               s_tc2_ready = 0;
+static volatile int      s_pps_on    = 0;   /* step 9: TC2 MC0 ISR reloads CC0 each second */
 
 static void gclk_sync(void)
 {
@@ -349,9 +350,18 @@ void hwclk_timebase_start(void) { (void)hwclk_tc2_init(); }
 /* TC2 overflow -> bump the 64-bit high word. Overrides the weak vector default. */
 void __attribute__((used)) TC2_Handler(void)
 {
-    if (TC2_REGS->COUNT32.TC_INTFLAG & TC_INTFLAG_OVF_Msk) {
+    uint8_t f = TC2_REGS->COUNT32.TC_INTFLAG;
+    if (f & TC_INTFLAG_OVF_Msk) {
         TC2_REGS->COUNT32.TC_INTFLAG = (uint8_t)TC_INTFLAG_OVF_Msk;
         s_tc2_hi++;
+    }
+    if (f & TC_INTFLAG_MC0_Msk) {
+        TC2_REGS->COUNT32.TC_INTFLAG = (uint8_t)TC_INTFLAG_MC0_Msk;
+        /* step 9 PPS: schedule the next match exactly 1 HW second later. The pin edge
+         * itself is produced by the compare->EVSYS->PORT path in hardware; this ISR only
+         * re-arms CC0 for the next second (no sync wait needed - the next match is ~1 s
+         * away, far longer than the CC write sync). */
+        if (s_pps_on) TC2_REGS->COUNT32.TC_CC[0] += 96000000u;
     }
 }
 
@@ -678,6 +688,68 @@ static void cmd_adc(int n)
     SYS_CONSOLE_PRINT("  each conversion was started by the HW compare->EVSYS->ADC path, not the CPU\r\n");
 }
 
+/* -------- step 9: hwclk pps - continuous 1 PPS on the NTP second ------------ */
+/* Like 'evt' but periodic: the EVSYS->PORT routing stays attached and the TC2 MC0 ISR
+ * reloads CC0 by one HW second each match -> an edge on the pin every second (a 0.5 Hz
+ * square wave, edge on each NTP-second boundary). Initial alignment uses ntp_now_ns();
+ * the period is one *physical* HW second, so vs the PC it walks by the residual
+ * (~+28 ppm) - re-run with active sync to re-align, or scope the drift directly. */
+static void cmd_pps(int argc, char **argv)
+{
+    if (!hwclk_tc2_init()) { SYS_CONSOLE_PRINT("DPLL1/TC2 not up -> run 'hwclk now' first\r\n"); return; }
+    int on = 1; unsigned grp = 1u, pin = 17u;   /* default: on, PB17 */
+    for (int i = 0; i < argc; i++) {
+        if (strcmp(argv[i], "off") == 0) on = 0;
+        else if (strcmp(argv[i], "on") == 0) on = 1;
+        else (void)parse_pin(argv[i], &grp, &pin);
+    }
+
+    if (!on) {
+        s_pps_on = 0;
+        TC2_REGS->COUNT32.TC_INTENCLR = (uint8_t)TC_INTENCLR_MC0_Msk;
+        EVSYS_REGS->EVSYS_USER[EVUSER_PORT_EV0] = 0u;
+        SYS_CONSOLE_PRINT("PPS off\r\n");
+        return;
+    }
+
+    /* route compare->EVSYS->PORT (toggle), settle, known start state. */
+    MCLK_REGS->MCLK_APBBMASK |= MCLK_APBBMASK_EVSYS_Msk | MCLK_APBBMASK_PORT_Msk;
+    PORT_REGS->GROUP[grp].PORT_DIRSET = (1u << pin);
+    PORT_REGS->GROUP[grp].PORT_EVCTRL = PORT_EVCTRL_PORTEI0_Msk | PORT_EVCTRL_EVACT0_TGL | PORT_EVCTRL_PID0(pin);
+    EVSYS_REGS->EVSYS_USER[EVUSER_PORT_EV0] = EVSYS_USER_CHANNEL(HWCLK_EVT_CH + 1u);
+    EVSYS_REGS->CHANNEL[HWCLK_EVT_CH].EVSYS_CHANNEL =
+        EVSYS_CHANNEL_EVGEN(EVGEN_TC2_MC0) | EVSYS_CHANNEL_PATH_ASYNCHRONOUS;
+    plat_sleep_ms(2);
+    PORT_REGS->GROUP[grp].PORT_OUTCLR = (1u << pin);
+
+    /* arm the first edge on the next whole NTP second, then let the ISR keep re-arming. */
+    uint64_t ntp = ntp_now_ns(), tick = tc2_read64();
+    uint64_t ns_to = 1000000000ULL - (ntp % 1000000000ULL);
+    if (ns_to < 100000000ULL) ns_to += 1000000000ULL;
+    TC2_REGS->COUNT32.TC_INTFLAG = (uint8_t)TC_INTFLAG_MC0_Msk;
+    TC2_REGS->COUNT32.TC_CC[0]   = (uint32_t)(tick + ns_to * 96ULL / 1000ULL);
+    while (TC2_REGS->COUNT32.TC_SYNCBUSY & TC_SYNCBUSY_CC0_Msk) { }
+    s_pps_on = 1;
+    TC2_REGS->COUNT32.TC_INTENSET = (uint8_t)TC_INTENSET_MC0_Msk;
+
+    SYS_CONSOLE_PRINT("PPS on P%c%u: edge every second, first edge on the next NTP second.\r\n",
+                      (char)('A' + grp), pin);
+
+    /* verify without a scope: sample the pin OUT for ~2.5 s and count edges (~1/s). The
+     * edge itself is HW (compare->EVSYS->PORT); the ISR re-arms each second. PPS keeps
+     * running after this check. */
+    uint32_t prev = (PORT_REGS->GROUP[grp].PORT_OUT >> pin) & 1u, edges = 0, t0 = plat_now_ms();
+    while (plat_now_ms() - t0 < 2500u) {
+        uint32_t cur = (PORT_REGS->GROUP[grp].PORT_OUT >> pin) & 1u;
+        if (cur != prev) { edges++; prev = cur; }
+        plat_sleep_ms(20);
+    }
+    SYS_CONSOLE_PRINT("  verify: %lu edges in 2.5 s (~1/s expected)  ->  %s\r\n",
+                      (unsigned long)edges, (edges >= 2u) ? "PASS (PPS toggling, still running)" : "check");
+    SYS_CONSOLE_PRINT("  scope P%c%u vs PC-PPS (run lan866x-ntpsync so the second = PC second). 'hwclk pps off' to stop.\r\n",
+                      (char)('A' + grp), pin);
+}
+
 /* -------- dispatch + registration ----------------------------------------- */
 static void cmd_hwclk(SYS_CMD_DEVICE_NODE *pCmdIO, int argc, char **argv)
 {
@@ -700,7 +772,8 @@ static void cmd_hwclk(SYS_CMD_DEVICE_NODE *pCmdIO, int argc, char **argv)
     if (argc >= 2 && strcmp(argv[1], "adc") == 0)     {
         cmd_adc((argc >= 3) ? (int)strtol(argv[2], NULL, 10) : 0); return;
     }
-    SYS_CONSOLE_PRINT("usage: hwclk <rev|xosc [ulp]|dpll|now|wrap|cmp [secs]|ldrfrac|hold|evt [pin]|adc [n]>\r\n");
+    if (argc >= 2 && strcmp(argv[1], "pps") == 0)     { cmd_pps(argc - 2, argv + 2); return; }
+    SYS_CONSOLE_PRINT("usage: hwclk <rev|xosc[ulp]|dpll|now|wrap|cmp[s]|ldrfrac|hold|evt[pin]|adc[n]|pps[pin] on|off>\r\n");
     SYS_CONSOLE_PRINT("  rev        - silicon revision (DSU DID) + regulator + errata gate (step 0)\r\n");
     SYS_CONSOLE_PRINT("  xosc [ulp] - enable XOSC1 (12 MHz) and measure it with FREQM (step 1);\r\n");
     SYS_CONSOLE_PRINT("               'ulp' forces the internal OSCULP32K reference\r\n");
@@ -712,6 +785,7 @@ static void cmd_hwclk(SYS_CMD_DEVICE_NODE *pCmdIO, int argc, char **argv)
     SYS_CONSOLE_PRINT("  hold       - physical TC2 rate vs XOSC32K + holdover note (step 6)\r\n");
     SYS_CONSOLE_PRINT("  evt [pin]  - arm a HW-timed GPIO edge at the next NTP second (default PB17) (step 7)\r\n");
     SYS_CONSOLE_PRINT("  adc [n]    - fire n TC2 events -> ADC0 START, count conversions (step 8)\r\n");
+    SYS_CONSOLE_PRINT("  pps [pin] on|off - continuous 1 PPS edge on the NTP second (default PB17) (step 9)\r\n");
 }
 
 static const SYS_CMD_DESCRIPTOR hwclk_cmd_tbl[] = {

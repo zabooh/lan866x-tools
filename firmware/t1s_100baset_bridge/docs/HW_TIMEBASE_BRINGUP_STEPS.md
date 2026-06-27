@@ -308,6 +308,13 @@ hwclk pps PB17 on  →  (Scope/Tap: Offset −7 µs, Jitter < 100 ns über 60 s)
 **Damit ist die gesamte Kette validiert.** **Bei Fehlschlag:** PPS driftet → Schritt 6
 (Frequenz) nicht eingerastet; konstanter Offset → Phasen-/Tap-Kalibrierung;
 PPS „springt" → ISR-Reload zu spät (Wraparound).
+> ✅ **Getestet (Board, Rev D) — funktional (ohne Scope):** `hwclk pps PB17 on` → **2 Flanken
+> in 2,5 s ≈ 1/s, PASS** (On-Board per OUT-Bit-Sampling gezählt), `hwclk pps off` stoppt. Die
+> Flanke ist HW (Compare→EVSYS→PORT); der **TC2-MC0-ISR lädt `CC0 += 96e6`** (eine HW-Sekunde)
+> jede Sekunde nach — `s_pps_on`-Flag, `INTENSET.MC0`. Erste Flanke via `ntp_now_ns()` auf die
+> NTP-Sekunde gelegt. **Hinweis:** die Periode ist eine *physische* HW-Sekunde → vs. PC läuft sie
+> mit dem Restfehler (~+28 ppm) → für PC-genaue Dauer-PPS bei aktivem Sync neu armen, oder die
+> Drift direkt am Scope ausmessen. **Offen:** Scope PB17 vs. PC-PPS (die ±µs-Lage/Drift).
 
 ## Schritt 10 — Synchrone PWM (TCC, optional)
 **Ziel:** PWM, dessen Frequenz auf der disziplinierten Zeitbasis liegt.
