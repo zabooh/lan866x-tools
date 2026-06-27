@@ -39,6 +39,13 @@
 #define HWCLK_GEN_REF         7u      /* 32 kHz         -> FREQM reference clock */
 #define HWCLK_FREQM_REFNUM    255u    /* 255/32768 ~ 7.78 ms window               */
 #define HWCLK_TMO_MS          50u
+#define HWCLK_GEN_TC2         5u      /* dedicated 96 MHz GCLK gen (DPLL1/2) -> TC2/TC3 */
+#define HWCLK_TC2_HZ          96000000u  /* nominal DPLL1(192M)/2                    */
+
+/* 64-bit extension of the free-running 32-bit TC2 (step 3): the high word is
+ * incremented in the TC2 overflow ISR; the low 32 bits are the live TC2 COUNT. */
+static volatile uint32_t s_tc2_hi    = 0;
+static int               s_tc2_ready = 0;
 
 static void gclk_sync(void)
 {
@@ -195,18 +202,19 @@ static void cmd_xosc(int forceUlp)
 #define HWCLK_DPLL1_DIV   182u
 #define HWCLK_DPLL1_LDR   5855u
 
-static void cmd_dpll(void)
+/* Configure DPLL1 ~192 MHz from XOSC1 and wait for CLKRDY. Idempotent: if DPLL1 is
+ * already enabled + ready it is left untouched (reconfiguring would glitch consumers
+ * like the TC2 timebase). Rev A/D errata 2.13.1 (false unlock): LBYPASS + gate on
+ * CLKRDY, not LOCK. Returns 1 if the DPLL1 clock is ready. */
+static int ensure_dpll1(void)
 {
-    if (!ensure_xosc1()) {
-        SYS_CONSOLE_PRINT("XOSC1 not ready -> run 'hwclk xosc' first (no 12 MHz source)\r\n");
-        return;
-    }
+    if ((OSCCTRL_REGS->DPLL[1].OSCCTRL_DPLLCTRLA & OSCCTRL_DPLLCTRLA_ENABLE_Msk)
+     && (OSCCTRL_REGS->DPLL[1].OSCCTRL_DPLLSTATUS & OSCCTRL_DPLLSTATUS_CLKRDY_Msk))
+        return 1;
+    if (!ensure_xosc1()) return 0;
 
-    /* Reconfigure DPLL1 from scratch (disable first). Rev A/D errata 2.13.1
-     * (false unlock): set LBYPASS and gate on CLKRDY, not LOCK. */
     OSCCTRL_REGS->DPLL[1].OSCCTRL_DPLLCTRLA = 0u;
     while (OSCCTRL_REGS->DPLL[1].OSCCTRL_DPLLSYNCBUSY & OSCCTRL_DPLLSYNCBUSY_ENABLE_Msk) { }
-
     OSCCTRL_REGS->DPLL[1].OSCCTRL_DPLLCTRLB =
           OSCCTRL_DPLLCTRLB_REFCLK(OSCCTRL_DPLLCTRLB_REFCLK_XOSC1_Val)
         | OSCCTRL_DPLLCTRLB_DIV(HWCLK_DPLL1_DIV)
@@ -216,16 +224,23 @@ static void cmd_dpll(void)
     OSCCTRL_REGS->DPLL[1].OSCCTRL_DPLLRATIO =
           OSCCTRL_DPLLRATIO_LDR(HWCLK_DPLL1_LDR) | OSCCTRL_DPLLRATIO_LDRFRAC(0U);
     while (OSCCTRL_REGS->DPLL[1].OSCCTRL_DPLLSYNCBUSY & OSCCTRL_DPLLSYNCBUSY_DPLLRATIO_Msk) { }
-
     OSCCTRL_REGS->DPLL[1].OSCCTRL_DPLLCTRLA = OSCCTRL_DPLLCTRLA_ENABLE_Msk;
     while (OSCCTRL_REGS->DPLL[1].OSCCTRL_DPLLSYNCBUSY & OSCCTRL_DPLLSYNCBUSY_ENABLE_Msk) { }
 
-    /* Gate on CLKRDY (LBYPASS: LOCK may falsely toggle on rev A/D), then let settle. */
-    uint32_t t0 = plat_now_ms(); int clkrdy = 0;
-    while (plat_now_ms() - t0 < 200u) {
-        if (OSCCTRL_REGS->DPLL[1].OSCCTRL_DPLLSTATUS & OSCCTRL_DPLLSTATUS_CLKRDY_Msk) { clkrdy = 1; break; }
-    }
+    uint32_t t0 = plat_now_ms();
+    while (plat_now_ms() - t0 < 200u)
+        if (OSCCTRL_REGS->DPLL[1].OSCCTRL_DPLLSTATUS & OSCCTRL_DPLLSTATUS_CLKRDY_Msk) break;
     plat_sleep_ms(5);
+    return (OSCCTRL_REGS->DPLL[1].OSCCTRL_DPLLSTATUS & OSCCTRL_DPLLSTATUS_CLKRDY_Msk) ? 1 : 0;
+}
+
+static void cmd_dpll(void)
+{
+    if (!ensure_xosc1()) {
+        SYS_CONSOLE_PRINT("XOSC1 not ready -> run 'hwclk xosc' first (no 12 MHz source)\r\n");
+        return;
+    }
+    int clkrdy = ensure_dpll1();
 
     uint32_t st = OSCCTRL_REGS->DPLL[1].OSCCTRL_DPLLSTATUS;
     int lock = (st & OSCCTRL_DPLLSTATUS_LOCK_Msk) ? 1 : 0;
@@ -263,6 +278,111 @@ static void cmd_dpll(void)
     }
 }
 
+/* -------- step 3: hwclk now / hwclk wrap ----------------------------------- */
+/* Bring up the free-running 64-bit TC2 timebase once: DPLL1 -> GCLK gen 5 (DPLL1/2
+ * = 96 MHz) -> PCHCTRL[TC2_GCLK_ID] -> TC2 in 32-bit mode, OVF IRQ extends to 64-bit.
+ * Idempotent. Returns 1 on success. TC0 (=SYS_TIME) is left alone. */
+static int hwclk_tc2_init(void)
+{
+    if (s_tc2_ready) return 1;
+    if (!ensure_dpll1()) return 0;
+
+    /* dedicated 96 MHz generator from DPLL1/2, routed to the TC2/TC3 channel (26). */
+    GCLK_REGS->GCLK_GENCTRL[HWCLK_GEN_TC2] =
+        GCLK_GENCTRL_SRC(GCLK_GENCTRL_SRC_DPLL1_Val) | GCLK_GENCTRL_DIV(2U) | GCLK_GENCTRL_GENEN_Msk;
+    gclk_sync();
+    GCLK_REGS->GCLK_PCHCTRL[TC2_GCLK_ID] = GCLK_PCHCTRL_GEN(HWCLK_GEN_TC2) | GCLK_PCHCTRL_CHEN_Msk;
+    while ((GCLK_REGS->GCLK_PCHCTRL[TC2_GCLK_ID] & GCLK_PCHCTRL_CHEN_Msk) == 0u) { }
+
+    /* APB clocks: TC2 + its paired upper half TC3 (32-bit mode). */
+    MCLK_REGS->MCLK_APBBMASK |= MCLK_APBBMASK_TC2_Msk | MCLK_APBBMASK_TC3_Msk;
+
+    /* reset, then 32-bit free-running (normal-frequency: TOP = 0xFFFFFFFF), OVF IRQ. */
+    TC2_REGS->COUNT32.TC_CTRLA = TC_CTRLA_SWRST_Msk;
+    while (TC2_REGS->COUNT32.TC_SYNCBUSY & TC_SYNCBUSY_SWRST_Msk) { }
+    TC2_REGS->COUNT32.TC_CTRLA = TC_CTRLA_MODE_COUNT32 | TC_CTRLA_PRESCALER_DIV1 | TC_CTRLA_PRESCSYNC_PRESC;
+    TC2_REGS->COUNT32.TC_INTFLAG  = (uint8_t)TC_INTFLAG_Msk;     /* clear all */
+    TC2_REGS->COUNT32.TC_INTENSET = (uint8_t)TC_INTENSET_OVF_Msk;
+    s_tc2_hi = 0;
+
+    NVIC_SetPriority(TC2_IRQn, 5);
+    NVIC_EnableIRQ(TC2_IRQn);
+
+    TC2_REGS->COUNT32.TC_CTRLA |= TC_CTRLA_ENABLE_Msk;
+    while (TC2_REGS->COUNT32.TC_SYNCBUSY & TC_SYNCBUSY_ENABLE_Msk) { }
+
+    s_tc2_ready = 1;
+    return 1;
+}
+
+/* TC2 overflow -> bump the 64-bit high word. Overrides the weak vector default. */
+void __attribute__((used)) TC2_Handler(void)
+{
+    if (TC2_REGS->COUNT32.TC_INTFLAG & TC_INTFLAG_OVF_Msk) {
+        TC2_REGS->COUNT32.TC_INTFLAG = (uint8_t)TC_INTFLAG_OVF_Msk;
+        s_tc2_hi++;
+    }
+}
+
+/* Glitch-free 64-bit read: re-read the high word around the COUNT read and retry if
+ * an overflow slipped in between (hi1 != hi2). */
+static uint64_t tc2_read64(void)
+{
+    uint32_t hi1, hi2, lo;
+    do {
+        hi1 = s_tc2_hi;
+        TC2_REGS->COUNT32.TC_CTRLBSET = (uint8_t)TC_CTRLBSET_CMD_READSYNC;
+        while (TC2_REGS->COUNT32.TC_SYNCBUSY & TC_SYNCBUSY_CTRLB_Msk) { }
+        while (TC2_REGS->COUNT32.TC_CTRLBSET & TC_CTRLBSET_CMD_Msk) { }
+        lo  = TC2_REGS->COUNT32.TC_COUNT;
+        hi2 = s_tc2_hi;
+    } while (hi1 != hi2);
+    return ((uint64_t)hi2 << 32) | lo;
+}
+
+static void cmd_now(void)
+{
+    if (!hwclk_tc2_init()) {
+        SYS_CONSOLE_PRINT("DPLL1/TC2 not up -> run 'hwclk dpll' first\r\n");
+        return;
+    }
+    /* measure the TC2 rate against SYS_TIME (plat_now_ms) over ~1 s. */
+    uint64_t k0 = tc2_read64();
+    uint32_t m0 = plat_now_ms();
+    while (plat_now_ms() - m0 < 1000u) plat_sleep_ms(2);   /* pumps stack + console */
+    uint64_t k1 = tc2_read64();
+    uint32_t dms = plat_now_ms() - m0;
+
+    uint64_t dticks = k1 - k0;
+    uint64_t rate   = dms ? (dticks * 1000ULL / (uint64_t)dms) : 0u;   /* Hz, vs SYS_TIME */
+    uint64_t ns     = k1 * 1000ULL / 96ULL;                            /* nominal 96 MHz */
+
+    SYS_CONSOLE_PRINT("TC2 64-bit : %llu ticks  (hi=%lu lo=%lu)\r\n",
+                      (unsigned long long)k1, (unsigned long)(k1 >> 32), (unsigned long)(uint32_t)k1);
+    SYS_CONSOLE_PRINT("  time     : %llu.%09llu s (nominal 96 MHz)\r\n",
+                      (unsigned long long)(ns / 1000000000ULL), (unsigned long long)(ns % 1000000000ULL));
+    SYS_CONSOLE_PRINT("  rate     : %lu Hz over %lu ms (vs SYS_TIME/DFLL)  ->  %s\r\n",
+                      (unsigned long)rate, (unsigned long)dms,
+                      (rate > 94000000ULL && rate < 98000000ULL) ? "PASS (~96 MHz, monotonic)" : "FAIL");
+}
+
+static void cmd_wrap(void)
+{
+    if (!hwclk_tc2_init()) {
+        SYS_CONSOLE_PRINT("DPLL1/TC2 not up -> run 'hwclk dpll' first\r\n");
+        return;
+    }
+    /* load COUNT ~512 ticks (~5.3 us @96MHz) below 2^32 so OVF fires within ms. */
+    uint32_t hi0 = s_tc2_hi;
+    TC2_REGS->COUNT32.TC_COUNT = 0xFFFFFE00u;
+    while (TC2_REGS->COUNT32.TC_SYNCBUSY & TC_SYNCBUSY_COUNT_Msk) { }
+    plat_sleep_ms(5);
+    uint32_t hi1 = s_tc2_hi;
+    SYS_CONSOLE_PRINT("TC2 wrap   : high word %lu -> %lu  ->  %s\r\n",
+                      (unsigned long)hi0, (unsigned long)hi1,
+                      (hi1 != hi0) ? "PASS (OVF ISR extends to 64-bit)" : "FAIL (no overflow seen)");
+}
+
 /* -------- dispatch + registration ----------------------------------------- */
 static void cmd_hwclk(SYS_CMD_DEVICE_NODE *pCmdIO, int argc, char **argv)
 {
@@ -273,16 +393,20 @@ static void cmd_hwclk(SYS_CMD_DEVICE_NODE *pCmdIO, int argc, char **argv)
         return;
     }
     if (argc >= 2 && strcmp(argv[1], "dpll") == 0) { cmd_dpll(); return; }
-    SYS_CONSOLE_PRINT("usage: hwclk <rev|xosc [ulp]|dpll>\r\n");
+    if (argc >= 2 && strcmp(argv[1], "now") == 0)  { cmd_now();  return; }
+    if (argc >= 2 && strcmp(argv[1], "wrap") == 0) { cmd_wrap(); return; }
+    SYS_CONSOLE_PRINT("usage: hwclk <rev|xosc [ulp]|dpll|now|wrap>\r\n");
     SYS_CONSOLE_PRINT("  rev        - silicon revision (DSU DID) + regulator + errata gate (step 0)\r\n");
     SYS_CONSOLE_PRINT("  xosc [ulp] - enable XOSC1 (12 MHz) and measure it with FREQM (step 1);\r\n");
     SYS_CONSOLE_PRINT("               'ulp' forces the internal OSCULP32K reference\r\n");
     SYS_CONSOLE_PRINT("  dpll       - bring up DPLL1 ~192 MHz from XOSC1 + FREQM verify (step 2)\r\n");
+    SYS_CONSOLE_PRINT("  now        - 64-bit TC2 timebase (96 MHz): ticks, ns, measured rate (step 3)\r\n");
+    SYS_CONSOLE_PRINT("  wrap       - force a TC2 overflow, verify the 64-bit high word ticks (step 3)\r\n");
 }
 
 static const SYS_CMD_DESCRIPTOR hwclk_cmd_tbl[] = {
     {"hwclk", (SYS_CMD_FNC) cmd_hwclk,
-     ": HW time-base bring-up: rev (s0), xosc [ulp] (s1), dpll (s2)"},
+     ": HW time-base bring-up: rev (s0), xosc [ulp] (s1), dpll (s2), now/wrap (s3)"},
 };
 
 void HWCLK_Init(void)

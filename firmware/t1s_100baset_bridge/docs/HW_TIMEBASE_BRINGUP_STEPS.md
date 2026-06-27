@@ -133,6 +133,12 @@ hwclk wrap     →  hi: 0 → 1  (OVF ok)
 **PASS:** TC64 **monoton**, Rate ≈ **96 MHz** (Kreuzcheck gegen SYS_TIME), OVF erhöht das
 High-Word. **Bei Fehlschlag:** Rate=0 → GCLK/PCHCTRL[26] falsch; OVF zählt nicht →
 `INTENSET.OVF`/NVIC; TC-Kollision → freien TC prüfen (TC0=SYS_TIME).
+> ✅ **Getestet (Board, Rev D):** `now` → 95.815.892 Ticks in „1000 ms", **OVF-High-Word ok**,
+> `wrap` → hi 0→1 → **PASS**. Die Rate liest **95,82 MHz** statt 96,00 — das ist **nicht** TC2,
+> sondern die **DFLL-Drift von SYS_TIME**: in „1000 ms SYS_TIME" vergingen real nur 0,998 s
+> ⇒ SYS_TIME läuft **~+1950 ppm** zu schnell. Der Cross-Check bestätigt: **TC2 (XOSC1/DPLL1)
+> ist die genaue Uhr.** Implementiert mit dediziertem GCLK-Gen **5** (DPLL1÷2), `TC2_GCLK_ID=26`,
+> TC2/TC3-APBB, 32-bit `MODE=COUNT32`, glitch-freier 64-bit-Read (hi/lo/hi-Retry), `TC2_Handler`-ISR.
 
 ## Schritt 4 — `ntp_now_ns()` auf die HW-Uhr (Rate-Vergleich)
 **Ziel:** der Lesepfad nutzt die HW-Uhr; die alte SYS_TIME-Variante bleibt zum Vergleich.
