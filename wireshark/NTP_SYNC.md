@@ -31,7 +31,13 @@ verification) is a design concept in
   - [4.4 Steady state: jitter floor vs the mean](#44-steady-state-jitter-floor-vs-the-mean)
   - [4.5 Why `drift` wanders — and the Ki trade-off](#45-why-drift-wanders--and-the-ki-trade-off)
   - [4.6 Holdover: missed syncs stay sub-millisecond](#46-holdover-missed-syncs-stay-sub-millisecond)
-- [5. Accuracy, limits & what's next](#5-accuracy-limits--whats-next)
+- [5. What the hardware time base changed — a live before/after](#5-what-the-hardware-time-base-changed--a-live-beforeafter)
+  - [5.1 The headline — the oscillator drift collapses ~40×](#51-the-headline--the-oscillator-drift-collapses-40)
+  - [5.2 The live run on the HW clock](#52-the-live-run-on-the-hw-clock)
+  - [5.3 What did not change — and why](#53-what-did-not-change--and-why)
+  - [5.4 Holdover: now limited by the loop, not the oscillator](#54-holdover-now-limited-by-the-loop-not-the-oscillator)
+  - [5.5 On the wire (tshark, Ethernet 8)](#55-on-the-wire-tshark-ethernet-8)
+- [6. Accuracy, limits & what's next](#6-accuracy-limits--whats-next)
 
 ---
 
@@ -62,6 +68,11 @@ verification) is a design concept in
 | Per-sync offset jitter (steady state) | σ ≈ **150 µs** (the floor) |
 | Rolling-mean offset (steady state) | **+1.4 µs**, σ ≈ **13 µs** (converged & unbiased) |
 | **Holdover** after 6 s without sync | **~58 µs** (vs ~9.6 ms un-disciplined) |
+
+> These are the **original DFLL-era** numbers (`SYS_TIME` on the open-loop DFLL). The
+> bridge now runs the NTP counter on a **disciplined hardware clock** (XOSC1→DPLL1→TC2
+> @ 96 MHz) — for the live **before/after** (drift ~1864 → ~45 ppm, what changed and what
+> didn't), see [§5](#5-what-the-hardware-time-base-changed--a-live-beforeafter).
 
 ---
 
@@ -250,7 +261,95 @@ dedicated holdover test elsewhere measured **~58 µs after 6 s**.
 
 ---
 
-## 5. Accuracy, limits & what's next
+## 5. What the hardware time base changed — a live before/after
+
+Everything above describes the follower running on **`SYS_TIME` = the open-loop DFLL**
+(~1850 ppm). The bridge now runs its NTP counter on a **disciplined hardware clock**
+instead — **XOSC1 (12 MHz MEMS) → DPLL1 → TC2 @ 96 MHz** — brought up and tested
+step-by-step in
+[HW_TIMEBASE_BRINGUP_STEPS.md](../firmware/t1s_100baset_bridge/docs/HW_TIMEBASE_BRINGUP_STEPS.md).
+`ntp_raw_ns()` simply reads `hwclock_now_ns()` now; the PI discipline (§3) is unchanged.
+
+The same `ntp watch` test was re-run on it (**fresh boot, continuous `lan866x-ntpsync`,
+PC sync deliberately PAUSED for ~31 s** to expose the holdover), with the NTP traffic
+captured in parallel by **tshark on `Ethernet 8`** (`udp port 30491`). New diagrams
+([`ntp_trace_plot_hwclk.py`](ntp_trace_plot_hwclk.py)) sit next to the old ones so the
+change is visible; the DFLL-era figures above are kept for the comparison.
+
+### 5.1 The headline — the oscillator drift collapses ~40×
+
+![Drift the loop must remove: DFLL ~1864 ppm vs HW clock ~45 ppm](img/ntp_drift_compare.png)
+
+The `drift` column is the **frequency error the discipline has to remove**. On the
+open-loop DFLL it parked at **~1864 ppm**; on the XOSC1→DPLL1→TC2 clock it now hugs
+**~+45 ppm** — the raw MEMS-oscillator drift, **~41× smaller**. This is the whole point
+of the hardware time base: the *physical* clock is intrinsically stable, so the loop is
+barely correcting anything.
+
+### 5.2 The live run on the HW clock
+
+![ntp watch on the HW clock: drift hugs ~+45 ppm, mean still → 0, with the paused-sync window](img/ntp_trace_overview_hwclk.png)
+
+Same shape as before — `offset` is the same wide jitter cloud, `mean` still collapses to
+~0 — but the blue `drift` trace now lives near **+45 ppm** (dotted line marks the old
+~1864 ppm level for scale). The grey band is the **31 s with the PC sync stopped**.
+
+### 5.3 What did **not** change — and why
+
+| Quantity | old: `SYS_TIME` / open-loop DFLL | new: TC2 / XOSC1→DPLL1 |
+|---|---|---|
+| Counter resolution | ~16 ns (60 MHz) | ~10 ns (96 MHz) |
+| **Oscillator drift the loop fights** | **~1864 ppm** (σ 126) | **~+45 ppm** (σ 99) — **~41× less** |
+| Per-sync offset jitter σ | ~152 µs | **~159 µs — unchanged** |
+| Rolling-mean offset (converged) | +1.4 µs → ~0 | +38 µs → ~0 |
+| Round-trip delay | ~0.5–1 ms | ~0.74 ms (min 0.39) |
+
+The **per-sync jitter floor is unchanged (~150 µs)** — it is set by *software* timestamping
+and the T1S round-trip, **not** the oscillator, so a better clock cannot move it (only
+hardware/PTP timestamping can; that is `net_10base_t1s`). The 16 → 10 ns resolution bump is
+irrelevant against the µs-scale floor. **The clock changed exactly one thing: the drift.**
+
+### 5.4 Holdover: now limited by the *loop*, not the oscillator
+
+![Holdover: 31 s without sync, the clock free-runs then re-locks in one sync](img/ntp_trace_holdover_hwclk.png)
+
+When the PC sync stopped for 31 s, the next offset jumped to **−4.9 ms** (then re-locked in
+a single sync). That looks worse than the DFLL run's holdover — and it is honest to say
+**the clock alone did not improve holdover**. The reason is subtle and important:
+
+- The software frequency term `s_rate_ppb` still **wanders ±99 ppm**, because it integrates
+  the *same* ±150 µs per-sync offset noise (Ki = 1/4) — see §4.5. That wander is unchanged.
+- With the **old DFLL** the loop's job was to track a **large but slowly-changing** drift
+  (~1850 ppm, warming): its frozen value at a sync gap was close to the truth, so holdover
+  stayed small.
+- With the **new stable clock** the true drift is only ~+45 ppm, but `s_rate_ppb` keeps
+  wandering ±99 ppm around it. Frozen at a noisy excursion during the pause, it
+  **over-corrects** by ~150 ppm → the −4.9 ms over 31 s. The holdover is now the *loop noise*,
+  not the oscillator.
+
+So the hardware clock **moved the bottleneck**: drift is solved, and what remains is the
+NTP-transport jitter feeding the software loop. Two ways to cash in the now-stable clock:
+**(a)** slow the loop down (raise `NTP_KI_DEN`) — affordable now that the true drift is tiny
+and stable, so `s_rate_ppb` settles near +45 ppm with little noise; **(b)** the proper fix —
+move the frequency correction into **hardware** (LDRFRAC), so the *physical* TC counts at the
+true rate and there is no software rate term to freeze. (b) is exactly what the bring-up
+attempted; it is **blocked on this Rev D silicon** — an on-the-fly `DPLLRATIO` write stalls
+the DPLL (errata 2.13.x), so the correction stays in software for now. See
+[HW_TIMEBASE_BRINGUP_STEPS.md §6](../firmware/t1s_100baset_bridge/docs/HW_TIMEBASE_BRINGUP_STEPS.md).
+
+### 5.5 On the wire (tshark, `Ethernet 8`)
+
+The parallel capture ([`ntp_hwclk_capture.pcapng`](ntp_hwclk_capture.pcapng), `udp port
+30491`, decoded by the bundled **`lan866x_ntp`** dissector) shows the mechanism
+end-to-end: **1997 frames over ~60 s**, one sync = ~8 REQUEST(9 B)/
+REPLY(25 B) min-delay rounds + a `SET_OFFSET`(17 B) + `SET_ACK`(9 B), every 250 ms, raw
+round-trip **~0.45 ms**. The **31 s sync pause is plainly visible as a gap with no packets**
+— the firmware free-runs on the HW clock through it (that is the −4.9 ms holdover above),
+then traffic resumes and it re-locks in one sync.
+
+---
+
+## 6. Accuracy, limits & what's next
 
 - **Per-sync jitter floor (~150 µs σ):** set by *software* timestamping (superloop +
   stack + SPI MAC-PHY) and the round-trip — **not** by the 16 ns counter, and **not**
@@ -290,8 +389,9 @@ internal DFLL48M  (open-loop, RC-based, factory-trimmed only → temperature-dep
   floor is unaffected). See the oscillator comparison in
   [NTP_TWO_NODE_CONVERGENCE.md §3.2](NTP_TWO_NODE_CONVERGENCE.md).
   → The full study of how to build a **disciplined hardware time base** from this
-  (XOSC0 + DPLL1 + a dedicated TC, with EVSYS triggering ADC/DAC/GPIO/PWM at exact NTP
-  instants) and verify it step-by-step on the MCU is in the bridge firmware docs:
+  (XOSC1 + DPLL1 + a dedicated TC, with EVSYS triggering ADC/DAC/GPIO/PWM at exact NTP
+  instants) — now **realised and measured**, see [§5](#5-what-the-hardware-time-base-changed--a-live-beforeafter)
+  — and verified step-by-step on the MCU is in the bridge firmware docs:
   [HW_TIMEBASE_OPTIONS.md](../firmware/t1s_100baset_bridge/docs/HW_TIMEBASE_OPTIONS.md)
   (option comparison),
   [HW_TIMEBASE_B_C_IMPLEMENTATION.md](../firmware/t1s_100baset_bridge/docs/HW_TIMEBASE_B_C_IMPLEMENTATION.md)
