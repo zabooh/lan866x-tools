@@ -26,6 +26,7 @@
 
 #include "definitions.h"
 #include "config/default/system/console/sys_console.h"
+#include "config/default/system/time/sys_time.h"   /* SYS_TIME_* - reference clock for cmp */
 #include "system/command/sys_command.h"
 #include "plat.h"            /* plat_now_ms() - software timeouts (errata 2.28.x) */
 #include "lan866x_cli.h"
@@ -383,6 +384,51 @@ static void cmd_wrap(void)
                       (hi1 != hi0) ? "PASS (OVF ISR extends to 64-bit)" : "FAIL (no overflow seen)");
 }
 
+/* -------- step 4: hwclk cmp ------------------------------------------------ */
+/* HW clock time in ns from the free-running 64-bit TC2 at the nominal 96 MHz.
+ * (Phase offset and fine-rate correction arrive in steps 5/6; this is raw HW time:
+ * 1e9 / 96e6 = 125/12 ns per tick.) This is the read path ntp_now_ns() will use. */
+static uint64_t hwclock_now_ns(void)
+{
+    return tc2_read64() * 125ULL / 12ULL;
+}
+
+/* Compare the HW clock (XOSC1->DPLL1->TC2) against SYS_TIME (DFLL) over a window and
+ * report the relative drift. Proves the read path works and that the HW clock is the
+ * stable one (SYS_TIME/DFLL drifts ~+1900 ppm). */
+static void cmd_cmp(uint32_t secs)
+{
+    if (!hwclk_tc2_init()) {
+        SYS_CONSOLE_PRINT("TC2 not up -> run 'hwclk now' first\r\n");
+        return;
+    }
+    if (secs == 0u) secs = 2u;
+    uint32_t sysFreq = SYS_TIME_FrequencyGet();
+
+    uint64_t hw0 = hwclock_now_ns();
+    uint64_t sc0 = SYS_TIME_Counter64Get();
+    uint32_t m0  = plat_now_ms();
+    while (plat_now_ms() - m0 < secs * 1000u) plat_sleep_ms(2);   /* pumps stack + console */
+    uint64_t hw1 = hwclock_now_ns();
+    uint64_t sc1 = SYS_TIME_Counter64Get();
+
+    uint64_t dhw  = hw1 - hw0;                                       /* real ns (accurate) */
+    uint64_t dsys = (sc1 - sc0) * 1000000000ULL / (uint64_t)sysFreq; /* SYS_TIME ns        */
+    int64_t  diff = (int64_t)dsys - (int64_t)dhw;                    /* + => SYS_TIME fast  */
+    long     ppm  = dhw ? (long)(diff * 1000000LL / (int64_t)dhw) : 0;
+
+    SYS_CONSOLE_PRINT("hwclk cmp  : window %lu s\r\n", (unsigned long)secs);
+    SYS_CONSOLE_PRINT("  HW uptime: %llu.%09llu s (XOSC1->DPLL1->TC2 96 MHz)\r\n",
+                      (unsigned long long)(hw1 / 1000000000ULL), (unsigned long long)(hw1 % 1000000000ULL));
+    SYS_CONSOLE_PRINT("  elapsed  : HW %llu ns  vs  SYS_TIME %llu ns  (delta %+lld ns)\r\n",
+                      (unsigned long long)dhw, (unsigned long long)dsys, (long long)diff);
+    SYS_CONSOLE_PRINT("  drift    : SYS_TIME %+ld ppm vs HW  ->  %s\r\n", ppm,
+                      (ppm > 500 && ppm < 4000)
+                          ? "PASS (HW stable; DFLL drifts as expected)"
+                          : ((ppm > -4000 && ppm < -500) ? "PASS (drift present; check sign)"
+                                                         : "CHECK (drift outside expected DFLL band)"));
+}
+
 /* -------- dispatch + registration ----------------------------------------- */
 static void cmd_hwclk(SYS_CMD_DEVICE_NODE *pCmdIO, int argc, char **argv)
 {
@@ -395,18 +441,23 @@ static void cmd_hwclk(SYS_CMD_DEVICE_NODE *pCmdIO, int argc, char **argv)
     if (argc >= 2 && strcmp(argv[1], "dpll") == 0) { cmd_dpll(); return; }
     if (argc >= 2 && strcmp(argv[1], "now") == 0)  { cmd_now();  return; }
     if (argc >= 2 && strcmp(argv[1], "wrap") == 0) { cmd_wrap(); return; }
-    SYS_CONSOLE_PRINT("usage: hwclk <rev|xosc [ulp]|dpll|now|wrap>\r\n");
+    if (argc >= 2 && strcmp(argv[1], "cmp") == 0)  {
+        cmd_cmp((argc >= 3) ? (uint32_t)strtoul(argv[2], NULL, 10) : 0u);
+        return;
+    }
+    SYS_CONSOLE_PRINT("usage: hwclk <rev|xosc [ulp]|dpll|now|wrap|cmp [secs]>\r\n");
     SYS_CONSOLE_PRINT("  rev        - silicon revision (DSU DID) + regulator + errata gate (step 0)\r\n");
     SYS_CONSOLE_PRINT("  xosc [ulp] - enable XOSC1 (12 MHz) and measure it with FREQM (step 1);\r\n");
     SYS_CONSOLE_PRINT("               'ulp' forces the internal OSCULP32K reference\r\n");
     SYS_CONSOLE_PRINT("  dpll       - bring up DPLL1 ~192 MHz from XOSC1 + FREQM verify (step 2)\r\n");
     SYS_CONSOLE_PRINT("  now        - 64-bit TC2 timebase (96 MHz): ticks, ns, measured rate (step 3)\r\n");
     SYS_CONSOLE_PRINT("  wrap       - force a TC2 overflow, verify the 64-bit high word ticks (step 3)\r\n");
+    SYS_CONSOLE_PRINT("  cmp [secs] - compare HW clock vs SYS_TIME, report relative drift ppm (step 4)\r\n");
 }
 
 static const SYS_CMD_DESCRIPTOR hwclk_cmd_tbl[] = {
     {"hwclk", (SYS_CMD_FNC) cmd_hwclk,
-     ": HW time-base bring-up: rev (s0), xosc [ulp] (s1), dpll (s2), now/wrap (s3)"},
+     ": HW time-base bring-up: rev (s0), xosc [ulp] (s1), dpll (s2), now/wrap (s3), cmp (s4)"},
 };
 
 void HWCLK_Init(void)

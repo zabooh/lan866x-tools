@@ -153,6 +153,12 @@ hwclk cmp      →  Δ=… ns   rel=+1623 ppm  (HW-Uhr=XOSC1 stabil, SYS_TIME=DF
 erwarteten DFLL-vs-XOSC1-Drift (~1600–1800 ppm). **Das beweist, dass die HW-Uhr die
 stabilere ist.** **Bei Fehlschlag:** Sprünge/Nichtmonotonie → 64-bit-OVF-Race (Hi/Lo/Hi-Lesung,
 `READSYNC`).
+> ✅ **Getestet (Board, Rev D):** `cmp` (2 s) → Δ +3,84 ms, **+1926 ppm**; `cmp 5` (5 s) →
+> Δ +9,98 ms, **+1999 ppm** → PASS. Über beide Fenster **konsistent ~+1950 ppm** (die ~70-ppm-
+> Streuung = DFLL-Eigenwander, open-loop). Lesepfad `hwclock_now_ns()` = TC2-64-bit × 125/12 ns.
+> **Hinweis:** Hier wird `hwclock_now_ns()` nur *bereitgestellt* + per `cmp` gegen SYS_TIME
+> geprüft; das eigentliche Umhängen von **`ntp_now_ns()`** auf die HW-Uhr passiert in **Schritt 5**
+> (zusammen mit dem Phasen-Offset), damit die laufende NTP-Uhr nicht ohne Phase springt.
 
 ## Schritt 5 — Phasen-Offset (NTP-Sync)
 **Ziel:** die HW-Uhr lässt sich auf PC-Zeit setzen (Phase). Frequenz noch **ungeregelt**.
