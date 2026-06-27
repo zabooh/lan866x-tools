@@ -4,7 +4,7 @@ Inkrementelle Inbetriebnahme der Implementierung aus
 [HW_TIMEBASE_B_C_IMPLEMENTATION.md](HW_TIMEBASE_B_C_IMPLEMENTATION.md) (Option B-b + C).
 **Jeder Schritt baut auf dem vorigen auf und wird einzeln auf der MCU verifiziert** —
 erst wenn der Test eines Schritts PASS ist, geht es zum nächsten. So ist am Ende die
-**gesamte Kette** XOSC0 → DPLL1 → GCLK → TC2 → Disziplinierung → EVSYS → Peripherie
+**gesamte Kette** XOSC1 → DPLL1 → GCLK → TC2 → Disziplinierung → EVSYS → Peripherie
 nachweislich funktionsfähig.
 
 > **Test-Harness:** eine neue CLI-Gruppe **`hwclk`** (analog zu `ntp`/`env`,
@@ -20,7 +20,7 @@ nachweislich funktionsfähig.
 - [Prinzip: build-up + Gate-Test](#prinzip-build-up--gate-test)
 - [Übersicht (Schritt → Test → Kriterium)](#übersicht-schritt--test--kriterium)
 - [Schritt 0 — Voraussetzungen prüfen (Gate)](#schritt-0--voraussetzungen-prüfen-gate)
-- [Schritt 1 — XOSC0 in Betrieb nehmen](#schritt-1--xosc0-in-betrieb-nehmen)
+- [Schritt 1 — XOSC1 in Betrieb nehmen](#schritt-1--xosc1-in-betrieb-nehmen)
 - [Schritt 2 — DPLL1 hochfahren + Lock](#schritt-2--dpll1-hochfahren--lock)
 - [Schritt 3 — GCLK + TC2 32-bit free-running + 64-bit](#schritt-3--gclk--tc2-32-bit-free-running--64-bit)
 - [Schritt 4 — `ntp_now_ns()` auf die HW-Uhr (Rate-Vergleich)](#schritt-4--ntp_now_ns-auf-die-hw-uhr-rate-vergleich)
@@ -41,15 +41,15 @@ nachweislich funktionsfähig.
   ein eindeutiges Erfolgskriterium (Zahl/Signal), kein „sieht gut aus".
 - **Rückwärts-kompatibel:** SYS_TIME (TC0) und die bestehende Software-NTP bleiben bis
   Schritt 6 aktiv → jederzeit Vergleichsreferenz und sicherer Rückfall.
-- **Nicht-invasiv zuerst:** die ersten Schritte (XOSC0, DPLL1) berühren **DPLL0/CPU
+- **Nicht-invasiv zuerst:** die ersten Schritte (XOSC1, DPLL1) berühren **DPLL0/CPU
   nicht** → kein Risiko fürs laufende System; erst Schritt 3 nutzt einen freien TC.
 
 ## Übersicht (Schritt → Test → Kriterium)
 
 | # | Implementiert | Test auf der MCU | PASS-Kriterium |
 |---|---|---|---|
-| 0 | — (Prüfung) | `hwclk rev` | Silizium-Rev + LDO bekannt; XOSC0-Typ aus Schaltplan |
-| 1 | XOSC0 an | `hwclk xosc` (FREQM) | gemessen ≈ **12,000 MHz** |
+| 0 | — (Prüfung) | `hwclk rev` | Silizium-Rev + LDO bekannt; XOSC1-Typ aus Schaltplan |
+| 1 | XOSC1 an | `hwclk xosc` (FREQM) | gemessen ≈ **12,000 MHz** |
 | 2 | DPLL1 → 192 MHz | `hwclk dpll` (LOCK + FREQM) | LOCK=1, gemessen ≈ **192 MHz** |
 | 3 | GCLK→TC2 32-bit + OVF | `hwclk now`, `hwclk wrap` | Rate ≈ **96 MHz**, OVF→High-Word++ |
 | 4 | `hwclock_now_ns()` | `hwclk cmp` | HW-Uhr vs SYS_TIME konsistent, ppm plausibel |
@@ -69,32 +69,31 @@ nachweislich funktionsfähig.
 ```
 hwclk rev      →  DID=0x6184xxxx  REV=F   Regulator=LDO
 ```
-**PASS:** Revision bekannt **und** Regulator = **LDO**; XOSC0-Typ (Quarz an XIN/XOUT vs.
-externer Takt) aus dem **Curiosity-Schaltplan** geklärt.
+**PASS:** Revision bekannt **und** Regulator = **LDO**. *(XOSC1-Typ bereits aus dem
+**Curiosity-Schaltplan** geklärt: externer MEMS-Takt `DSC6003C12A` an XIN1/PB22 → `XTALEN=0`.)*
 **Errata:** **2.19.1** (FDPLL braucht LDO — DPLL0/CPU läuft schon → erfüllt). **2.13.1**
 (FDPLL-False-Unlock) betrifft **nur Rev A/D**; bei A/D in Schritt 2 den
-`LBYPASS/WUF/CLKRDY`-Bring-up nutzen. **Bei Fehlschlag:** Buck-Mode → auf LDO umstellen;
-XOSC0 nicht geroutet/Quarz → Fallback DPLL gegen **XOSC32K** (siehe §4 Risiko R1).
+`LBYPASS/WUF/CLKRDY`-Bring-up nutzen. **Bei Fehlschlag:** Buck-Mode → auf LDO umstellen.
 
-## Schritt 1 — XOSC0 in Betrieb nehmen
-**Ziel:** der 12-MHz-MEMS/Quarz läuft (speist DPLL1). **Berührt CPU/DPLL0 nicht.**
-**Implementierung:** §4.1(a) — `OSCCTRL->XOSCCTRL[0]` (ENABLE/XTALEN/IMULT…), auf
-`STATUS.XOSCRDY0` warten.
-**Test auf der MCU:** `hwclk xosc` misst XOSC0 mit **FREQM** gegen XOSC32K und gibt die
+## Schritt 1 — XOSC1 in Betrieb nehmen
+**Ziel:** der 12-MHz-MEMS-Takt läuft (speist DPLL1). **Berührt CPU/DPLL0 nicht.**
+**Implementierung:** §4.1(a) — **`OSCCTRL_REGS->XOSCCTRL[1] = ENABLE`** (External-Clock-Mode,
+**`XTALEN=0`**, kein IMULT/IPTAT/ENALC), auf **`STATUS.XOSCRDY1`** warten.
+**Test auf der MCU:** `hwclk xosc` misst XOSC1 mit **FREQM** gegen XOSC32K und gibt die
 Frequenz aus.
 ```
-hwclk xosc     →  XOSC0 = 12.000.0xx Hz   (RDY=1)
+hwclk xosc     →  XOSC1 = 12.000.0xx Hz   (RDY=1)
 ```
 **PASS:** **≈ 12,000 MHz** (±einige 100 ppm akzeptabel). **Errata:** **2.28.1/2.28.2**
 (FREQM: Ref-Periode > 4 APB-Takte; **Software-Timeout** beim `BUSY`-Pollen, sonst Hänger
 bei 0 Hz), **2.15.1** (FREQM `CTRLB` nicht lesen). **Bei Fehlschlag:** RDY bleibt 0 →
-falscher `XTALEN`/Pin/STARTUP, oder XOSC0 ist externer Takt (`XTALEN=0`); 0 Hz → XOSC0
-nicht am MCU.
+`ENABLE` nicht gesetzt / falscher Index (`[1]`!) / MEMS-Takt steht nicht an XIN1;
+0 Hz → XOSC1-Takt fehlt am Pin (R471/Y401 prüfen).
 
 ## Schritt 2 — DPLL1 hochfahren + Lock
-**Ziel:** DPLL1 erzeugt ~192 MHz aus XOSC0. **Weiterhin getrennt von DPLL0/CPU.**
+**Ziel:** DPLL1 erzeugt ~192 MHz aus XOSC1. **Weiterhin getrennt von DPLL0/CPU.**
 **Implementierung:** §4.1(b) — Lock-Timer-GCLK (`PCHCTRL[3]`), `DPLL1CTRLB`
-(REFCLK=XOSC0, DIV→~32 kHz, `LTIME=0`), `DPLL1RATIO` (LDR≈5999), enable, auf
+(REFCLK=XOSC1, DIV→~32 kHz, `LTIME=0`), `DPLL1RATIO` (LDR≈5999), enable, auf
 `LOCK|CLKRDY` warten.
 **Test auf der MCU:** `hwclk dpll` → Lock-Status + FREQM-Messung des DPLL1-Ausgangs
 (über einen temporären GCLK) gegen XOSC32K.
@@ -130,10 +129,10 @@ SYS_TIME-Funktion als `*_legacy` erhalten.
 **Test auf der MCU:** `hwclk cmp` druckt `hwclock_ns − sys_time_ns` über die Zeit + die
 relative Drift in ppm.
 ```
-hwclk cmp      →  Δ=… ns   rel=+1623 ppm  (HW-Uhr=XOSC0 stabil, SYS_TIME=DFLL driftet)
+hwclk cmp      →  Δ=… ns   rel=+1623 ppm  (HW-Uhr=XOSC1 stabil, SYS_TIME=DFLL driftet)
 ```
 **PASS:** beide Uhren laufen konsistent; die **Differenz wächst linear** mit der
-erwarteten DFLL-vs-XOSC0-Drift (~1600–1800 ppm). **Das beweist, dass die HW-Uhr die
+erwarteten DFLL-vs-XOSC1-Drift (~1600–1800 ppm). **Das beweist, dass die HW-Uhr die
 stabilere ist.** **Bei Fehlschlag:** Sprünge/Nichtmonotonie → 64-bit-OVF-Race (Hi/Lo/Hi-Lesung,
 `READSYNC`).
 
@@ -230,7 +229,7 @@ Waveform-Glitch), oder 2-Kanal-Redundanz; **2.21.1** EVSYS **async**; **2.21.9**
 
 ## Definition of Done
 Die Kette gilt als funktionsfähig, wenn **Schritt 1–9 PASS** sind (10 optional):
-- XOSC0 (≈12 MHz) → DPLL1 (≈192 MHz, LOCK) → TC2 (96 MHz, 64-bit) laufen,
+- XOSC1 (≈12 MHz) → DPLL1 (≈192 MHz, LOCK) → TC2 (96 MHz, 64-bit) laufen,
 - die HW-Uhr ist auf PC-Zeit **synchronisiert** (Phase) **und syntonisiert** (Frequenz,
   Holdover ≤ ~2,5 µs/s),
 - ein **PPS am Pin** liegt auf der NTP-Sekunde im 10–100-µs-Fenster (Scope/Tap),
@@ -239,8 +238,8 @@ Die Kette gilt als funktionsfähig, wenn **Schritt 1–9 PASS** sind (10 optiona
 ## Ablaufdiagramm
 ```mermaid
 flowchart TB
-  S0["0 · Voraussetzungen<br/>hwclk rev (Rev/LDO/XOSC0-Typ)"] --> S1
-  S1["1 · XOSC0 an<br/>hwclk xosc → 12 MHz (FREQM)"] --> S2
+  S0["0 · Voraussetzungen<br/>hwclk rev (Rev/LDO/XOSC1-Typ)"] --> S1
+  S1["1 · XOSC1 an<br/>hwclk xosc → 12 MHz (FREQM)"] --> S2
   S2["2 · DPLL1 → 192 MHz<br/>hwclk dpll → LOCK + FREQM"] --> S3
   S3["3 · GCLK→TC2 32-bit+OVF<br/>hwclk now / wrap → 96 MHz"] --> S4
   S4["4 · ntp_now_ns = HW-Uhr<br/>hwclk cmp vs SYS_TIME"] --> S5

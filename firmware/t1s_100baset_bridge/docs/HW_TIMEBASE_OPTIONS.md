@@ -22,9 +22,9 @@ exakten, zeitsynchronen Instanten treiben lassen.
 - Die lokale NTP-Zeit ist also ein **Rechenergebnis in Software**.
 
 **Taktwurzel-Problem.** Der ganze Taktbaum wurzelt im **open-loop DFLL48M** (DPLL0
-×120 → 120 MHz; GCLK1 = 60 MHz → TC0). Roh-Drift **~1800 ppm**. Der fitted
-**12-MHz-MEMS-Oszillator (XOSC0)** der Curiosity-Ultra ist **nicht** als Taktquelle
-gewählt.
+×120 → 120 MHz; GCLK1 = 60 MHz → TC0). Roh-Drift **~1800 ppm**. Der bestückte
+**12-MHz-MEMS-Oszillator** (`DSC6003C12A` an **XIN1/PB22** = **XOSC1**, externer CMOS-Takt,
+`XTALEN=0`) der Curiosity-Ultra ist **nicht** als Taktquelle gewählt.
 
 **Das eigentliche Problem.** Ein *Software*-Zeitwert kann **nichts auslösen**: kein
 ADC sampelt, kein GPIO toggelt, kein PWM-Flankenzeitpunkt liegt auf einem
@@ -40,7 +40,7 @@ und dieser Zähler muss **synchronisiert (Phase) und syntonisiert (Frequenz)** s
 | # | Option | Rolle |
 |---|---|---|
 | **A** | **GMAC IEEE-1588 Timestamp Unit (TSU)** | disziplinierbare PTP-Hardware-Uhr + HW-Frame-Timestamps |
-| **B** | **Oszillator/PLL-disziplinierter Timer** (XOSC0-Wurzel + DPLL1→TC) | disziplinierte Hardware-Zeitbasis über die Taktquelle |
+| **B** | **Oszillator/PLL-disziplinierter Timer** (XOSC1-Wurzel + DPLL1→TC) | disziplinierte Hardware-Zeitbasis über die Taktquelle |
 | **C** | **Event System (EVSYS) als Fan-Out** | verteilt einen Timer-Compare CPU-frei an ADC/DAC/GPIO/PWM |
 
 Vorab die Kernaussage, die der Vergleich (§6) ausführt: **A und B sind Alternativen
@@ -134,7 +134,7 @@ NTP-Transport und DFLL-Wurzel — beide separat adressierbar.
 
 ---
 
-## 4. Option B — Oszillator/PLL-disziplinierter Timer (XOSC0 + DPLL1)
+## 4. Option B — Oszillator/PLL-disziplinierter Timer (XOSC1 + DPLL1)
 
 ### 4.1 Tiefenbohrung
 
@@ -153,8 +153,8 @@ NTP-Transport und DFLL-Wurzel — beide separat adressierbar.
 - f_CKR = 32,768 kHz, →120 MHz (×3662): ≈ **8,5 ppm/LSB**.
 
 **REFCLK & Eingangsgrenzen (DS §28.8.14 S.735, §28.2 S.696):**
-`DPLLnCTRLB.REFCLK` = GCLK(0)/XOSC32(1)/**XOSC0(2)**/XOSC1(3). **Erlaubter
-Referenzbereich 32 kHz…3,2 MHz.** ⇒ **XOSC0 12 MHz kann NICHT direkt** Referenz sein,
+`DPLLnCTRLB.REFCLK` = GCLK(0)/XOSC32(1)/XOSC0(2)/**XOSC1(3) ← unsere Quelle**. **Erlaubter
+Referenzbereich 32 kHz…3,2 MHz.** ⇒ **XOSC1 12 MHz kann NICHT direkt** Referenz sein,
 muss geteilt werden: `DPLLnCTRLB.DIV[10:0]`, f_DIV = f_XOSC/(2·(DIV+1)) (DS §28.6.5
 S.707). Z. B. DIV=127 → 12e6/256 ≈ 46,875 kHz.
 
@@ -165,32 +165,32 @@ Fractional-Mode hat „negative impact on jitter" (DS §28.6.5 S.704) — für e
 TC-Zeitbasis tolerierbar (mittelt sich).
 
 **GCLK-Routing (DS §14, Table 14-4 S.154, S.157–158):** `GENCTRLn.SRC`:
-XOSC0=0x0, **DPLL0=0x07, DPLL1=0x08**. Teiler `DIV`+`DIVSEL`. Peripheral-Channels:
+XOSC1=0x1, **DPLL0=0x07, DPLL1=0x08**. Teiler `DIV`+`DIVSEL`. Peripheral-Channels:
 **GCLK_TC0,TC1 = Index 9**; GCLK_DPLL1 = Index 2; GCLK_DPLLn_32K = Index 3.
 
 **FREQM (DS §30):** misst f_MSR = (VALUE/REFNUM)·f_REF, **VALUE 24 bit** (S.770),
 REFNUM 1…255 (S.764), Referenz muss langsamer als Messtakt sein (S.758) — zum
-**Charakterisieren** von XOSC0/DPLL gegen XOSC32K geeignet.
+**Charakterisieren** von XOSC1/DPLL gegen XOSC32K geeignet.
 
 ### 4.2 Analyse
 Frequenz-Disziplinierung ist der **richtige Hebel** (ein HW-nachführbar getakteter TC
 kann triggern, die reine Software-Addition nicht). **Größter Nachteil:** DPLL0 nudgen
 würde **CPU/Bus/alle Takte** mitverschieben → **dedizierte DPLL1** verwenden. **Auflösungslimit:**
-~12 ppm/LSB (XOSC0÷256) = über 1 s ~12 µs Quantisierung — am oberen Zielrand; Rest in
+~12 ppm/LSB (XOSC1÷256) = über 1 s ~12 µs Quantisierung — am oberen Zielrand; Rest in
 **Software (s_rate_ppb)** oder per **Sigma-Delta-Dither** zwischen zwei LDRFRAC-Werten
-unter ~1 ppm drücken. **Wurzelwechsel auf XOSC0 allein bringt am meisten:** MEMS-Quarz
+unter ~1 ppm drücken. **Wurzelwechsel auf XOSC1 allein bringt am meisten:** MEMS-Oszillator
 ~±20–50 ppm statt open-loop-DFLL ~1800 ppm → **~50× weniger Roh-Drift, ganz ohne PLL-Tuning.**
 
 ### 4.3 Synthese — konkrete Vorgehensweise
 **Stufe (a) — Roh-Drift senken (Pflicht-Basismaßnahme, reine Clock-Init-Änderung):**
-1. `OSCCTRL->XOSCCTRL[0]`: ENABLE/XTALEN, IMULT/IPTAT für 8–16 MHz (Table 28-7 S.725),
-   auf `STATUS.XOSCRDY0` warten.
-2. DPLL0 von XOSC0 referenzieren: REFCLK=XOSC0, DIV so dass f_CKR ≤ 3,2 MHz (z. B.
-   DIV=1 → 3 MHz), LDR auf 120 MHz (LDR=39). → CPU/Bus/TC0 wurzeln im **Quarz**; die
+1. `OSCCTRL->XOSCCTRL[1]`: nur **ENABLE** (External-Clock-Mode, **`XTALEN=0`** — MEMS-Takt,
+   kein IMULT/IPTAT nötig), auf `STATUS.XOSCRDY1` warten.
+2. DPLL0 von XOSC1 referenzieren: REFCLK=XOSC1, DIV so dass f_CKR ≤ 3,2 MHz (z. B.
+   DIV=1 → 3 MHz), LDR auf 120 MHz (LDR=39). → CPU/Bus/TC0 wurzeln im **MEMS-Takt**; die
    bestehende Software-NTP-Korrektur muss nur noch ~30 ppm statt ~1800 ppm wegregeln.
 
 **Stufe (b) — disziplinierter Timing-TC über DPLL1 (für HW-Trigger an NTP-Instanten):**
-3. **DPLL1** aus XOSC0, REFCLK=XOSC0, DIV=127 (→ ~47 kHz für ppm-Auflösung), `LTIME=0`,
+3. **DPLL1** aus XOSC1, REFCLK=XOSC1, DIV=127 (→ ~47 kHz für ppm-Auflösung), `LTIME=0`,
    FILTER moderat; GCLK_DPLL1_32K-Lock-Takt (PCHCTRL Index 3) bereitstellen; LDR auf
    z. B. 96 MHz; auf LOCK warten.
 4. Dedizierten GCLK (`SRC=DPLL1`) auf ein **32-bit-TC-Paar** (TC0+TC1, GCLK Index 9)
@@ -202,17 +202,16 @@ unter ~1 ppm drücken. **Wurzelwechsel auf XOSC0 allein bringt am meisten:** MEM
 7. Optional: **FREQM** (MSR=DPLL1, REF=XOSC32K) zum Verifizieren nach jedem Nudge.
 
 ### 4.4 Beurteilung
-**Stufe (a) allein:** Roh-Drift **~1800 ppm → ~±20–50 ppm** (Quarz über Temperatur),
+**Stufe (a) allein:** Roh-Drift **~1800 ppm → ~±20–50 ppm** (MEMS über Temperatur),
 kurzfristig < 1 ppm; Holdover über 1 s ~20–50 µs worst-case, bei stabiler Temperatur
 < 1 µs → **bringt 10–100 µs schon in Reichweite, ohne jedes PLL-Tuning.** **Stufe (a)+(b):**
 Frequenzfehler aktiv weggeregelt; limitierend wird die **NTP-Transportmessung** (~hunderte
 µs), nicht der Oszillator. LDRFRAC-Granularität (~12 ppm/LSB) reicht mit Software-Feintrim.
 **Aufwand:** (a) gering, **stark empfohlen als Erstmaßnahme**; (b) mittel–hoch (DPLL1 +
 Lock-GCLK + 32-bit-TC + ppb→LDRFRAC-Regler + Compare-Retargeting + Dither). **Risiken:**
-CPU-Kopplung (gebannt durch DPLL1-Nutzung), Fractional-Jitter, **Board-Risiko: ist XOSC0
-ein Quarz (XIN/XOUT, XTALEN=1) oder ein MEMS/CMOS-Clock-Out (externer Takt, XTALEN=0)?
-→ Curiosity-Ultra-Schaltplan prüfen.** Fallback ohne XOSC0: DPLL closed-loop gegen
-XOSC32K (besser als DFLL, schlechtere Kurzzeitstabilität).
+CPU-Kopplung (gebannt durch DPLL1-Nutzung), Fractional-Jitter. **Board-Frage geklärt
+(Schaltplan):** XOSC1 ist ein **MEMS/CMOS-Clock-Out** (`DSC6003C12A`, externer Takt,
+**`XTALEN=0`**, XIN1/PB22/Pin 97) — kein Quarz. Damit entfällt der XOSC32K-Fallback.
 
 ---
 
@@ -290,31 +289,31 @@ ideale, CPU-freie Fan-Out (ns-Zusatzjitter).
 
 ## 6. Vergleich der drei Möglichkeiten
 
-| Kriterium | **A — GMAC-TSU** | **B — XOSC0 + DPLL1-TC** | **C — EVSYS** |
+| Kriterium | **A — GMAC-TSU** | **B — XOSC1 + DPLL1-TC** | **C — EVSYS** |
 |---|---|---|---|
 | **Rolle** | disziplinierte HW-Uhr **+ HW-Frame-Timestamps** | disziplinierte HW-Zeitbasis (Taktquelle) | **Fan-Out** (Trigger-Verteilung) |
 | **Phasen-Stellglied** | `TA` (1 ns, atomar) | TC-COUNT-Reload / Compare-Retarget | — |
 | **Frequenz-Stellglied** | `TI`/`TISUBN` (~0,9 ppb/LSB, 15 fs) | DPLL1 `LDRFRAC` (~12 ppm/LSB) + SW-Sub-LSB | — |
-| **Roh-Drift behoben?** | **nein** (MCK bleibt DFLL) | **ja** — Stufe (a): XOSC0 → ~30 ppm | nein |
+| **Roh-Drift behoben?** | **nein** (MCK bleibt DFLL) | **ja** — Stufe (a): XOSC1 → ~30 ppm | nein |
 | **HW-Frame-Timestamps** | **ja** (SFD-genau, TX/RX) | nein | nein |
 | **Peripherie-Trigger** | nur via EVSYS (GTSUCOMP) | TC-Compare → EVSYS / WO-Pin | **das ist seine Funktion** |
 | **Compare/Trigger-Quellen** | **1 Slot** | viele (TC/TCC CCx) | 32 Kanäle |
 | **Aufwand** | mittel | (a) gering / (b) mittel–hoch | gering |
 | **Erreichbar (HW)** | sub-µs | (a) 10–100 µs sofort / (b) < µs | ns (Pfad selbst) |
-| **Hauptlimit** | MCK-Wurzel (DFLL), 1 Compare, kein PPS-Pin | LDRFRAC-Quantisierung, DPLL-Jitter, Board-XOSC0? | braucht A **oder** B |
+| **Hauptlimit** | MCK-Wurzel (DFLL), 1 Compare, kein PPS-Pin | LDRFRAC-Quantisierung, DPLL-Jitter, Board-XOSC1? | braucht A **oder** B |
 
 ### 6.1 Wie die drei zusammenspielen
 - **A und B sind Alternativen für die disziplinierte Uhr** — beide liefern einen
   Hardware-Zähler, dessen Stand = synchronisierte Zeit.
 - **C ist kein Konkurrent**, sondern der **Verteilmechanismus**, den **A und B beide
   brauchen**, um ADC/DAC/GPIO/PWM zu treiben. Allein bringt C keine Genauigkeit.
-- **B-Stufe (a) (XOSC0-Wurzel) ist orthogonal und nützt allen drei**: A's TSU läuft auf
-  MCK; ohne XOSC0 muss A's Servo 1800 ppm wegregeln, mit XOSC0 nur ~30 ppm. C's Trigger
-  driften ohne XOSC0 zwischen den Syncs.
+- **B-Stufe (a) (XOSC1-Wurzel) ist orthogonal und nützt allen drei**: A's TSU läuft auf
+  MCK; ohne XOSC1 muss A's Servo 1800 ppm wegregeln, mit XOSC1 nur ~30 ppm. C's Trigger
+  driften ohne XOSC1 zwischen den Syncs.
 
 ### 6.2 Optimale Kombination (Empfehlung)
 ```
-B(a) XOSC0 als Taktwurzel      →   A  GMAC-TSU als PTP-Uhr (+ HW-Timestamps)
+B(a) XOSC1 als Taktwurzel      →   A  GMAC-TSU als PTP-Uhr (+ HW-Timestamps)
    (Roh-Drift ~50× runter)          (Phase=TA, Rate=TI/TISUBN, t1..t4 in HW)
                                           │  GTSUCOMP
                                           ▼
@@ -329,10 +328,10 @@ Das ist der **PTP-Standardweg** und passt zur Richtung des `net_10base_t1s`-Proj
 > [HW_TIMEBASE_BRINGUP_STEPS.md](HW_TIMEBASE_BRINGUP_STEPS.md).
 
 ### 6.3 Roadmap nach Aufwand/Wirkung
-1. **Sofort — B-Stufe (a): XOSC0 als Taktwurzel.** Reine Clock-Init-Änderung in
+1. **Sofort — B-Stufe (a): XOSC1 als Taktwurzel.** Reine Clock-Init-Änderung in
    `plib_clock.c`, größter Gewinn/Aufwand: Roh-Drift ~1800 ppm → ~30 ppm, bringt 10–100 µs
-   in Reichweite und verbessert **alles** (auch A und C). **Vorab Schaltplan prüfen**
-   (XOSC0 Quarz vs. externer Takt).
+   in Reichweite und verbessert **alles** (auch A und C). **Schaltplan geklärt:** XOSC1 =
+   externer 12-MHz-MEMS-Takt (`XTALEN=0`).
 2. **Für getriggerte Peripherie — C: EVSYS verdrahten** (TC/TCC-Compare → ADC/DAC/PWM/GPIO).
 3. **Für die beste Uhr + Ethernet-HW-Timestamps (PTP-Pfad) — A: GMAC-TSU** als
    disziplinierte Uhr; Servo auf `TA`/`TI`; NTP-Frames HW-stempeln.

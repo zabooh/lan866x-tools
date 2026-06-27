@@ -1,6 +1,6 @@
 # NTP-tunebarer Hardware-Takt (Option B-b) + Peripherie-Trigger (Option C) — Implementierung
 
-Konkrete Umsetzungsbeschreibung: wie aus **XOSC0 + DPLL1 + einem dedizierten TC** ein
+Konkrete Umsetzungsbeschreibung: wie aus **XOSC1 + DPLL1 + einem dedizierten TC** ein
 **in Frequenz nachführbarer Hardware-Zeitzähler** entsteht, dessen Stand = die
 synchronisierte NTP-Zeit ist, und wie damit über **EVSYS** ADC/DAC/GPIO/PWM exakt zu
 NTP-Instanten getrieben werden.
@@ -47,7 +47,7 @@ TC-plib); **`TC2/TC3`, `TC4/TC5`, `TC6/TC7` frei**; **DPLL1 frei** (nur DPLL0 in
 
 ### 1.1 Die Kette
 ```
-XOSC0 (12 MHz MEMS)                      Stellgröße FREQUENZ (Hardware)
+XOSC1 (12 MHz MEMS)                      Stellgröße FREQUENZ (Hardware)
    │  ÷ (DPLLCTRLB.DIV) → ~32 kHz Ref            │
    ▼                                             ▼
 DPLL1  f = f_ref × (LDR+1 + LDRFRAC/32)  ──  LDRFRAC nudge pro Sync
@@ -69,7 +69,7 @@ GCLK_x = 96 MHz ──► PCHCTRL[26] ──► TC2(+TC3) 32-bit, free-running
 Dieselbe Kette als Mermaid:
 ```mermaid
 flowchart TB
-  XOSC0["XOSC0<br/>12 MHz MEMS"]
+  XOSC1["XOSC1<br/>12 MHz MEMS"]
   DPLL1["DPLL1 (FDPLL)<br/>f = f_ref × (LDR+1 + LDRFRAC/32)<br/>≈ 192 MHz"]
   GCLK["GCLK_x<br/>96 MHz"]
   TC2["TC2 (+TC3) 32-bit · free-running<br/>COUNT = synchronisierte Zeit (low 32)<br/>+ SW-High-Word (OVF-ISR) = 64-bit"]
@@ -81,7 +81,7 @@ flowchart TB
   FREQ[["Stellgröße FREQUENZ (Hardware):<br/>LDRFRAC-Nudge pro Sync"]]
   PHASE[["Stellgröße PHASE (Software):<br/>Offset im Lese-/CC-Pfad"]]
 
-  XOSC0 -->|"÷ DPLLCTRLB.DIV → ~32 kHz Ref"| DPLL1
+  XOSC1 -->|"÷ DPLLCTRLB.DIV → ~32 kHz Ref"| DPLL1
   DPLL1 -->|"GCLK-Gen: SRC=DPLL1, ÷2"| GCLK
   GCLK -->|"PCHCTRL[26]"| TC2
   TC2 --> NOW
@@ -116,11 +116,11 @@ unabhängig** und wird hier exklusiv für die NTP-Zeitbasis verwendet — CPU bl
 
 ## 2. Vorgehensweise (Konzept)
 
-1. **XOSC0 als Taktquelle in Betrieb nehmen** (einmalig). *Optionale Basismaßnahme aus
-   Option B-a:* zusätzlich DPLL0-Referenz auf XOSC0 legen → senkt die Roh-Drift des
-   **gesamten** Systems von ~1800 ppm auf ~30 ppm. Für B-b genügt zunächst, dass XOSC0
+1. **XOSC1 als Taktquelle in Betrieb nehmen** (einmalig). *Optionale Basismaßnahme aus
+   Option B-a:* zusätzlich DPLL0-Referenz auf XOSC1 legen → senkt die Roh-Drift des
+   **gesamten** Systems von ~1800 ppm auf ~30 ppm. Für B-b genügt zunächst, dass XOSC1
    läuft (es speist DPLL1).
-2. **DPLL1 aufsetzen:** Referenz = XOSC0÷(→~32 kHz), Verhältnis auf ~192 MHz, **`LTIME=0`
+2. **DPLL1 aufsetzen:** Referenz = XOSC1÷(→~32 kHz), Verhältnis auf ~192 MHz, **`LTIME=0`
    (Auto-Lock)**, Lock-Timer-Takt (`PCHCTRL[3]`) bereitstellen — Voraussetzung für
    störungsfreie On-the-fly-Updates.
 3. **GCLK-Generator** mit `SRC=DPLL1`, `÷2` → 96 MHz, auf **`PCHCTRL[26]` (TC2/TC3)** routen.
@@ -145,7 +145,7 @@ unabhängig** und wird hier exklusiv für die NTP-Zeitbasis verwendet — CPU bl
 | **Holdover/Sync ohne Dither** | **≤ ~2,5 µs/s** | halbes LSB (≤2,5 ppm) × 1 s |
 | **Holdover/Sync mit Sigma-Delta** | **< 1 µs/s** | mittlere Rate < 0,5 ppm |
 | **Trigger-Jitter (EVSYS-Pfad)** | **~10–20 ns** | async ns + 1 TC-Takt Quantisierung |
-| **Roh-Drift (XOSC0 statt DFLL)** | **~±30 ppm** statt ~1800 ppm | MEMS-Quarz über Temperatur |
+| **Roh-Drift (XOSC1 statt DFLL)** | **~±30 ppm** statt ~1800 ppm | MEMS-Oszillator über Temperatur |
 | **Unabhängige Trigger** | viele | TC2 CC0/CC1 + weitere TC/TCC, 32 EVSYS-Kanäle |
 
 **Ergebnis:** Das **10–100-µs-Ziel wird mit Reserve erreicht** — schon „nächstes LDRFRAC
@@ -160,25 +160,27 @@ GPIO relativ zur lokalen NTP-Zeit) ist die Zeitbasis selbst weit besser als das 
 
 ### 4.1 Taktkette aufsetzen (einmalig, z. B. neues `hwclock_init()`)
 
-**(a) XOSC0 aktivieren** (12 MHz, Quarz-Annahme — *vorher Schaltplan prüfen, siehe Risiko R1*):
+**(a) XOSC1 aktivieren** — **Schaltplan-bestätigt:** 12-MHz-**MEMS-Oszillator** `DSC6003C12A`
+(aktiver CMOS-Takt, kein Quarz) speist **XIN1 / PB22 / Pin 97** ⇒ **External-Clock-Mode,
+`XTALEN=0`** (R1 gelöst):
 ```c
-OSCCTRL_REGS->XOSCCTRL[0] = OSCCTRL_XOSCCTRL_ENABLE_Msk
-                          | OSCCTRL_XOSCCTRL_XTALEN_Msk          /* Quarz an XIN/XOUT */
-                          | OSCCTRL_XOSCCTRL_IMULT(4U)           /* 8–16 MHz: IMULT=4 */
-                          | OSCCTRL_XOSCCTRL_IPTAT(3U)
-                          | OSCCTRL_XOSCCTRL_ENALC_Msk
-                          | OSCCTRL_XOSCCTRL_STARTUP(8U);
-while ((OSCCTRL_REGS->OSCCTRL_STATUS & OSCCTRL_STATUS_XOSCRDY0_Msk) == 0U) {}
+/* XOSC1 = externer 12-MHz-Takt an XIN1 (PB22). KEIN Quarz → XTALEN=0,
+ * kein IMULT/IPTAT/ENALC (das sind reine Quarz-Amplitudenparameter). */
+OSCCTRL_REGS->XOSCCTRL[1] = OSCCTRL_XOSCCTRL_ENABLE_Msk
+                          | OSCCTRL_XOSCCTRL_STARTUP(0U);   /* ext. Takt: minimaler Startup */
+while ((OSCCTRL_REGS->OSCCTRL_STATUS & OSCCTRL_STATUS_XOSCRDY1_Msk) == 0U) {}
 ```
-> Ist XOSC0 ein **externer MEMS/CMOS-Takt** (kein Quarz): `XTALEN=0`, Takt an XIN. (R1)
+> Hinweis: `XOSCCTRL` ist ein **Array** — Index **`[1]`** = XOSC1. Der 32,768-kHz-Zweig
+> (`Y400 DSC6083CE2A`) ist ebenfalls ein MEMS-Takt; als FREQM-Referenz ggf. XOSC32K
+> (`XOSC32KCTRL`, `XTALEN=0`) statt der internen OSCULP32K nutzen.
 
-**(b) DPLL1 konfigurieren** (Ref ≈ 32 kHz aus XOSC0, ~192 MHz Ausgang, On-the-fly-fähig):
+**(b) DPLL1 konfigurieren** (Ref ≈ 32 kHz aus XOSC1, ~192 MHz Ausgang, On-the-fly-fähig):
 ```c
 /* Lock-Timer-Takt für DPLL1 (PCHCTRL[3] = GCLK_OSCCTRL_FDPLL1_32K) aus einem 32k-Gen */
 GCLK_REGS->GCLK_PCHCTRL[3] = GCLK_PCHCTRL_GEN(0x?U) | GCLK_PCHCTRL_CHEN_Msk;  /* 32k-Generator */
 
 OSCCTRL_REGS->DPLL[1].OSCCTRL_DPLLCTRLB =
-        OSCCTRL_DPLLCTRLB_REFCLK(2U)        /* 2 = XOSC0 */
+        OSCCTRL_DPLLCTRLB_REFCLK(3U)        /* 3 = XOSC1 */
       | OSCCTRL_DPLLCTRLB_DIV(186U)         /* f_ref = 12e6 / (2*(186+1)) ≈ 32,09 kHz */
       | OSCCTRL_DPLLCTRLB_LTIME(0U)         /* Auto-Lock → Voraussetzung On-the-fly */
       | OSCCTRL_DPLLCTRLB_FILTER(0U);
@@ -349,7 +351,7 @@ Wahrscheinlichkeit **W** und Auswirkung **A** je 1–5; **R = W×A**; Ampel:
 
 | # | Risiko | W | A | R | Ampel | Gegenmaßnahme |
 |---|---|--:|--:|--:|:--:|---|
-| **R1** | **XOSC0 ist gar kein nutzbarer Quarz/Takt** am SAME54 (Pin nicht geroutet, oder MEMS-Clock-Out statt Quarz → `XTALEN` falsch) | 3 | 5 | 15 | 🔴 | **Zuerst** Curiosity-Ultra-Schaltplan (`firmware/.../Curiosity/`) prüfen: XIN/XOUT-Routing, Quarz vs. CMOS-Out. Fallback: DPLL1 closed-loop gegen XOSC32K (32,768 kHz, meist bestückt). |
+| **R1** | ~~XOSC1 ist kein nutzbarer Takt~~ — **GELÖST** (Schaltplan geprüft) | 1 | 5 | 5 | 🟢 | **Geklärt:** 12-MHz-**MEMS-Oszillator** `DSC6003C12A` (aktiver CMOS-Takt) an **XIN1/PB22/Pin 97** ⇒ External-Clock-Mode **`XTALEN=0`**, `XOSCCTRL[1]`, `XOSCRDY1`. Quelle & Routing bestätigt; kein Quarz-Bring-up nötig. Fallback (XOSC32K) entfällt. |
 | **R2** | **CPU-Takt-Kopplung** — versehentlich DPLL0/GCLK0 verändert | 2 | 5 | 10 | 🟡 | Strikt nur **DPLL1** + freier GCLK-Gen + freier PCHCTRL[26] anfassen; DPLL0/GCLK0/1/2 read-only behandeln; Code-Review der Clock-Init. |
 | **R3** | **TC-Kollision** — gewählter TC doch anderweitig genutzt | 2 | 4 | 8 | 🟡 | TC0=SYS_TIME meiden; **TC2/TC3** gewählt (im Projekt 0 Referenzen); vor Merge `grep -r 'TC2_\|TC3_'` gegen die LAN865x-/PWM-Pfade. Alternativen TC4/5, TC6/7. |
 | **R4** | **LDRFRAC-Raster zu grob** (~5 ppm/LSB) für engeres Ziel | 3 | 2 | 6 | 🟢 | Sigma-Delta-Dither (4.3) → mittlere Rate <0,5 ppm; ggf. f_ref kleiner (näher 32 kHz) / f_DPLL höher (näher 200 MHz). |
@@ -360,17 +362,19 @@ Wahrscheinlichkeit **W** und Auswirkung **A** je 1–5; **R = W×A**; Ampel:
 | **R9** | **64-bit-OVF-Race** beim Lesen über den Überlauf | 2 | 3 | 6 | 🟢 | Hi/Lo/Hi-Doppellesung (4.2); OVF-ISR kurz halten; `READSYNC` vor COUNT-Lesen. |
 | **R10** | **NTP-Transport bleibt der Engpass** (~hunderte µs) — HW-Uhr besser als die Sync-Quelle | 4 | 2 | 8 | 🟡 | Für *lokale* getriggerte I/O irrelevant (Zeitbasis ist lokal exakt). Für *Leitungs*-Sync <10 µs separat HW-Frame-Timestamping (Option A / PTP, `net_10base_t1s`) verfolgen. |
 | **R11** | **Anti-Windup/Stabilität** der Regelschleife (5-bit-Sättigung) | 2 | 3 | 6 | 🟢 | LDRFRAC-Sättigung als Windup-Grenze behandeln; wenn dauerhaft am Anschlag → LDR-Arbeitspunkt (offline) nachziehen; Ki konservativ (wie heute 1/4). |
-| **R12** | **XOSC0-Startup/Stabilität** (kalt, Temperatur) | 2 | 2 | 4 | 🟢 | Großzügige `STARTUP`-Zeit, `ENALC` (Amplitude-Loop), `XOSCRDY0` abwarten; Drift-Holdover deckt kurze Aussetzer. |
+| **R12** | **XOSC1-Startup/Stabilität** (kalt, Temperatur) | 2 | 2 | 4 | 🟢 | `XOSCRDY1` abwarten; bei MEMS-Takt entfällt Quarz-Startup (kein `ENALC`/Amplitude-Loop); Drift-Holdover deckt kurze Aussetzer. MEMS-Frequenzstabilität typ. ±20–50 ppm über Temperatur. |
 
-**Top-Risiken:** **R1** (XOSC0 überhaupt nutzbar? — 🔴, zuerst klären), dann **R8**
-(Wrap-Race) und **R7** (MCC) — beide mit Standard-Mitteln beherrschbar.
+**Top-Risiken:** R1 ist **gelöst** (XOSC1-MEMS-Takt bestätigt). Verbleibend führend:
+**R8** (Wrap-Race), **R7** (MCC-Regenerierung) und **R2** (CPU-Takt-Kopplung) — alle
+mit Standard-Mitteln beherrschbar.
 
 ---
 
 ## 6. Umsetzungsreihenfolge (Milestones)
 
-1. **M0 — XOSC0 verifizieren (R1).** Schaltplan + ein Minimal-Bring-up: XOSC0 an, mit
-   **FREQM** gegen XOSC32K messen → bestätigt Quelle & Frequenz. *Gate für alles Weitere.*
+1. **M0 — XOSC1 verifizieren (R1, Schaltplan ✓).** Quelle bereits geklärt (MEMS an XIN1).
+   Verbleibt der Bring-up-Test: XOSC1 an (`XTALEN=0`), mit **FREQM** gegen XOSC32K messen →
+   bestätigt die laufende 12-MHz-Frequenz. *Gate für alles Weitere.*
 2. **M1 — DPLL1 + GCLK + TC2 (4.1).** TC2-Frei­lauf + 64-bit-OVF; `ntp_now_ds`-Plausibilität
    gegen das alte SYS_TIME (sollten parallel laufen).
 3. **M2 — Lesepfad umstellen (4.2).** `ntp_now_ns()` liest TC2; CLI `ntp` zeigt Frequenz/
@@ -379,7 +383,7 @@ Wahrscheinlichkeit **W** und Auswirkung **A** je 1–5; **R = W×A**; Ampel:
    sinkende `drift`/`mean`; Holdover messen (Sync aussetzen lassen).
 5. **M4 — EVSYS-Fan-Out (4.4).** Erst GPIO-Toggle zur NTP-Sekunde (Oszilloskop gegen PC-PPS),
    dann ADC-START, dann PWM-Phasenlage.
-6. **M5 — Optional B-a:** DPLL0-Wurzel ebenfalls auf XOSC0 → senkt System-Roh-Drift global.
+6. **M5 — Optional B-a:** DPLL0-Wurzel ebenfalls auf XOSC1 → senkt System-Roh-Drift global.
 
 > Querverweis: die übergeordnete Optionsbewertung und der Vergleich mit Option A
 > (GMAC-1588-TSU) stehen in [HW_TIMEBASE_OPTIONS.md](HW_TIMEBASE_OPTIONS.md).
@@ -404,8 +408,8 @@ LDO-Mode**. Einzige Vorab-Prüfung: die **Silizium-Revision** (für 2.13.1).
 | **2.20.1** | TC | alle | CCBUF-Reuse (4.4a) | Coding-Detail | Beim Löschen von `STATUS.CCBUFV` wird SYNCBUSY zu früh frei → **STATUS-Flag 2× clearen** vor erneutem CCBUF-Schreiben. |
 | **2.20.4 / 2.21.11** | TC/TCC | alle | nur **Capture**-Mode | n/a | TC2 läuft im **Compare**-Mode → nicht betroffen. Falls später Input-Capture (PPS-Phasenmessung): MC-Flags per SW clearen. |
 | **2.21.9** | TCC | alle | TCC-Coding | trivial | Keine 8/16-bit-Writes auf `STATUS` (32-bit nutzen). |
-| **2.28.1 / 2.28.2 + 2.15.1** | FREQM/PAC | alle | **nur M0** (XOSC0-Messung) | kein Blocker | DONE-IRQ kann verloren gehen (Ref-Periode > 4 APB), kein Timeout (SW-Timeout beim `BUSY`-Pollen), `FREQM.CTRLB` nicht lesen (PAC-Error). |
-| **2.27.1** | OSCCTRL | alle | nur falls CFD auf XOSC0 | n/a | Clock-Switch-Back-Limit. CFD ist optional; wird CFD nicht genutzt (`CFDEN=0`) → irrelevant. |
+| **2.28.1 / 2.28.2 + 2.15.1** | FREQM/PAC | alle | **nur M0** (XOSC1-Messung) | kein Blocker | DONE-IRQ kann verloren gehen (Ref-Periode > 4 APB), kein Timeout (SW-Timeout beim `BUSY`-Pollen), `FREQM.CTRLB` nicht lesen (PAC-Error). |
+| **2.27.1** | OSCCTRL | alle | nur falls CFD auf XOSC1 | n/a | Clock-Switch-Back-Limit. CFD ist optional; wird CFD nicht genutzt (`CFDEN=0`) → irrelevant. |
 
 **Aktionspunkte aus den Errata:**
 1. **2.13.2** → erledigt (4.3 wartet auf `INTFLAG.DPLLnLDRTO`).
@@ -425,7 +429,7 @@ LDO-Mode**. Einzige Vorab-Prüfung: die **Silizium-Revision** (für 2.13.1).
 ```mermaid
 flowchart TB
   subgraph TAKT["Taktkette (Hardware)"]
-    XOSC0["XOSC0 12 MHz<br/>(MEMS/Quarz)"] -->|"DIV → ~32 kHz"| DPLL1["DPLL1 (FDPLL)<br/>LDR fix · LDRFRAC tunebar<br/>≈ 192 MHz"]
+    XOSC1["XOSC1 12 MHz<br/>(MEMS, ext. Takt)"] -->|"DIV → ~32 kHz"| DPLL1["DPLL1 (FDPLL)<br/>LDR fix · LDRFRAC tunebar<br/>≈ 192 MHz"]
     DPLL1 -->|"GCLK ÷2"| GCLK["GCLK 96 MHz"]
     GCLK -->|"PCHCTRL[26]"| TC2["TC2/TC3 32-bit<br/>free-running<br/>COUNT = Zeit (low 32)"]
   end
