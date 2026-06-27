@@ -50,7 +50,8 @@ static int               s_tc2_ready = 0;
 
 static void gclk_sync(void)
 {
-    while (GCLK_REGS->GCLK_SYNCBUSY != 0u) { /* wait for GENCTRL writes */ }
+    uint32_t g = 0u;   /* bounded: a generator sourced from a dead clock never syncs */
+    while ((GCLK_REGS->GCLK_SYNCBUSY != 0u) && ++g < 1000000u) { }
 }
 
 /* Enable XOSC1 (12 MHz external MEMS at XIN1/PB22, XTALEN=0). Returns 1 if ready. */
@@ -216,12 +217,18 @@ static int ensure_dpll1(void)
 
     OSCCTRL_REGS->DPLL[1].OSCCTRL_DPLLCTRLA = 0u;
     while (OSCCTRL_REGS->DPLL[1].OSCCTRL_DPLLSYNCBUSY & OSCCTRL_DPLLSYNCBUSY_ENABLE_Msk) { }
+    /* Rev A/D errata 2.13.1: the FDPLL can false-unlock even with a stable output, which
+     * GATES OFF the clock. The full workaround is BOTH LBYPASS=1 AND WUF=1 - that
+     * decouples the output from the lock status so the clock keeps running through a
+     * (transient) unlock. WUF was the missing piece that killed DPLL1 on on-the-fly
+     * LDRFRAC changes. Gate on CLKRDY (not LOCK), then 10 ms settle (errata pseudo-code). */
     OSCCTRL_REGS->DPLL[1].OSCCTRL_DPLLCTRLB =
           OSCCTRL_DPLLCTRLB_REFCLK(OSCCTRL_DPLLCTRLB_REFCLK_XOSC1_Val)
         | OSCCTRL_DPLLCTRLB_DIV(HWCLK_DPLL1_DIV)
         | OSCCTRL_DPLLCTRLB_LTIME(0U)
         | OSCCTRL_DPLLCTRLB_FILTER(0U)
-        | OSCCTRL_DPLLCTRLB_LBYPASS_Msk;          /* errata 2.13.1 (rev A/D) */
+        | OSCCTRL_DPLLCTRLB_LBYPASS_Msk            /* errata 2.13.1 (rev A/D) */
+        | OSCCTRL_DPLLCTRLB_WUF_Msk;               /* errata 2.13.1 (rev A/D) - keep clock on unlock */
     OSCCTRL_REGS->DPLL[1].OSCCTRL_DPLLRATIO =
           OSCCTRL_DPLLRATIO_LDR(HWCLK_DPLL1_LDR) | OSCCTRL_DPLLRATIO_LDRFRAC(0U);
     while (OSCCTRL_REGS->DPLL[1].OSCCTRL_DPLLSYNCBUSY & OSCCTRL_DPLLSYNCBUSY_DPLLRATIO_Msk) { }
@@ -231,8 +238,23 @@ static int ensure_dpll1(void)
     uint32_t t0 = plat_now_ms();
     while (plat_now_ms() - t0 < 200u)
         if (OSCCTRL_REGS->DPLL[1].OSCCTRL_DPLLSTATUS & OSCCTRL_DPLLSTATUS_CLKRDY_Msk) break;
-    plat_sleep_ms(5);
+    plat_sleep_ms(10);
     return (OSCCTRL_REGS->DPLL[1].OSCCTRL_DPLLSTATUS & OSCCTRL_DPLLSTATUS_CLKRDY_Msk) ? 1 : 0;
+}
+
+/* Read the current DPLL1 LDRFRAC from the RATIO register (read-only diagnostic).
+ *
+ * NOTE - no runtime LDRFRAC writes: on rev A/D an on-the-fly DPLLRATIO write
+ * PERMANENTLY STALLS the DPLL1 output (verified on the board: TC2 freezes and does not
+ * recover), even with the full errata workarounds applied - 2.13.1 WUF+LBYPASS (keep
+ * the clock through a false-unlock) AND 2.13.2 (wait INTFLAG.DPLL1LDRTO for the ratio
+ * update). The on-the-fly ratio-change feature is effectively unusable on this silicon.
+ * Frequency discipline therefore stays in SOFTWARE (ntp_sync.c s_rate_ppb), which
+ * already nulls the residual drift in the read path. */
+static int hwclk_ldrfrac_get(void)
+{
+    return (int)((OSCCTRL_REGS->DPLL[1].OSCCTRL_DPLLRATIO & OSCCTRL_DPLLRATIO_LDRFRAC_Msk)
+                 >> OSCCTRL_DPLLRATIO_LDRFRAC_Pos);
 }
 
 static void cmd_dpll(void)
@@ -246,7 +268,7 @@ static void cmd_dpll(void)
     uint32_t st = OSCCTRL_REGS->DPLL[1].OSCCTRL_DPLLSTATUS;
     int lock = (st & OSCCTRL_DPLLSTATUS_LOCK_Msk) ? 1 : 0;
     unsigned long fref = 12000000UL / (2u * (HWCLK_DPLL1_DIV + 1u));
-    SYS_CONSOLE_PRINT("DPLL1 cfg  : REFCLK=XOSC1, DIV=%u (f_ref~%lu Hz), LDR=%u, LBYPASS (rev A/D)\r\n",
+    SYS_CONSOLE_PRINT("DPLL1 cfg  : REFCLK=XOSC1, DIV=%u (f_ref~%lu Hz), LDR=%u, LBYPASS+WUF (rev A/D)\r\n",
                       (unsigned)HWCLK_DPLL1_DIV, fref, (unsigned)HWCLK_DPLL1_LDR);
     SYS_CONSOLE_PRINT("DPLL1 lock : CLKRDY=%d LOCK=%d (status=0x%08lX)\r\n",
                       clkrdy, lock, (unsigned long)st);
@@ -336,12 +358,14 @@ void __attribute__((used)) TC2_Handler(void)
  * an overflow slipped in between (hi1 != hi2). */
 static uint64_t tc2_read64(void)
 {
-    uint32_t hi1, hi2, lo;
+    uint32_t hi1, hi2, lo, g;
     do {
         hi1 = s_tc2_hi;
         TC2_REGS->COUNT32.TC_CTRLBSET = (uint8_t)TC_CTRLBSET_CMD_READSYNC;
-        while (TC2_REGS->COUNT32.TC_SYNCBUSY & TC_SYNCBUSY_CTRLB_Msk) { }
-        while (TC2_REGS->COUNT32.TC_CTRLBSET & TC_CTRLBSET_CMD_Msk) { }
+        /* Bounded: if the TC2 GCLK is momentarily gone (DPLL1 disturbed) the READSYNC
+         * never completes - never spin forever, it would freeze the whole superloop. */
+        g = 0u; while ((TC2_REGS->COUNT32.TC_SYNCBUSY & TC_SYNCBUSY_CTRLB_Msk) && ++g < 200000u) { }
+        g = 0u; while ((TC2_REGS->COUNT32.TC_CTRLBSET & TC_CTRLBSET_CMD_Msk)   && ++g < 200000u) { }
         lo  = TC2_REGS->COUNT32.TC_COUNT;
         hi2 = s_tc2_hi;
     } while (hi1 != hi2);
@@ -436,6 +460,41 @@ static void cmd_cmp(uint32_t secs)
                                                          : "CHECK (drift outside expected DFLL band)"));
 }
 
+/* -------- step 6: frequency discipline (software) + read-only HW diagnostics --- */
+/* hwclk ldrfrac : read-only - current DPLL1 LDRFRAC + measured DPLL1 freq. Runtime
+ * LDRFRAC tuning is disabled on rev A/D (stalls the DPLL, see hwclk_ldrfrac_get). */
+static void cmd_ldrfrac(int argc, char **argv)
+{
+    (void)argc; (void)argv;
+    if (!hwclk_tc2_init()) { SYS_CONSOLE_PRINT("DPLL1 not up -> run 'hwclk dpll' first\r\n"); return; }
+    (void)enable_xosc32k();
+    uint64_t hz = freqm_measure_src(GCLK_GENCTRL_SRC_DPLL1_Val, 4u, GCLK_GENCTRL_SRC_XOSC32K_Val);
+    SYS_CONSOLE_PRINT("LDRFRAC    : %d / 31  (FIXED - on-the-fly tuning stalls DPLL on rev A/D)\r\n",
+                      hwclk_ldrfrac_get());
+    if (hz) {
+        long ppm = (long)(((int64_t)hz - 192000000LL) * 1000000LL / 192000000LL);
+        SYS_CONSOLE_PRINT("DPLL1 freq : %lu Hz  (%+ld ppm vs 192.000 MHz, XOSC32K ref)\r\n",
+                          (unsigned long)hz, ppm);
+    }
+    SYS_CONSOLE_PRINT("discipline : frequency is corrected in SOFTWARE (ntp s_rate_ppb) - see 'ntp'\r\n");
+}
+
+/* hwclk hold : measured physical TC2 rate vs XOSC32K (= the residual the software loop
+ * has to correct) and the implied free-running holdover. */
+static void cmd_hold(void)
+{
+    if (!hwclk_tc2_init()) { SYS_CONSOLE_PRINT("DPLL1 not up -> run 'hwclk dpll' first\r\n"); return; }
+    (void)enable_xosc32k();
+    uint64_t hz = freqm_measure_src(GCLK_GENCTRL_SRC_DPLL1_Val, 4u, GCLK_GENCTRL_SRC_XOSC32K_Val);
+    if (!hz) { SYS_CONSOLE_PRINT("hold: FREQM no XOSC32K reference\r\n"); return; }
+    uint64_t tc = hz / 2u;
+    long ppm = (long)(((int64_t)tc - 96000000LL) * 1000000LL / 96000000LL);
+    SYS_CONSOLE_PRINT("physical TC2 : %lu Hz  (%+ld ppm vs 96.000 MHz, vs XOSC32K)\r\n",
+                      (unsigned long)tc, ppm);
+    SYS_CONSOLE_PRINT("  the software NTP loop corrects this residual in the read path;\r\n");
+    SYS_CONSOLE_PRINT("  between-sync holdover ~= (locked osc.drift) x interval - see 'ntp' / 'ntp watch'.\r\n");
+}
+
 /* -------- dispatch + registration ----------------------------------------- */
 static void cmd_hwclk(SYS_CMD_DEVICE_NODE *pCmdIO, int argc, char **argv)
 {
@@ -452,7 +511,9 @@ static void cmd_hwclk(SYS_CMD_DEVICE_NODE *pCmdIO, int argc, char **argv)
         cmd_cmp((argc >= 3) ? (uint32_t)strtoul(argv[2], NULL, 10) : 0u);
         return;
     }
-    SYS_CONSOLE_PRINT("usage: hwclk <rev|xosc [ulp]|dpll|now|wrap|cmp [secs]>\r\n");
+    if (argc >= 2 && strcmp(argv[1], "ldrfrac") == 0) { cmd_ldrfrac(argc - 2, argv + 2); return; }
+    if (argc >= 2 && strcmp(argv[1], "hold") == 0)    { cmd_hold(); return; }
+    SYS_CONSOLE_PRINT("usage: hwclk <rev|xosc [ulp]|dpll|now|wrap|cmp [secs]|ldrfrac|hold>\r\n");
     SYS_CONSOLE_PRINT("  rev        - silicon revision (DSU DID) + regulator + errata gate (step 0)\r\n");
     SYS_CONSOLE_PRINT("  xosc [ulp] - enable XOSC1 (12 MHz) and measure it with FREQM (step 1);\r\n");
     SYS_CONSOLE_PRINT("               'ulp' forces the internal OSCULP32K reference\r\n");
@@ -460,11 +521,13 @@ static void cmd_hwclk(SYS_CMD_DEVICE_NODE *pCmdIO, int argc, char **argv)
     SYS_CONSOLE_PRINT("  now        - 64-bit TC2 timebase (96 MHz): ticks, ns, measured rate (step 3)\r\n");
     SYS_CONSOLE_PRINT("  wrap       - force a TC2 overflow, verify the 64-bit high word ticks (step 3)\r\n");
     SYS_CONSOLE_PRINT("  cmp [secs] - compare HW clock vs SYS_TIME, report relative drift ppm (step 4)\r\n");
+    SYS_CONSOLE_PRINT("  ldrfrac    - show DPLL1 LDRFRAC + measured freq (read-only; tuning is in SW) (step 6)\r\n");
+    SYS_CONSOLE_PRINT("  hold       - physical TC2 rate vs XOSC32K + holdover note (step 6)\r\n");
 }
 
 static const SYS_CMD_DESCRIPTOR hwclk_cmd_tbl[] = {
     {"hwclk", (SYS_CMD_FNC) cmd_hwclk,
-     ": HW time-base bring-up: rev (s0), xosc [ulp] (s1), dpll (s2), now/wrap (s3), cmp (s4)"},
+     ": HW time base: rev/xosc/dpll/now/wrap/cmp/ldrfrac/hold (steps 0-6)"},
 };
 
 void HWCLK_Init(void)

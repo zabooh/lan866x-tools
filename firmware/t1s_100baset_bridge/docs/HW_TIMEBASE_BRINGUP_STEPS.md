@@ -183,25 +183,35 @@ nicht übernommen → Pfad `adjust → phase_offset_ns` prüfen; Vorzeichen/Übe
 > hochfahren, `hwclk_timebase_start()`; CLI-Bring-up (`hwclk dpll`/`now`) lief nur deshalb,
 > weil er aus der laufenden Phase kam.
 
-## Schritt 6 — Frequenz-Disziplinierung (LDRFRAC) + Holdover
-**Ziel:** der Kern — die HW-**Rate** wird nachgeführt, sodass die Uhr **zwischen** Syncs
-nicht mehr wegdriftet.
-**Implementierung:** §4.3 (Frequenzteil) — ppb→LDRFRAC, Sigma-Delta, **Errata 2.13.2:
-nach dem `LDRFRAC`-Schreiben auf `INTFLAG.DPLLnLDRTO` warten** (nicht `STATUS`).
-**Test auf der MCU:**
-- `ntp watch` über ≥30 s: `offset`/`mean` müssen gegen ~0 konvergieren, `drift` einrasten.
-- `hwclk hold <secs>`: **Sync einfrieren** (PC-Tool stoppen), die Uhr N Sekunden frei
-  laufen lassen und die Abweichung zur danach wieder gemessenen PC-Zeit ausgeben →
-  **Holdover**.
+## Schritt 6 — Frequenz-Disziplinierung (Software; HW-LDRFRAC auf Rev D nicht machbar)
+**Ziel:** die **Rate** wird nachgeführt, sodass die Uhr **zwischen** Syncs nicht wegdriftet.
+**Ursprünglicher Plan:** HW-Disziplinierung über DPLL1-**`LDRFRAC`** im Betrieb (ppb→LDRFRAC,
+Sigma-Delta), **Errata 2.13.2:** nach dem Write auf `INTFLAG.DPLL1LDRTO` warten.
+
+> ⛔ **Befund (Board, Rev D) — HW-LDRFRAC ist hier nicht machbar.** Ein **On-the-fly-`DPLLRATIO`-
+> Write stoppt den DPLL1-Ausgang dauerhaft** (verifiziert: `hwclk ldrfrac <n>` → TC2 friert ein,
+> *„advanced 0 ticks"*, und erholt sich nicht). Das passiert **trotz vollständiger Errata-
+> Workarounds**: 2.13.1 **`WUF=1`+`LBYPASS=1`** (Takt soll bei False-Unlock durchlaufen) **und**
+> 2.13.2 (`INTFLAG.DPLL1LDRTO`-Wait). Die „on-the-fly ratio change"-Funktion ist auf diesem
+> Rev D praktisch tot. **Konsequenz:** unbedingt **bounded loops** in allen DPLL1-abhängigen
+> Pfaden (`tc2_read64`/`gclk_sync`/FREQM) — sonst friert ein toter DPLL-Takt den ganzen
+> Superloop ein (mehrere Board-Tode beim Debuggen).
+
+**Realisierung:** Frequenz bleibt in **Software** (der bestehende `s_rate_ppb`-PI aus Schritt 5)
+— der nullt die Restdrift im Lesepfad, die Uhr driftet zwischen Syncs nicht weg. Das
+Schritt-6-Ziel ist damit erreicht, nur eben in SW statt HW. Für **getriggerte HW-Events
+(Schritt 7+)** werden Compare-Ziele über die **effektive Tick-Rate** gerechnet (nicht nominal
+96 MHz), sodass sie trotz des festen ~+28-ppm-HW-Offsets am richtigen Instant feuern.
+**Diagnose (read-only):** `hwclk ldrfrac` (LDRFRAC + gemessene DPLL-Frequenz), `hwclk hold`
+(physische TC2-Rate vs XOSC32K = der von der SW korrigierte Rest), `ntp`/`ntp watch` (`osc.drift`).
 ```
-ntp watch      →  … mean 0.8 us … drift +12 ppm (locked)
-hwclk hold 10  →  Holdover nach 10 s: 18 µs  (≈1,8 µs/s)
+ntp watch    →  … mean ~0 … drift +28 ppm (locked, applied in software)
+hwclk hold   →  physical TC2  ~96.000 MHz  (-5..-99 ppm vs XOSC32K, je Messung)
 ```
-**PASS:** `mean`→~0, **Holdover ≤ ~2,5 µs/s** (ohne Dither) bzw. < 1 µs/s (mit Sigma-Delta).
-**Das ist der Beweis der disziplinierten HW-Frequenz.** **Errata:** **2.13.2** (Pflicht),
-nur `LDRFRAC` schreiben (Lock bleibt), `LDR`-Integer im Betrieb nie ändern. **Bei
-Fehlschlag:** Drift wandert/oszilliert → ppb→LDRFRAC-Vorzeichen, Ki/Anti-Windup,
-LDRFRAC-Sättigung am Anschlag.
+**PASS (getestet, Rev D):** `mean`→~0 (±~10 µs NTP-Jitter), `osc.drift` rastet ein (~+28 ppm),
+`ntp` zeigt PC-Zeit — **Disziplinierung erfüllt (Software).** **Erratum/Gotcha:** On-the-fly
+`DPLLRATIO` meiden (stoppt DPLL auf Rev A/D); `WUF`+`LBYPASS` trotzdem im Bring-up setzen
+(robuster initialer Lock auf Rev A/D).
 
 ## Schritt 7 — TC2-Compare → EVSYS → GPIO (Einzeltrigger)
 **Ziel:** erster **Hardware-Trigger** zu einem berechneten Zeitpunkt — sichtbar am Pin.
