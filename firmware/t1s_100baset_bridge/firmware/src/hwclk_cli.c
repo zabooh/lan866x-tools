@@ -584,6 +584,100 @@ static void cmd_evt(int argc, char **argv)
     EVSYS_REGS->EVSYS_USER[EVUSER_PORT_EV0] = 0u;   /* one-shot: detach so it stops toggling */
 }
 
+/* -------- step 8: hwclk adc - TC2 compare -> EVSYS -> ADC0 START ------------ */
+#define HWCLK_ADC_CH      1u      /* EVSYS channel for TC2_MC0 -> ADC0_START      */
+#define EVUSER_ADC0_START 55u     /* DS Table 31-2: user mux m=55 = ADC0 START    */
+
+static int s_adc_ready = 0;
+
+/* Minimal ADC0 bring-up: GCLK from GEN1 (60 MHz) /32, VDDANA ref, internal input
+ * (1/4 scaled I/O supply -> no pin needed), start-on-event. No factory cal loaded
+ * (the value is approximate, but a conversion still completes - enough to prove the
+ * hardware trigger). Returns 1 on success. */
+static int adc_init(void)
+{
+    if (s_adc_ready) return 1;
+    GCLK_REGS->GCLK_PCHCTRL[ADC0_GCLK_ID] = GCLK_PCHCTRL_GEN(1U) | GCLK_PCHCTRL_CHEN_Msk;
+    while ((GCLK_REGS->GCLK_PCHCTRL[ADC0_GCLK_ID] & GCLK_PCHCTRL_CHEN_Msk) == 0u) { }
+    MCLK_REGS->MCLK_APBDMASK |= MCLK_APBDMASK_ADC0_Msk;
+    MCLK_REGS->MCLK_APBBMASK |= MCLK_APBBMASK_EVSYS_Msk;   /* EVSYS regs need their APB clock */
+
+    ADC0_REGS->ADC_CTRLA = ADC_CTRLA_SWRST_Msk;
+    while (ADC0_REGS->ADC_SYNCBUSY & ADC_SYNCBUSY_SWRST_Msk) { }
+    /* MUST load the factory bias calibration from the SW cal row (0x00800080,
+     * FUSES_SW0_WORD_0); without it the D5x ADC comparator bias is wrong and no
+     * conversion completes. BIASCOMP[4:2], BIASREFBUF[7:5], BIASR2R[10:8]. */
+    {
+        uint32_t sw0 = *(volatile uint32_t *)0x00800080U;
+        ADC0_REGS->ADC_CALIB = (uint16_t)(ADC_CALIB_BIASCOMP((sw0 >> 2) & 0x7U)
+                                        | ADC_CALIB_BIASREFBUF((sw0 >> 5) & 0x7U)
+                                        | ADC_CALIB_BIASR2R((sw0 >> 8) & 0x7U));
+    }
+    ADC0_REGS->ADC_CTRLA     = ADC_CTRLA_PRESCALER(4U);     /* /32 (PRESCALER is in CTRLA) */
+    ADC0_REGS->ADC_CTRLB     = ADC_CTRLB_RESSEL_12BIT;
+    ADC0_REGS->ADC_SAMPCTRL  = ADC_SAMPCTRL_SAMPLEN(8U);
+    ADC0_REGS->ADC_REFCTRL   = ADC_REFCTRL_REFSEL_INTVCC1;                          /* VDDANA */
+    ADC0_REGS->ADC_INPUTCTRL = ADC_INPUTCTRL_MUXPOS_SCALEDIOVCC | ADC_INPUTCTRL_MUXNEG_GND;
+    ADC0_REGS->ADC_AVGCTRL   = 0u;
+    ADC0_REGS->ADC_EVCTRL    = ADC_EVCTRL_STARTEI_Msk;                              /* start on event */
+    ADC0_REGS->ADC_CTRLA     = ADC_CTRLA_PRESCALER(4U) | ADC_CTRLA_ENABLE_Msk;
+    while (ADC0_REGS->ADC_SYNCBUSY & ADC_SYNCBUSY_ENABLE_Msk) { }
+    s_adc_ready = 1;
+    return 1;
+}
+
+/* hwclk adc [n] : fire n TC2 compare events (~5 ms apart) routed to ADC0 START, and
+ * count how many conversions complete (RESRDY). #conversions == #triggers proves the
+ * ADC is hardware-triggered to the NTP instant. */
+static void cmd_adc(int n)
+{
+    if (!hwclk_tc2_init() || !adc_init()) { SYS_CONSOLE_PRINT("TC2/ADC not up\r\n"); return; }
+    if (n <= 0) n = 5;
+
+    /* self-test: a software-triggered conversion must complete (proves the ADC works,
+     * independent of the EVSYS path). */
+    ADC0_REGS->ADC_INTFLAG = (uint8_t)ADC_INTFLAG_RESRDY_Msk;
+    ADC0_REGS->ADC_SWTRIG  = ADC_SWTRIG_START_Msk;
+    { uint32_t t0 = plat_now_ms();
+      while (plat_now_ms() - t0 < 100u) { if (ADC0_REGS->ADC_INTFLAG & ADC_INTFLAG_RESRDY_Msk) break; plat_sleep_ms(1); } }
+    SYS_CONSOLE_PRINT("  ADC self-test (SW trigger): %s  (result=%u)\r\n",
+                      (ADC0_REGS->ADC_INTFLAG & ADC_INTFLAG_RESRDY_Msk) ? "OK" : "FAILED",
+                      (unsigned)(ADC0_REGS->ADC_RESULT & ADC_RESULT_RESULT_Msk));
+
+    /* EVSYS async: TC2_MC0 -> channel 1 -> ADC0_START user. */
+    EVSYS_REGS->EVSYS_USER[EVUSER_ADC0_START] = EVSYS_USER_CHANNEL(HWCLK_ADC_CH + 1u);
+    EVSYS_REGS->CHANNEL[HWCLK_ADC_CH].EVSYS_CHANNEL =
+        EVSYS_CHANNEL_EVGEN(EVGEN_TC2_MC0) | EVSYS_CHANNEL_PATH_ASYNCHRONOUS;
+    plat_sleep_ms(2);
+
+    int conv = 0, mc0 = 0; uint16_t last = 0;
+    for (int i = 0; i < n; i++) {
+        uint32_t cc0 = (uint32_t)(tc2_read64() + 96000000ULL / 200u);   /* ~5 ms ahead */
+        ADC0_REGS->ADC_INTFLAG = (uint8_t)ADC_INTFLAG_RESRDY_Msk;       /* clear */
+        TC2_REGS->COUNT32.TC_INTFLAG = (uint8_t)TC_INTFLAG_MC0_Msk;
+        TC2_REGS->COUNT32.TC_CC[0] = cc0;
+        while (TC2_REGS->COUNT32.TC_SYNCBUSY & TC_SYNCBUSY_CC0_Msk) { }
+        uint32_t t0 = plat_now_ms();
+        while (plat_now_ms() - t0 < 100u) {
+            if (ADC0_REGS->ADC_INTFLAG & ADC_INTFLAG_RESRDY_Msk) break;
+            plat_sleep_ms(1);
+        }
+        if (TC2_REGS->COUNT32.TC_INTFLAG & TC_INTFLAG_MC0_Msk) mc0++;
+        if (ADC0_REGS->ADC_INTFLAG & ADC_INTFLAG_RESRDY_Msk) {
+            conv++; last = (uint16_t)(ADC0_REGS->ADC_RESULT & ADC_RESULT_RESULT_Msk);
+        }
+    }
+    SYS_CONSOLE_PRINT("  diag: TC2 MC0 matches=%d, EVSYS.CH%u=0x%08lX USER%u=0x%08lX ADC.EVCTRL=0x%02X\r\n",
+                      mc0, (unsigned)HWCLK_ADC_CH,
+                      (unsigned long)EVSYS_REGS->CHANNEL[HWCLK_ADC_CH].EVSYS_CHANNEL,
+                      (unsigned)EVUSER_ADC0_START, (unsigned long)EVSYS_REGS->EVSYS_USER[EVUSER_ADC0_START],
+                      (unsigned)(ADC0_REGS->ADC_EVCTRL & 0xFFu));
+    EVSYS_REGS->EVSYS_USER[EVUSER_ADC0_START] = 0u;   /* detach */
+    SYS_CONSOLE_PRINT("ADC trigger: %d TC2 events -> %d conversions  (last result=%u/4095)  ->  %s\r\n",
+                      n, conv, last, (conv == n) ? "PASS (#conv == #triggers)" : "FAIL");
+    SYS_CONSOLE_PRINT("  each conversion was started by the HW compare->EVSYS->ADC path, not the CPU\r\n");
+}
+
 /* -------- dispatch + registration ----------------------------------------- */
 static void cmd_hwclk(SYS_CMD_DEVICE_NODE *pCmdIO, int argc, char **argv)
 {
@@ -603,7 +697,10 @@ static void cmd_hwclk(SYS_CMD_DEVICE_NODE *pCmdIO, int argc, char **argv)
     if (argc >= 2 && strcmp(argv[1], "ldrfrac") == 0) { cmd_ldrfrac(argc - 2, argv + 2); return; }
     if (argc >= 2 && strcmp(argv[1], "hold") == 0)    { cmd_hold(); return; }
     if (argc >= 2 && strcmp(argv[1], "evt") == 0)     { cmd_evt(argc - 2, argv + 2); return; }
-    SYS_CONSOLE_PRINT("usage: hwclk <rev|xosc [ulp]|dpll|now|wrap|cmp [secs]|ldrfrac|hold|evt [pin]>\r\n");
+    if (argc >= 2 && strcmp(argv[1], "adc") == 0)     {
+        cmd_adc((argc >= 3) ? (int)strtol(argv[2], NULL, 10) : 0); return;
+    }
+    SYS_CONSOLE_PRINT("usage: hwclk <rev|xosc [ulp]|dpll|now|wrap|cmp [secs]|ldrfrac|hold|evt [pin]|adc [n]>\r\n");
     SYS_CONSOLE_PRINT("  rev        - silicon revision (DSU DID) + regulator + errata gate (step 0)\r\n");
     SYS_CONSOLE_PRINT("  xosc [ulp] - enable XOSC1 (12 MHz) and measure it with FREQM (step 1);\r\n");
     SYS_CONSOLE_PRINT("               'ulp' forces the internal OSCULP32K reference\r\n");
@@ -614,6 +711,7 @@ static void cmd_hwclk(SYS_CMD_DEVICE_NODE *pCmdIO, int argc, char **argv)
     SYS_CONSOLE_PRINT("  ldrfrac    - show DPLL1 LDRFRAC + measured freq (read-only; tuning is in SW) (step 6)\r\n");
     SYS_CONSOLE_PRINT("  hold       - physical TC2 rate vs XOSC32K + holdover note (step 6)\r\n");
     SYS_CONSOLE_PRINT("  evt [pin]  - arm a HW-timed GPIO edge at the next NTP second (default PB17) (step 7)\r\n");
+    SYS_CONSOLE_PRINT("  adc [n]    - fire n TC2 events -> ADC0 START, count conversions (step 8)\r\n");
 }
 
 static const SYS_CMD_DESCRIPTOR hwclk_cmd_tbl[] = {

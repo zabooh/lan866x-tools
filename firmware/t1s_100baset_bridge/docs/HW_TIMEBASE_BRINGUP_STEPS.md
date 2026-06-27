@@ -286,6 +286,13 @@ hwclk adc 5    →  5 Trigger → 5 Conversions   (z.B. v=…)
 der **Sample-Instant = das Event** verifizierbar. **Errata:** ADC nutzt **nur async**
 (DS-Vorgabe). **Bei Fehlschlag:** keine Conversion → `STARTEI`/Kanal/Async-Pfad; ADC nicht
 initialisiert.
+> ✅ **Getestet (Board, Rev D):** `hwclk adc 5` → **5 Trigger → 5 Conversions**, `adc 10` → 10/10
+> → PASS. `diag: MC0 matches=n, EVSYS.CH1=0x250, USER55=0x2, ADC.EVCTRL=0x02`. Jede TC2-Compare-
+> Flanke startet **genau eine** ADC-Conversion über `TC2_MC0 → EVSYS(async) → ADC0_START (User m=55)`.
+> **Zwei Gotchas, die je einen Fehlversuch kosteten:** (1) **`MCLK.APBBMASK.EVSYS` einschalten** —
+> sonst verpuffen alle EVSYS-Register-Writes (Kanal/User lasen 0). (2) **ADC-Bias-Kalibrierung laden**
+> (`FUSES_SW0_WORD_0` @ `0x00800080` → `ADC.CALIB` BIASCOMP/BIASREFBUF/BIASR2R) — ohne sie **wandelt
+> die D5x-ADC nicht** (SW-Selbsttest war der Localizer). Nebenbei: PRESCALER liegt in **CTRLA**, nicht CTRLB.
 
 ## Schritt 9 — PPS am NTP-Sekundentakt (End-to-End)
 **Ziel:** der **vollständige Kettennachweis** — ein periodischer Puls exakt auf der
