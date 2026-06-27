@@ -29,6 +29,14 @@ void SYS_CLI_Init(void);    /* servicetest, boot, uart, video */
 void DNCP_CLI_Init(void);   /* dncpmon, dncpdisc */
 void HWCLK_Init(void);      /* hwclk rev/xosc... - hardware time-base bring-up (hwclk_cli.c) */
 
+/* Disciplined hardware time base (hwclk_cli.c, steps 1-3): XOSC1 -> DPLL1 -> TC2
+ * 64-bit @ 96 MHz. Brought up at boot by HWCLK_Init; ntp_sync.c reads it once up
+ * (falls back to SYS_TIME otherwise). */
+int      hwclk_timebase_up(void);   /* 1 once XOSC1->DPLL1->TC2 is running        */
+uint64_t hwclock_now_ns(void);      /* raw HW time in ns (TC2 64-bit x 125/12 ns)  */
+void     hwclk_timebase_start(void);/* bring up the HW time base (call once, RUNNING phase
+                                       only - busy-waits via plat_sleep_ms; NOT at boot) */
+
 /* NTP software time sync (ntp_sync.c): a free-running high-res counter the PC
  * disciplines to its wall clock via a UDP t1/t2/t3/t4 exchange (port 30491). */
 void     NTP_Init(void);    /* open the UDP service + register the "ntp" CLI group */

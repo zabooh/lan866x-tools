@@ -161,14 +161,27 @@ stabilere ist.** **Bei Fehlschlag:** Sprünge/Nichtmonotonie → 64-bit-OVF-Race
 > (zusammen mit dem Phasen-Offset), damit die laufende NTP-Uhr nicht ohne Phase springt.
 
 ## Schritt 5 — Phasen-Offset (NTP-Sync)
-**Ziel:** die HW-Uhr lässt sich auf PC-Zeit setzen (Phase). Frequenz noch **ungeregelt**.
-**Implementierung:** §4.3 (nur der Phasenteil) — `phase_offset_ns` im `OP_SET_OFFSET`-Handler.
-**Test auf der MCU:** PC-Tool `lan866x-ntpsync` einmal laufen lassen, dann `ntp`:
+**Ziel:** die HW-Uhr lässt sich auf PC-Zeit setzen (Phase). HW-Frequenz noch **ungeregelt**
+(der bestehende Soft-PI korrigiert den Restfehler im Lesepfad; HW-LDRFRAC folgt in Schritt 6).
+**Implementierung:** `ntp_raw_ns()` liest jetzt `hwclock_now_ns()` (HW-Uhr) statt SYS_TIME,
+Fallback auf SYS_TIME; Phase (`s_offset_ns`) + Soft-PI bleiben. **HW-Uhr-Bring-up beim
+ersten `NTP_Task()` in der *laufenden* Phase** — **nicht** in `APP_Initialize` (siehe Gotcha).
+**Test auf der MCU + PC:** `lan866x-ntpsync --ip <board>` laufen lassen, dann `ntp` / `ntp watch`:
 ```
 ntp            →  NTP time: <PC-Unix-Zeit>   local time: hh:mm:ss (PC-aligned)
 ```
 **PASS:** `ntp` zeigt nach dem Sync die **PC-Wanduhr**. **Bei Fehlschlag:** Offset wird
 nicht übernommen → Pfad `adjust → phase_offset_ns` prüfen; Vorzeichen/Überlauf.
+> ✅ **Getestet (Board, Rev D):** `ntp` → `source: HW clock (XOSC1->DPLL1->TC2) 96 MHz`,
+> nach Sync **NTP time = PC-Unix-Zeit, local 19:14:27 (GMT+2)** → PASS. **`osc. drift` rastet
+> auf ~+16 ppm** ein (statt ~+1900 ppm auf dem DFLL — ~120× weniger Restdrift); `mean`-Offset
+> konvergiert gegen ~0 (±~10 µs = NTP-Transport-Jitter, nicht die Uhr). Sync via
+> `lan866x-ntpsync` (PC dual-homed → Quelle muss der verkabelte Adapter sein).
+> ⚠️ **Gotcha (gekostet einen Boot-Hang):** der HW-Bring-up busy-waitet über `plat_sleep_ms()`
+> (braucht laufendes SYS_TIME + Stack-Pump). In `APP_Initialize` aufgerufen ⇒ **Endlosschleife,
+> Board tot (kein Ping/Konsole)**. Lösung: einmalig im ersten `NTP_Task()` (RUNNING-Phase)
+> hochfahren, `hwclk_timebase_start()`; CLI-Bring-up (`hwclk dpll`/`now`) lief nur deshalb,
+> weil er aus der laufenden Phase kam.
 
 ## Schritt 6 — Frequenz-Disziplinierung (LDRFRAC) + Holdover
 **Ziel:** der Kern — die HW-**Rate** wird nachgeführt, sodass die Uhr **zwischen** Syncs

@@ -84,7 +84,7 @@ static const char *fmt_dur(char *b, int n, int64_t ns)
 
 /* Raw monotonic ns since boot from the SYS_TIME counter, overflow-safe:
  * ns = sec*1e9 + (frac_ticks*1e9)/freq  (avoids ticks*1e9 overflowing uint64). */
-static uint64_t ntp_raw_ns(void)
+static uint64_t ntp_raw_ns_legacy(void)
 {
     uint64_t freq = (uint64_t)SYS_TIME_FrequencyGet();
     uint64_t ticks, sec, frac;
@@ -93,6 +93,16 @@ static uint64_t ntp_raw_ns(void)
     sec   = ticks / freq;
     frac  = ticks % freq;
     return sec * 1000000000ULL + (frac * 1000000000ULL) / freq;
+}
+
+/* Raw monotonic ns since boot. Rides the disciplined HARDWARE time base
+ * (XOSC1->DPLL1->TC2, ~+31 ppm) once it is up (step 5); falls back to the
+ * SYS_TIME/DFLL counter (~+1900 ppm) if the HW clock failed to start. The phase
+ * (s_offset_ns) and software frequency term still apply on top in ntp_now_ns(). */
+static uint64_t ntp_raw_ns(void)
+{
+    if (hwclk_timebase_up()) return hwclock_now_ns();
+    return ntp_raw_ns_legacy();
 }
 
 /* Disciplined NTP time in ns (PC-aligned once a SET_OFFSET has been applied).
@@ -168,12 +178,14 @@ static int chk_abort(SYS_CONSOLE_HANDLE con)
 
 static void ntp_print_status(void)
 {
-    uint64_t freq = (uint64_t)SYS_TIME_FrequencyGet();
+    int      hw   = hwclk_timebase_up();
+    uint64_t freq = hw ? 96000000ULL : (uint64_t)SYS_TIME_FrequencyGet();
     uint64_t up = ntp_raw_ns();
     uint64_t now = ntp_now_ns();
     char b1[40], b2[40], b3[40];
     SYS_CONSOLE_PRINT("NTP time counter:\r\n");
-    SYS_CONSOLE_PRINT("  source     : SYS_TIME, %lu Hz  (resolution ~%lu ns/tick)\r\n",
+    SYS_CONSOLE_PRINT("  source     : %s, %lu Hz  (resolution ~%lu ns/tick)\r\n",
+                      hw ? "HW clock (XOSC1->DPLL1->TC2)" : "SYS_TIME (DFLL)",
                       (unsigned long)freq, (unsigned long)(freq ? (1000000000ULL / freq) : 0));
     {
         uint64_t up_s = up / 1000000000ULL;
@@ -304,6 +316,12 @@ void NTP_Init(void)
 void NTP_Task(void)
 {
     uint16_t nb;
+    /* Bring up the disciplined HW time base (XOSC1->DPLL1->TC2) once, here in the
+     * RUNNING phase - it busy-waits via plat_sleep_ms() (SYS_TIME/stack), so it must
+     * NOT run at APP_Initialize (that hangs boot). After this ntp_raw_ns() rides it. */
+    static int s_hwStarted = 0;
+    if (!s_hwStarted) { s_hwStarted = 1; hwclk_timebase_start(); }
+
     if (s_sock == INVALID_UDP_SOCKET) return;
     while ((nb = TCPIP_UDP_GetIsReady(s_sock)) > 0u) {
         uint8_t in[32], out[32];

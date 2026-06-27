@@ -316,6 +316,13 @@ static int hwclk_tc2_init(void)
     return 1;
 }
 
+/* 1 once the XOSC1->DPLL1->TC2 hardware time base is running (ntp_sync.c read path). */
+int hwclk_timebase_up(void) { return s_tc2_ready; }
+
+/* Bring up the HW time base. MUST be called from the RUNNING phase (it busy-waits via
+ * plat_sleep_ms(), which needs SYS_TIME/stack ticking) - never from APP_Initialize. */
+void hwclk_timebase_start(void) { (void)hwclk_tc2_init(); }
+
 /* TC2 overflow -> bump the 64-bit high word. Overrides the weak vector default. */
 void __attribute__((used)) TC2_Handler(void)
 {
@@ -387,8 +394,8 @@ static void cmd_wrap(void)
 /* -------- step 4: hwclk cmp ------------------------------------------------ */
 /* HW clock time in ns from the free-running 64-bit TC2 at the nominal 96 MHz.
  * (Phase offset and fine-rate correction arrive in steps 5/6; this is raw HW time:
- * 1e9 / 96e6 = 125/12 ns per tick.) This is the read path ntp_now_ns() will use. */
-static uint64_t hwclock_now_ns(void)
+ * 1e9 / 96e6 = 125/12 ns per tick.) ntp_sync.c's ntp_raw_ns() reads this once up. */
+uint64_t hwclock_now_ns(void)
 {
     return tc2_read64() * 125ULL / 12ULL;
 }
@@ -464,4 +471,7 @@ void HWCLK_Init(void)
 {
     SYS_CMD_ADDGRP(hwclk_cmd_tbl, sizeof(hwclk_cmd_tbl) / sizeof(*hwclk_cmd_tbl),
                    "hwclk", ": HW time base bring-up");
+    /* NOTE: the HW time base is brought up later, on the first NTP_Task() call in the
+     * RUNNING phase - NOT here. hwclk_tc2_init() busy-waits via plat_sleep_ms(), which
+     * needs SYS_TIME/stack ticking; at APP_Initialize that hangs the boot. */
 }
