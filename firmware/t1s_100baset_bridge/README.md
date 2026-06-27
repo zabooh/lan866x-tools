@@ -800,6 +800,16 @@ exchange, so afterwards the firmware can timestamp events on the **PC timebase**
 > [NTP_TWO_NODE_CONVERGENCE.md](../../wireshark/NTP_TWO_NODE_CONVERGENCE.md); the planned
 > multi-node concept: [NTP_MULTINODE_SZENARIO.md](../../wireshark/NTP_MULTINODE_SZENARIO.md)).
 
+> 🔧 **Hardware time base (next evolution):** today the NTP time is *software-derived*
+> (a free-running counter + software correction), so it can read time but cannot
+> *drive* peripherals at exact instants. How to turn it into a **disciplined hardware
+> clock** that triggers ADC/DAC/GPIO/PWM at precise NTP instants is worked out in
+> **[docs/HW_TIMEBASE_OPTIONS.md](docs/HW_TIMEBASE_OPTIONS.md)** (option comparison:
+> GMAC-1588-TSU / DPLL+TC / EVSYS), the concrete plan
+> **[docs/HW_TIMEBASE_B_C_IMPLEMENTATION.md](docs/HW_TIMEBASE_B_C_IMPLEMENTATION.md)**
+> (registers + errata check + Mermaid/wavedrom diagrams), and the step-by-step,
+> tested bring-up **[docs/HW_TIMEBASE_BRINGUP_STEPS.md](docs/HW_TIMEBASE_BRINGUP_STEPS.md)**.
+
 - **Counter / resolution:** the counter is `SYS_TIME` (ns) plus a signed offset.
   On the SAME54 it runs at **60 MHz → ~16 ns/tick** (reported by the `ntp`
   command). The achievable *sync accuracy* is far coarser than the tick — it is

@@ -289,6 +289,15 @@ internal DFLL48M  (open-loop, RC-based, factory-trimmed only → temperature-dep
   or ~1 ppm (TCXO/MEMS), improving the drift-wander and holdover (the per-sync jitter
   floor is unaffected). See the oscillator comparison in
   [NTP_TWO_NODE_CONVERGENCE.md §3.2](NTP_TWO_NODE_CONVERGENCE.md).
+  → The full study of how to build a **disciplined hardware time base** from this
+  (XOSC0 + DPLL1 + a dedicated TC, with EVSYS triggering ADC/DAC/GPIO/PWM at exact NTP
+  instants) and verify it step-by-step on the MCU is in the bridge firmware docs:
+  [HW_TIMEBASE_OPTIONS.md](../firmware/t1s_100baset_bridge/docs/HW_TIMEBASE_OPTIONS.md)
+  (option comparison),
+  [HW_TIMEBASE_B_C_IMPLEMENTATION.md](../firmware/t1s_100baset_bridge/docs/HW_TIMEBASE_B_C_IMPLEMENTATION.md)
+  (implementation + errata check), and
+  [HW_TIMEBASE_BRINGUP_STEPS.md](../firmware/t1s_100baset_bridge/docs/HW_TIMEBASE_BRINGUP_STEPS.md)
+  (tested bring-up).
 - **Earlier timestamping (`#2`)** via a UDP RX signal handler was evaluated and
   **rejected**: on this cooperative-superloop + SPI-stack architecture it stamps at the
   same point `NTP_Task` already does, so it does not move the floor.
