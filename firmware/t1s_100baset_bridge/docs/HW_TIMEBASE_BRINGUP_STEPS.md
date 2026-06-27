@@ -20,6 +20,17 @@ fast 2 ms pro Sekunde daneben).
   **GPIO-Pin genau auf der NTP-Sekunde umschalten** (Timer-Vergleich → Event-System → Pin).
   Das ist die Grundlage, um später **ADC/DAC/PWM zeitsynchron** zu treiben.
 
+**Wie das im Kern funktioniert (in einfachen Worten).** Der Zähler TC2 zählt nur stur Takte
+hoch — eine Uhrzeit wird daraus über **zwei** vom NTP-Sync gepflegte Zahlen: *Phase* (wann war
+es laut PC welche Zeit) und *Frequenz* (wie lang ein Takt wirklich dauert). **Lesen** rechnet
+`Zeit = Stand × Takt + Phase`; **Auslösen** rechnet dieselbe Formel rückwärts (`Zielzeit →
+Zählerstand`) und legt das Ergebnis in das **Vergleichsregister CC0**. TC2 vergleicht dann bei
+jedem Takt selbsttätig `Stand == CC0` und **feuert im Treffermoment ein Hardware-Event** ins
+Event-System → Pin/ADC. Weil Lesen und Auslösen **dieselben** NTP-Korrekturen benutzen, liegt
+die Flanke automatisch auf der NTP-Sekunde des Masters. Die verbleibende Ungenauigkeit kommt
+**nicht** von der Uhr (Takt ~10 ns), sondern davon, wie genau NTP über die Bridge die *Phase*
+misst (~10–100 µs).
+
 **Stand heute (auf dem Board getestet, Silizium Rev D):** **Schritte 0–10 erledigt** — die
 ganze Kette **Quarz → PLL → Hardware-Zähler → auf PC-Zeit synchronisiert → Hardware-Trigger**
 läuft und ist (funktional) nachgewiesen: GPIO-Flanke zum NTP-Instant (7), ADC-Trigger (8),

@@ -26,8 +26,9 @@ TC-plib); **`TC2/TC3`, `TC4/TC5`, `TC6/TC7` frei**; **DPLL1 frei** (nur DPLL0 in
 > **Abweichungen zwischen Plan und realisiertem Code** zusammen; die betroffenen Abschnitte
 > unten tragen einen Hinweis-Block.
 >
-> - ✅ **Schritte 0–9 PASS** (Rev D, `DID=0x61840300`, Regulator=LDO). Die ganze Kette
->   **XOSC1 → DPLL1 → TC2(64-bit) → NTP-Sync → EVSYS → GPIO/ADC/PPS** läuft hardwareseitig.
+> - ✅ **Schritte 0–10 PASS** (Rev D, `DID=0x61840300`, Regulator=LDO). Die ganze Kette
+>   **XOSC1 → DPLL1 → TC2(64-bit) → NTP-Sync → EVSYS → GPIO/ADC/PPS/PWM** läuft hardwareseitig
+>   (PWM-Frequenz auf der syntonisierten Rate; Scope-Verifikation der Lage noch offen).
 > - 📁 **Realisierter Code:** [`hwclk_cli.c`](../firmware/src/hwclk_cli.c) (Taktketten-Bring-up
 >   + CLI-Testgruppe **`hwclk`**) und die Integration in [`ntp_sync.c`](../firmware/src/ntp_sync.c)
 >   (`hwclock_now_ns()` als Lesepfad). Es gibt **kein** separates `hwclock.c/.h` (anders als §4.5
@@ -55,6 +56,7 @@ TC-plib); **`TC2/TC3`, `TC4/TC5`, `TC6/TC7` frei**; **DPLL1 frei** (nur DPLL0 in
   - [1.1 Die Kette](#11-die-kette)
   - [1.2 Das Zeitmodell — zwei Stellgrößen, sauber getrennt](#12-das-zeitmodell--zwei-stellgrößen-sauber-getrennt)
   - [1.3 Warum DPLL1 (nicht DPLL0)](#13-warum-dpll1-nicht-dpll0)
+  - [1.4 Warum der Trigger auf der NTP-Achse des Masters feuert (Lesen ↔ Armen invers)](#14-warum-der-trigger-auf-der-ntp-achse-des-masters-feuert-lesen--armen-invers)
 - [2. Vorgehensweise (Konzept)](#2-vorgehensweise-konzept)
 - [3. Erreichbare Ziele](#3-erreichbare-ziele)
 - [4. Implementierung](#4-implementierung)
@@ -126,10 +128,22 @@ flowchart TB
 ```
 
 ### 1.2 Das Zeitmodell — zwei Stellgrößen, sauber getrennt
-- **Frequenz (Syntonisierung) → Hardware:** der TC zählt mit der *korrigierten* Rate,
-  weil **DPLL1.LDRFRAC** nachgeführt wird. Damit liegt die richtige Frequenz **physisch**
-  im Zähler — Voraussetzung dafür, dass ein Compare-Ereignis (CC == COUNT) zum richtigen
-  Zeitpunkt feuert.
+
+Eine Uhrzeit entsteht aus dem stumpfen Zählerstand über **zwei** nachgeführte Konstanten —
+das ist der Kern des ganzen Verfahrens:
+
+```
+echte_NTP_Zeit  =  Zählerstand × Takt_Dauer  +  Phasen_Offset
+                                └ FREQUENZ ┘     └─ PHASE ─┘
+```
+
+- **Frequenz (Syntonisierung):** wie lang ein Takt *wirklich* ist (nominal 1/96 MHz ≈
+  10,42 ns, real ±ppm). Ursprünglich geplant **→ Hardware** (der TC zählt mit der
+  *korrigierten* Rate, weil **DPLL1.LDRFRAC** nachgeführt wird → richtige Frequenz
+  **physisch** im Zähler).
+  > 🔧 **Rev D:** HW-LDRFRAC stoppt die DPLL (§4.3) → die Frequenzkorrektur (~+28 ppm)
+  > steckt stattdessen **in `Takt_Dauer` in Software** (`s_rate_ppb`). Ergebnis identisch:
+  > die *ausgerechnete* Zeit tickt richtig, nur sitzt die Korrektur in der Formel statt im Takt.
 - **Phase (Offset) → Software:** der TC läuft frei; die absolute NTP-Zeit =
   `TC64 · tick_ns + phase_offset_ns`. `phase_offset_ns` ist ein per-Sync gesetzter
   int64 (entspricht dem heutigen `s_offset_ns`). Phase wird **nicht** über die PLL
@@ -142,6 +156,30 @@ flowchart TB
 DPLL0 speist CPU/Bus/alle Peripherie (GCLK0=120 MHz, GCLK1=60 MHz). Würde man DPLL0
 nudgen, wanderten **alle** Takte (UART-Baud, SysTick, Ethernet-Timing). **DPLL1 ist
 unabhängig** und wird hier exklusiv für die NTP-Zeitbasis verwendet — CPU bleibt unberührt.
+
+### 1.4 Warum der Trigger auf der NTP-Achse des Masters feuert (Lesen ↔ Armen invers)
+
+Der entscheidende Trick, *warum* ein Compare-Event zeitsynchron zum NTP-Master liegt: die
+**Lese-** und die **Arm-Richtung benutzen dieselbe Gleichung aus §1.2** — einmal vorwärts,
+einmal rückwärts, mit **denselben** vom NTP-Sync gepflegten Korrekturen (Phase + Frequenz).
+
+| Richtung | Formel | im Code |
+|---|---|---|
+| **Lesen** (Zähler → Zeit) | `Zeit = Stand · Takt_Dauer + Phase` | `ntp_now_ns()` |
+| **Armen** (Zeit → Zähler) | `CC0 = (Ziel_Zeit − Phase) / Takt_Dauer` | `ntp_ns_to_ticks()` → `CCBUF0` |
+
+Weil **dieselben** `Phase` und `Takt_Dauer` rein- wie rausgerechnet werden, gilt zwingend:
+genau in dem Moment, in dem `ntp_now_ns()` „jetzt ist Sekunde N" *sagen würde*, steht der
+Zähler auf dem `CC0`, das für Sekunde N gearmt wurde → **das HW-Event feuert exakt zu dem
+Instant, den auch der NTP-Master Sekunde N nennt** — ganz ohne CPU im Auslösepfad.
+
+**Die ehrliche Obergrenze** ist damit **nicht** die Uhr (Takt ~10 ns, EVSYS-Jitter ~10–20 ns,
+beides vernachlässigbar), sondern **wie gut der `Phase`-Offset gemessen ist** — und der kommt
+per **NTP-Software-Roundtrip über die T1S-Bridge** (~hunderte µs Jitter, §6.4 in
+[HW_TIMEBASE_OPTIONS.md](HW_TIMEBASE_OPTIONS.md)). Anders gesagt: *lokal* (Pin/ADC/PWM relativ
+zur eigenen NTP-Uhr) bist du im ns-Bereich; *gegenüber dem Master* so genau, wie NTP den
+Offset liefert (10–100-µs-Ziel, erreicht). Sub-µs-Leitungssync bräuchte HW-Frame-Timestamping
+(PTP, Schwesterprojekt `net_10base_t1s`).
 
 ---
 
@@ -382,6 +420,11 @@ if (ldrfrac != s_ldrfrac) {                    /* NUR LDRFRAC schreiben → Lock
 >   `hwclk pps on` (Dauer-PPS via `CC0 += 96e6`-Reload im `TC2 MC0`-ISR).
 
 **(a) TC2-Compare als Event-Generator scharf machen** (CC0 = Ziel-Tick, Double-Buffer):
+
+> `ntp_ns_to_ticks()` ist die **Inverse zum Lesepfad** und benutzt **dieselben** NTP-Korrekturen
+> (Phase + effektive Tick-Rate) — *genau deshalb* feuert das Event auf der NTP-Achse des Masters.
+> Konzept + Obergrenze siehe [§1.4](#14-warum-der-trigger-auf-der-ntp-achse-des-masters-feuert-lesen--armen-invers).
+
 ```c
 TC2_REGS->COUNT32.TC_EVCTRL = TC_EVCTRL_MCEO0_Msk;        /* Match-Event auf CC0 */
 /* Ziel-Instant T_ntp → Tickwert; nur die low-32 in CC, im OVF-Fenster scharf: */
@@ -417,6 +460,13 @@ DAC_REGS->DAC_EVCTRL  = DAC_EVCTRL_STARTEI0_Msk;          /* DS §47.6.6 S.1523 
   disziplinierte Zeitbasis ausgerichtet (DS §49.6.2.5.5 S.1642).
 - Phasenlage zur NTP-Sekunde: TCC per **Retrigger-Event** von TC2 an einem bekannten
   Instant starten/neu-triggern (EVSYS: TC2_MC1 → TCC_EV).
+
+> ✅ **Realisiert/getestet (Schritt 10, Board Rev D — funktional):** `hwclk pwm [pin] [freq]` →
+> **TCC0** im `NPWM` am **selben disziplinierten GEN5 (96 MHz)** wie TC2 (`PCHCTRL[TCC0_GCLK_ID=25]`),
+> Ausgang **PB16 = TCC0_WO4** (PMUX G). `PER = 96e6/freq − 1` (1000 Hz→95999, 5000 Hz→19199), 50 % Duty;
+> TCC0-COUNT zählt → PASS. Die **Frequenz** liegt damit auf der syntonisierten Rate. **Offen:** der
+> Phasen-Retrigger von TC2 (TC2_MC1 → TCC_EV) ist *noch nicht* verdrahtet, und die Frequenzstabilität
+> über die Zeit braucht das **Scope** (PB16).
 
 **(e) Periodische Trigger** (z. B. „ADC jede ms auf der NTP-Achse"): im `TC2 MC0`-ISR
 `CCBUF[0] += period_ticks` nachladen (Single-Shot-Kette), oder eine eigene TCC mit
