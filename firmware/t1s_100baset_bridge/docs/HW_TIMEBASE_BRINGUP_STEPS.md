@@ -99,17 +99,22 @@ bei 0 Hz), **2.15.1** (FREQM `CTRLB` nicht lesen). **Bei Fehlschlag:** RDY bleib
 
 ## Schritt 2 — DPLL1 hochfahren + Lock
 **Ziel:** DPLL1 erzeugt ~192 MHz aus XOSC1. **Weiterhin getrennt von DPLL0/CPU.**
-**Implementierung:** §4.1(b) — Lock-Timer-GCLK (`PCHCTRL[3]`), `DPLL1CTRLB`
-(REFCLK=XOSC1, DIV→~32 kHz, `LTIME=0`), `DPLL1RATIO` (LDR≈5999), enable, auf
-`LOCK|CLKRDY` warten.
+**Implementierung:** §4.1(b) — `DPLL1CTRLB` (REFCLK=XOSC1, **`DIV=182`** → f_ref ≈
+32,79 kHz, `LTIME=0` → kein 32K-Lock-Takt nötig), `DPLL1RATIO` (**`LDR=5855`** → ×5856 ≈
+192 MHz), enable. **Rev A/D:** `LBYPASS=1` setzen und auf **`CLKRDY`** triggern (nicht
+`LOCK`), dann ~5 ms settlen.
 **Test auf der MCU:** `hwclk dpll` → Lock-Status + FREQM-Messung des DPLL1-Ausgangs
-(über einen temporären GCLK) gegen XOSC32K.
+(über GCLK **DPLL1÷4 → ~48 MHz**, ×4 zurückgerechnet) gegen XOSC32K.
 ```
-hwclk dpll     →  LOCK=1 CLKRDY=1   f(DPLL1) = 192.0xx MHz
+hwclk dpll     →  CLKRDY=1 LOCK=1   f(DPLL1) = 192.0xx MHz
 ```
-**PASS:** LOCK=1 **und** gemessen ≈ **192 MHz**. **Errata:** **2.13.1** (nur Rev A/D):
-auf `CLKRDY` statt `LOCK` triggern, `LBYPASS=1`+`WUF=1`, 10 ms Delay. **Bei Fehlschlag:**
-kein LOCK → REFCLK-Frequenz > 3,2 MHz (DIV zu klein), oder Lock-Timer-GCLK fehlt.
+**PASS:** CLKRDY=1 **und** gemessen ≈ **192 MHz**. **Errata:** **2.13.1** (nur Rev A/D):
+auf `CLKRDY` statt `LOCK` triggern, `LBYPASS=1`. **Bei Fehlschlag:**
+kein CLKRDY → REFCLK-Frequenz > 3,2 MHz (DIV zu klein) bzw. < 32 kHz, oder XOSC1 down.
+> ✅ **Getestet (Board, Rev D):** `CLKRDY=1 LOCK=1` (status `0x3`), **DPLL1 = 192.006 MHz,
+> +31 ppm** → PASS. (LOCK kam hier trotz Rev D sauber; LBYPASS liegt als Absicherung drunter.)
+> Da DPLL1 = XOSC1 × 16 (LDRFRAC=0), ist diese Messung der **genauere XOSC1-ppm-Wert**
+> (48-MHz-MSR → ~2,7 ppm/Count statt ~11 ppm bei der 12-MHz-Direktmessung) → XOSC1 ≈ +31 ppm.
 
 ## Schritt 3 — GCLK + TC2 32-bit free-running + 64-bit
 **Ziel:** ein freilaufender 64-bit-Zähler mit ~96-MHz-Auflösung. **Erster Schritt, der
