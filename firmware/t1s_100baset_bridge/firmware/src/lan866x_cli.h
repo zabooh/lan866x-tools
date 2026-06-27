@@ -27,6 +27,7 @@ void I2C_CLI_Init(void);    /* i2cscan, i2cid, proxmon, lan8680, proxled */
 void SPI_CLI_Init(void);    /* spi, spiid, thumbmon, adc, pwm */
 void SYS_CLI_Init(void);    /* servicetest, boot, uart, video */
 void DNCP_CLI_Init(void);   /* dncpmon, dncpdisc */
+void HWCLK_Init(void);      /* hwclk rev/xosc... - hardware time-base bring-up (hwclk_cli.c) */
 
 /* NTP software time sync (ntp_sync.c): a free-running high-res counter the PC
  * disciplines to its wall clock via a UDP t1/t2/t3/t4 exchange (port 30491). */

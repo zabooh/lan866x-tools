@@ -378,6 +378,7 @@ void APP_Initialize(void) {
     SPI_CLI_Init();       /* spi, spiid, thumbmon, adc, pwm */
     SYS_CLI_Init();       /* servicetest, boot, uart, video */
     DNCP_CLI_Init();      /* dncpmon, dncpdisc */
+    HWCLK_Init();         /* hwclk rev/xosc... - hardware time-base bring-up */
     NTP_Init();           /* software NTP time sync service (UDP 30491) + "ntp" CLI */
     /* ENV_Init() runs earlier, in SYS_Initialize before TCPIP_STACK_Init (initialization.c),
      * so the persistent MAC can be applied before the stack binds it. */

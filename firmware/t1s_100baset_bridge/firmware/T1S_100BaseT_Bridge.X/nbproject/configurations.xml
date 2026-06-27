@@ -876,6 +876,7 @@
         <itemPath>../src/spi_cli.c</itemPath>
         <itemPath>../src/sys_cli.c</itemPath>
         <itemPath>../src/dncp_cli.c</itemPath>
+        <itemPath>../src/hwclk_cli.c</itemPath>
         <itemPath>../src/ntp_sync.c</itemPath>
         <itemPath>../src/env.c</itemPath>
         <itemPath>../../../../src/rcp.c</itemPath>
