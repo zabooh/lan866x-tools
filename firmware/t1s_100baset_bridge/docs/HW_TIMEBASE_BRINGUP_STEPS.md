@@ -1,5 +1,37 @@
 # NTP-Hardware-Zeitbasis — schrittweiser Bring-up mit Test pro Schritt
 
+## Was hier erreicht wurde — in einfachen Worten
+
+**Das Problem.** Die Bridge kannte zwar die genaue Uhrzeit (per NTP vom PC), aber nur als
+**Rechenwert in Software**. Mit so einem Software-Zeitwert kann man **nichts auslösen**:
+kein Pin schalten, keinen ADC-Messpunkt setzen, kein PWM starten — „Zeit" war nur eine Zahl.
+Zusätzlich lief die Uhr auf einem ungenauen internen Oszillator (**~1800 ppm Drift**, also
+fast 2 ms pro Sekunde daneben).
+
+**Was jetzt da ist.** Eine **echte Hardware-Uhr im Chip**:
+- Sie wird vom **genauen 12-MHz-Quarz/MEMS-Oszillator** (XOSC1) gespeist → über eine PLL
+  (DPLL1, 192 MHz) → in einen **freilaufenden 64-bit-Hardware-Zähler** (TC2, 96 MHz, ~10 ns
+  Auflösung). **Dieser Zähler *ist* jetzt die NTP-Uhr.**
+- Sie wird über das Netzwerk auf die **PC-Wanduhr synchronisiert** und bleibt **zwischen den
+  Syncs genau** (die kleine Restabweichung von **~+28 ppm** statt ~1800 ppm wird in Software
+  ausgeregelt — ~**60× stabiler**).
+- **Der eigentliche Gewinn:** diese Hardware-Uhr kann jetzt **Hardware zu einem exakt
+  berechneten Zeitpunkt auslösen** — komplett ohne CPU. Als Beweis lassen wir einen
+  **GPIO-Pin genau auf der NTP-Sekunde umschalten** (Timer-Vergleich → Event-System → Pin).
+  Das ist die Grundlage, um später **ADC/DAC/PWM zeitsynchron** zu treiben.
+
+**Stand heute (auf dem Board getestet, Silizium Rev D):** Schritte **0–7 erledigt** — die
+Kette **Quarz → PLL → Hardware-Zähler → auf PC-Zeit synchronisiert → Hardware-Trigger am
+Pin** läuft und ist nachgewiesen. **Offen:** ADC-Trigger (Schritt 8), periodischer Sekunden-
+puls (Schritt 9) und die **Scope-Messung**, ob die Pin-Flanke wirklich auf ±µs genau auf der
+Sekunde liegt (die zeitliche Lage lässt sich nur mit Oszilloskop messen, nicht in Software).
+
+**Eine ehrliche Einschränkung:** Auf diesem Silizium (Rev D) lässt sich die PLL-Frequenz
+**nicht im Betrieb feintunen** (Silizium-Erratum — der Versuch stoppt die PLL). Deshalb bleibt
+die **Frequenz-Feinkorrektur in Software** — was für die Zielgenauigkeit (10–100 µs) reicht.
+
+---
+
 Inkrementelle Inbetriebnahme der Implementierung aus
 [HW_TIMEBASE_B_C_IMPLEMENTATION.md](HW_TIMEBASE_B_C_IMPLEMENTATION.md) (Option B-b + C).
 **Jeder Schritt baut auf dem vorigen auf und wird einzeln auf der MCU verifiziert** —
@@ -17,6 +49,7 @@ nachweislich funktionsfähig.
 ---
 
 ## Inhalt
+- [Was hier erreicht wurde — in einfachen Worten](#was-hier-erreicht-wurde--in-einfachen-worten)
 - [Prinzip: build-up + Gate-Test](#prinzip-build-up--gate-test)
 - [Übersicht (Schritt → Test → Kriterium)](#übersicht-schritt--test--kriterium)
 - [Schritt 0 — Voraussetzungen prüfen (Gate)](#schritt-0--voraussetzungen-prüfen-gate)
