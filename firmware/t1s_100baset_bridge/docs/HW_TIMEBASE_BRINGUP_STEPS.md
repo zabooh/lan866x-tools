@@ -228,6 +228,17 @@ hwclk evt PB17 →  armed @ T=…   (Scope: Flanke auf der NTP-Sekunde)
 + ns (EVSYS). **Errata:** **2.24.1/2/3 & 2.21.1 → ASYNC** (zwingend); **2.20.1** (CCBUF:
 STATUS-Flag 2× clearen). **Bei Fehlschlag:** keine Flanke → EVSYS-Reihenfolge (User zuerst),
 `MCEO0`, PORT-EVCTRL; Flanke 1 TC-Periode zu spät → Wraparound-Race (Vorlauf + CCBUF).
+> ✅ **Getestet (Board, Rev D) — funktional (ohne Scope):** `hwclk evt [pin]` (Default **PB17**,
+> frei laut `pin_configurations.csv`) armt CC0 = nächste NTP-Sekunde; danach **`MC0 match: YES`**
+> (Compare matcht zum Tick) **und `PB17 OUT 0→1` = TOGGLED** → die Kette **TC2-Compare → EVSYS
+> (async) → PORT-Toggle feuert hardwareseitig**, reproduzierbar, mehrere Pins. Konkrete IDs:
+> EVGEN **TC2_MC0 = `0x50`**, User **PORT_EV0 = `m=1`** (`USER.CHANNEL=ch+1`), PORT `EVCTRL=PORTEI0|
+> EVACT_TGL|PID(pin)`, TC2 `EVCTRL=MCEO0 (bit12=0x1000)` vor dem TC-Enable gesetzt (enable-protected).
+> **Gotchas:** (1) erst **routen + ~2 ms settlen**, dann Startzustand + CC0 armen — das Konfigurieren
+> des EVSYS-Kanals erzeugt **eine Transient-Flanke**; sonst verfälscht sie den OUT-Readback.
+> (2) Async-**SWEVT** toggelt den PORT **nicht** (nur der echte HW-Pfad) — als Diagnose untauglich.
+> **Offen (braucht Scope/PPS):** die *physische* Flanke und ihre **±µs-Lage zur PC-PPS** — rein
+> in Software (OUT-/INTFLAG-Register) ist nur der *funktionale* Nachweis möglich, keine Zeitmessung.
 
 ## Schritt 8 — EVSYS → ADC START
 **Ziel:** eine **Peripherie** (ADC) wird hardware-getriggert zum NTP-Instant.

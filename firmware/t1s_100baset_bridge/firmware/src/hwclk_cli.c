@@ -324,6 +324,7 @@ static int hwclk_tc2_init(void)
     TC2_REGS->COUNT32.TC_CTRLA = TC_CTRLA_SWRST_Msk;
     while (TC2_REGS->COUNT32.TC_SYNCBUSY & TC_SYNCBUSY_SWRST_Msk) { }
     TC2_REGS->COUNT32.TC_CTRLA = TC_CTRLA_MODE_COUNT32 | TC_CTRLA_PRESCALER_DIV1 | TC_CTRLA_PRESCSYNC_PRESC;
+    TC2_REGS->COUNT32.TC_EVCTRL = TC_EVCTRL_MCEO0_Msk;          /* CC0 match -> event out (step 7); enable-protected */
     TC2_REGS->COUNT32.TC_INTFLAG  = (uint8_t)TC_INTFLAG_Msk;     /* clear all */
     TC2_REGS->COUNT32.TC_INTENSET = (uint8_t)TC_INTENSET_OVF_Msk;
     s_tc2_hi = 0;
@@ -495,6 +496,94 @@ static void cmd_hold(void)
     SYS_CONSOLE_PRINT("  between-sync holdover ~= (locked osc.drift) x interval - see 'ntp' / 'ntp watch'.\r\n");
 }
 
+/* -------- step 7: hwclk evt - TC2 compare -> EVSYS -> GPIO toggle ----------- */
+#define HWCLK_EVT_CH      0u      /* free EVSYS channel for TC2_MC0 -> PORT       */
+#define EVGEN_TC2_MC0     0x50u   /* DS event-generator id: TC2 Match/Compare 0   */
+#define EVUSER_PORT_EV0   1u      /* DS Table 31-2: user mux m=1 = PORT_EV0       */
+
+/* parse "PB17" / "pa7" -> group 0..3 + pin 0..31. Returns 1 on success. */
+static int parse_pin(const char *s, unsigned *grp, unsigned *pin)
+{
+    char g;
+    if (s == 0 || (s[0] != 'P' && s[0] != 'p')) return 0;
+    g = s[1];
+    if (g >= 'a' && g <= 'd') g = (char)(g - 32);
+    if (g < 'A' || g > 'D') return 0;
+    int n = atoi(&s[2]);
+    if (n < 0 || n > 31) return 0;
+    *grp = (unsigned)(g - 'A');
+    *pin = (unsigned)n;
+    return 1;
+}
+
+/* Arm a single hardware-timed GPIO edge at the next whole NTP second:
+ * TC2 CC0 match -> EVSYS (async) -> PORT_EV0 -> toggle the pin. No CPU in the path.
+ * Verifies (without a scope) that the chain fired: TC2 MC0 flag set + the pin's OUT
+ * bit toggled. The precise edge-vs-PC-PPS timing is the scope step. */
+static void cmd_evt(int argc, char **argv)
+{
+    if (!hwclk_tc2_init()) { SYS_CONSOLE_PRINT("DPLL1/TC2 not up -> run 'hwclk now' first\r\n"); return; }
+    unsigned grp = 1u, pin = 17u;   /* default PB17 (free per pin_configurations.csv) */
+    if (argc >= 1 && argv && argv[0] && !parse_pin(argv[0], &grp, &pin)) {
+        SYS_CONSOLE_PRINT("bad pin '%s' (use e.g. PB17)\r\n", argv[0]); return;
+    }
+
+    /* target tick = next whole NTP second (nominal 96 MHz; ~28 ppm is negligible <1 s). */
+    uint64_t ntp  = ntp_now_ns();
+    uint64_t tick = tc2_read64();
+    uint64_t ns_to = 1000000000ULL - (ntp % 1000000000ULL);
+    if (ns_to < 100000000ULL) ns_to += 1000000000ULL;          /* keep >=100 ms lead */
+    uint32_t cc0 = (uint32_t)(tick + ns_to * 96ULL / 1000ULL);
+
+    /* PORT: pin = output, event toggles its OUT register. */
+    MCLK_REGS->MCLK_APBBMASK |= MCLK_APBBMASK_EVSYS_Msk | MCLK_APBBMASK_PORT_Msk;
+    PORT_REGS->GROUP[grp].PORT_DIRSET = (1u << pin);
+    PORT_REGS->GROUP[grp].PORT_EVCTRL = PORT_EVCTRL_PORTEI0_Msk
+                                      | PORT_EVCTRL_EVACT0_TGL
+                                      | PORT_EVCTRL_PID0(pin);
+
+    /* EVSYS async route: USER mux before channel (DS 31.5.2.3). Establishing the channel
+     * can emit one transient event - let it settle, THEN define the start state, so the
+     * only edge the match produces is the intended one. (errata 2.24.x: async path.) */
+    EVSYS_REGS->EVSYS_USER[EVUSER_PORT_EV0] = EVSYS_USER_CHANNEL(HWCLK_EVT_CH + 1u);
+    EVSYS_REGS->CHANNEL[HWCLK_EVT_CH].EVSYS_CHANNEL =
+        EVSYS_CHANNEL_EVGEN(EVGEN_TC2_MC0) | EVSYS_CHANNEL_PATH_ASYNCHRONOUS;
+    plat_sleep_ms(2);
+
+    /* arm: known start state, then CC0 = target + clear the MC0 flag. */
+    PORT_REGS->GROUP[grp].PORT_OUTCLR = (1u << pin);
+    uint32_t out0 = (PORT_REGS->GROUP[grp].PORT_OUT >> pin) & 1u;
+    TC2_REGS->COUNT32.TC_INTFLAG = (uint8_t)TC_INTFLAG_MC0_Msk;
+    TC2_REGS->COUNT32.TC_CC[0] = cc0;
+    while (TC2_REGS->COUNT32.TC_SYNCBUSY & TC_SYNCBUSY_CC0_Msk) { }
+
+    SYS_CONSOLE_PRINT("armed: P%c%u toggles at CC0=%lu (in ~%lu ms = next NTP second)\r\n",
+                      (char)('A' + grp), pin, (unsigned long)cc0, (unsigned long)(ns_to / 1000000ULL));
+    SYS_CONSOLE_PRINT("  regs: TC2.EVCTRL=0x%04X  EVSYS.CH%u=0x%08lX  USER%u=0x%08lX  P%c.EVCTRL=0x%08lX\r\n",
+                      (unsigned)(TC2_REGS->COUNT32.TC_EVCTRL & 0xFFFFu), (unsigned)HWCLK_EVT_CH,
+                      (unsigned long)EVSYS_REGS->CHANNEL[HWCLK_EVT_CH].EVSYS_CHANNEL,
+                      (unsigned)EVUSER_PORT_EV0, (unsigned long)EVSYS_REGS->EVSYS_USER[EVUSER_PORT_EV0],
+                      (char)('A' + grp), (unsigned long)PORT_REGS->GROUP[grp].PORT_EVCTRL);
+
+    /* observe the match in software (the toggle itself is pure HW/EVSYS, no CPU). */
+    uint32_t t0 = plat_now_ms(), budget = (uint32_t)(ns_to / 1000000ULL) + 300u;
+    int matched = 0;
+    while (plat_now_ms() - t0 < budget) {
+        if (TC2_REGS->COUNT32.TC_INTFLAG & TC_INTFLAG_MC0_Msk) { matched = 1; break; }
+        plat_sleep_ms(2);   /* pump stack/console while waiting */
+    }
+    uint32_t out1 = (PORT_REGS->GROUP[grp].PORT_OUT >> pin) & 1u;
+
+    SYS_CONSOLE_PRINT("  MC0 match : %s\r\n", matched ? "YES" : "no (timeout)");
+    SYS_CONSOLE_PRINT("  P%c%u OUT  : %u -> %u  ->  %s\r\n", (char)('A' + grp), pin, out0, out1,
+                      (out0 != out1) ? "TOGGLED by EVSYS - Compare->EVSYS->GPIO chain OK"
+                                     : "** no toggle - check EVSYS/PORT wiring **");
+    SYS_CONSOLE_PRINT("  next: scope P%c%u vs PC-PPS to verify the instant (+/- us)\r\n",
+                      (char)('A' + grp), pin);
+
+    EVSYS_REGS->EVSYS_USER[EVUSER_PORT_EV0] = 0u;   /* one-shot: detach so it stops toggling */
+}
+
 /* -------- dispatch + registration ----------------------------------------- */
 static void cmd_hwclk(SYS_CMD_DEVICE_NODE *pCmdIO, int argc, char **argv)
 {
@@ -513,7 +602,8 @@ static void cmd_hwclk(SYS_CMD_DEVICE_NODE *pCmdIO, int argc, char **argv)
     }
     if (argc >= 2 && strcmp(argv[1], "ldrfrac") == 0) { cmd_ldrfrac(argc - 2, argv + 2); return; }
     if (argc >= 2 && strcmp(argv[1], "hold") == 0)    { cmd_hold(); return; }
-    SYS_CONSOLE_PRINT("usage: hwclk <rev|xosc [ulp]|dpll|now|wrap|cmp [secs]|ldrfrac|hold>\r\n");
+    if (argc >= 2 && strcmp(argv[1], "evt") == 0)     { cmd_evt(argc - 2, argv + 2); return; }
+    SYS_CONSOLE_PRINT("usage: hwclk <rev|xosc [ulp]|dpll|now|wrap|cmp [secs]|ldrfrac|hold|evt [pin]>\r\n");
     SYS_CONSOLE_PRINT("  rev        - silicon revision (DSU DID) + regulator + errata gate (step 0)\r\n");
     SYS_CONSOLE_PRINT("  xosc [ulp] - enable XOSC1 (12 MHz) and measure it with FREQM (step 1);\r\n");
     SYS_CONSOLE_PRINT("               'ulp' forces the internal OSCULP32K reference\r\n");
@@ -523,11 +613,12 @@ static void cmd_hwclk(SYS_CMD_DEVICE_NODE *pCmdIO, int argc, char **argv)
     SYS_CONSOLE_PRINT("  cmp [secs] - compare HW clock vs SYS_TIME, report relative drift ppm (step 4)\r\n");
     SYS_CONSOLE_PRINT("  ldrfrac    - show DPLL1 LDRFRAC + measured freq (read-only; tuning is in SW) (step 6)\r\n");
     SYS_CONSOLE_PRINT("  hold       - physical TC2 rate vs XOSC32K + holdover note (step 6)\r\n");
+    SYS_CONSOLE_PRINT("  evt [pin]  - arm a HW-timed GPIO edge at the next NTP second (default PB17) (step 7)\r\n");
 }
 
 static const SYS_CMD_DESCRIPTOR hwclk_cmd_tbl[] = {
     {"hwclk", (SYS_CMD_FNC) cmd_hwclk,
-     ": HW time base: rev/xosc/dpll/now/wrap/cmp/ldrfrac/hold (steps 0-6)"},
+     ": HW time base: rev/xosc/dpll/now/wrap/cmp/ldrfrac/hold/evt (steps 0-7)"},
 };
 
 void HWCLK_Init(void)
