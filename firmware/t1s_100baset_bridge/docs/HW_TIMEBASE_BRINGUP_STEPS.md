@@ -74,6 +74,8 @@ hwclk rev      →  DID=0x6184xxxx  REV=F   Regulator=LDO
 **Errata:** **2.19.1** (FDPLL braucht LDO — DPLL0/CPU läuft schon → erfüllt). **2.13.1**
 (FDPLL-False-Unlock) betrifft **nur Rev A/D**; bei A/D in Schritt 2 den
 `LBYPASS/WUF/CLKRDY`-Bring-up nutzen. **Bei Fehlschlag:** Buck-Mode → auf LDO umstellen.
+> ✅ **Getestet (Board):** `DID=0x61840300`, **Rev D**, Series 4 (SAM E54), **Regulator=LDO**
+> → PASS. Folge: **Rev D ⇒ 2.13.1 trifft zu** → DPLL1 in Schritt 2 mit `LBYPASS/WUF/CLKRDY`.
 
 ## Schritt 1 — XOSC1 in Betrieb nehmen
 **Ziel:** der 12-MHz-MEMS-Takt läuft (speist DPLL1). **Berührt CPU/DPLL0 nicht.**
@@ -89,6 +91,11 @@ hwclk xosc     →  XOSC1 = 12.000.0xx Hz   (RDY=1)
 bei 0 Hz), **2.15.1** (FREQM `CTRLB` nicht lesen). **Bei Fehlschlag:** RDY bleibt 0 →
 `ENABLE` nicht gesetzt / falscher Index (`[1]`!) / MEMS-Takt steht nicht an XIN1;
 0 Hz → XOSC1-Takt fehlt am Pin (R471/Y401 prüfen).
+> ✅ **Getestet (Board):** `RDY=1`; **XOSC1 = 12.000.155 Hz = +12 ppm** (FREQM gegen
+> XOSC32K) → PASS. Das ist die **Roh-Drift der Zeitbasis: +12 ppm statt ~1800 ppm (DFLL)**.
+> **XOSC32K (Y400)** als genaue Referenz bestätigt — Enable braucht **`CGM(XT)` + RDY-Poll
+> bis ~1 s** (`ctrl=0x200A`, `RDY=1`); ohne CGM/zu kurzer Poll → Fallback auf OSCULP32K
+> (nur Präsenz-Check, ~±%). `hwclk xosc ulp` erzwingt OSCULP32K.
 
 ## Schritt 2 — DPLL1 hochfahren + Lock
 **Ziel:** DPLL1 erzeugt ~192 MHz aus XOSC1. **Weiterhin getrennt von DPLL0/CPU.**

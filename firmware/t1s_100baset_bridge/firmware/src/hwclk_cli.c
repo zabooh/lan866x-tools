@@ -72,24 +72,61 @@ static void cmd_rev(void)
 
 /* -------- step 1: hwclk xosc ----------------------------------------------- */
 
-/* Bring up a 32 kHz FREQM reference. Prefer the accurate external XOSC32K MEMS;
- * fall back to internal OSCULP32K (rough) if it does not come ready. Returns the
- * GCLK GENCTRL SRC value; *accurate is set when XOSC32K was used. */
-static uint32_t enable_ref32k(const char **name, int *accurate)
+/* Set up the two scratch GCLK generators (MSR = XOSC1, REF = ref_src), route them
+ * to the FREQM measure/reference channels, run ONE measurement and return XOSC1 in
+ * Hz - or 0 if the reference clock is dead (FREQM BUSY never clears -> SW timeout,
+ * errata 2.28.1/2.28.2). Enabling the REF generator also acts as a clock consumer,
+ * so an ONDEMAND oscillator (e.g. XOSC32K) is requested here regardless of RDY. */
+static uint64_t freqm_measure(uint32_t ref_src)
+{
+    GCLK_REGS->GCLK_GENCTRL[HWCLK_GEN_MSR] =
+        GCLK_GENCTRL_SRC(GCLK_GENCTRL_SRC_XOSC1_Val) | GCLK_GENCTRL_DIV(1U) | GCLK_GENCTRL_GENEN_Msk;
+    GCLK_REGS->GCLK_GENCTRL[HWCLK_GEN_REF] =
+        GCLK_GENCTRL_SRC(ref_src) | GCLK_GENCTRL_DIV(1U) | GCLK_GENCTRL_GENEN_Msk;
+    gclk_sync();
+
+    GCLK_REGS->GCLK_PCHCTRL[HWCLK_PCH_FREQM_MSR] = GCLK_PCHCTRL_GEN(HWCLK_GEN_MSR) | GCLK_PCHCTRL_CHEN_Msk;
+    GCLK_REGS->GCLK_PCHCTRL[HWCLK_PCH_FREQM_REF] = GCLK_PCHCTRL_GEN(HWCLK_GEN_REF) | GCLK_PCHCTRL_CHEN_Msk;
+    while ((GCLK_REGS->GCLK_PCHCTRL[HWCLK_PCH_FREQM_MSR] & GCLK_PCHCTRL_CHEN_Msk) == 0u) { }
+    while ((GCLK_REGS->GCLK_PCHCTRL[HWCLK_PCH_FREQM_REF] & GCLK_PCHCTRL_CHEN_Msk) == 0u) { }
+
+    MCLK_REGS->MCLK_APBAMASK |= MCLK_APBAMASK_FREQM_Msk;
+    FREQM_REGS->FREQM_CTRLA = 0u;
+    while (FREQM_REGS->FREQM_SYNCBUSY & FREQM_SYNCBUSY_ENABLE_Msk) { }
+    FREQM_REGS->FREQM_CFGA  = (uint16_t)FREQM_CFGA_REFNUM(HWCLK_FREQM_REFNUM);
+    FREQM_REGS->FREQM_CTRLA = FREQM_CTRLA_ENABLE_Msk;
+    while (FREQM_REGS->FREQM_SYNCBUSY & FREQM_SYNCBUSY_ENABLE_Msk) { }
+
+    FREQM_REGS->FREQM_STATUS = FREQM_STATUS_OVF_Msk;          /* clear sticky overflow */
+    FREQM_REGS->FREQM_CTRLB  = FREQM_CTRLB_START_Msk;
+    uint32_t t0 = plat_now_ms();
+    while (FREQM_REGS->FREQM_STATUS & FREQM_STATUS_BUSY_Msk) {
+        if (plat_now_ms() - t0 > HWCLK_TMO_MS) return 0u;    /* dead reference clock */
+    }
+    uint32_t val = FREQM_REGS->FREQM_VALUE & FREQM_VALUE_VALUE_Msk;
+    /* f_msr = VALUE * f_ref / REFNUM ; f_ref nominal 32768 Hz. */
+    return (uint64_t)val * 32768ULL / (uint64_t)HWCLK_FREQM_REFNUM;
+}
+
+/* Enable XOSC32K = external 32.768 kHz MEMS (Y400) at XIN32 (XTALEN=0). Polls RDY
+ * up to ~1 s and always prints the raw control/status so we can see the truth even
+ * if RDY misbehaves in external-clock mode. Returns 1 if RDY asserted. */
+static int enable_xosc32k(void)
 {
     OSC32KCTRL_REGS->OSC32KCTRL_XOSC32K =
         (uint16_t)(OSC32KCTRL_XOSC32K_ENABLE_Msk
                  | OSC32KCTRL_XOSC32K_EN32K_Msk
-                 | OSC32KCTRL_XOSC32K_STARTUP(0U));   /* XTALEN=0 -> external 32 kHz clock */
+                 | OSC32KCTRL_XOSC32K_CGM_XT          /* defined gain value (XTALEN=0 bypasses amp) */
+                 | OSC32KCTRL_XOSC32K_STARTUP(0U));   /* XTALEN=0 -> external clock at XIN32 */
     uint32_t t0 = plat_now_ms();
-    while ((OSC32KCTRL_REGS->OSC32KCTRL_STATUS & OSC32KCTRL_STATUS_XOSC32KRDY_Msk) == 0u) {
-        if (plat_now_ms() - t0 > HWCLK_TMO_MS) {
-            *name = "OSCULP32K (internal, approx)"; *accurate = 0;
-            return GCLK_GENCTRL_SRC_OSCULP32K_Val;
-        }
+    int rdy = 0;
+    while (plat_now_ms() - t0 < 1000u) {
+        if (OSC32KCTRL_REGS->OSC32KCTRL_STATUS & OSC32KCTRL_STATUS_XOSC32KRDY_Msk) { rdy = 1; break; }
     }
-    *name = "XOSC32K (external MEMS)"; *accurate = 1;
-    return GCLK_GENCTRL_SRC_XOSC32K_Val;
+    SYS_CONSOLE_PRINT("XOSC32K    : ctrl=0x%04X status=0x%08lX RDY=%d\r\n",
+                      (unsigned)(OSC32KCTRL_REGS->OSC32KCTRL_XOSC32K & 0xFFFFu),
+                      (unsigned long)OSC32KCTRL_REGS->OSC32KCTRL_STATUS, rdy);
+    return rdy;
 }
 
 static void cmd_xosc(int forceUlp)
@@ -107,67 +144,39 @@ static void cmd_xosc(int forceUlp)
         return;
     }
 
-    /* 2) 32 kHz FREQM reference. */
-    const char *refname; int refAccurate;
-    uint32_t refsrc;
-    if (forceUlp) { refsrc = GCLK_GENCTRL_SRC_OSCULP32K_Val; refname = "OSCULP32K (forced, approx)"; refAccurate = 0; }
-    else          { refsrc = enable_ref32k(&refname, &refAccurate); }
-
-    /* 3) scratch GCLK generators: MSR = XOSC1 (12 MHz, /1), REF = 32 kHz (/1). */
-    GCLK_REGS->GCLK_GENCTRL[HWCLK_GEN_MSR] =
-        GCLK_GENCTRL_SRC(GCLK_GENCTRL_SRC_XOSC1_Val) | GCLK_GENCTRL_DIV(1U) | GCLK_GENCTRL_GENEN_Msk;
-    GCLK_REGS->GCLK_GENCTRL[HWCLK_GEN_REF] =
-        GCLK_GENCTRL_SRC(refsrc) | GCLK_GENCTRL_DIV(1U) | GCLK_GENCTRL_GENEN_Msk;
-    gclk_sync();
-
-    /* 4) route the two generators to the FREQM measure/reference channels. */
-    GCLK_REGS->GCLK_PCHCTRL[HWCLK_PCH_FREQM_MSR] = GCLK_PCHCTRL_GEN(HWCLK_GEN_MSR) | GCLK_PCHCTRL_CHEN_Msk;
-    GCLK_REGS->GCLK_PCHCTRL[HWCLK_PCH_FREQM_REF] = GCLK_PCHCTRL_GEN(HWCLK_GEN_REF) | GCLK_PCHCTRL_CHEN_Msk;
-    while ((GCLK_REGS->GCLK_PCHCTRL[HWCLK_PCH_FREQM_MSR] & GCLK_PCHCTRL_CHEN_Msk) == 0u) { }
-    while ((GCLK_REGS->GCLK_PCHCTRL[HWCLK_PCH_FREQM_REF] & GCLK_PCHCTRL_CHEN_Msk) == 0u) { }
-
-    /* 5) FREQM: APB clock, REFNUM (set while disabled), then enable. */
-    MCLK_REGS->MCLK_APBAMASK |= MCLK_APBAMASK_FREQM_Msk;
-    FREQM_REGS->FREQM_CTRLA = 0u;
-    while (FREQM_REGS->FREQM_SYNCBUSY & FREQM_SYNCBUSY_ENABLE_Msk) { }
-    FREQM_REGS->FREQM_CFGA  = (uint16_t)FREQM_CFGA_REFNUM(HWCLK_FREQM_REFNUM);
-    FREQM_REGS->FREQM_CTRLA = FREQM_CTRLA_ENABLE_Msk;
-    while (FREQM_REGS->FREQM_SYNCBUSY & FREQM_SYNCBUSY_ENABLE_Msk) { }
-
-    /* 6) one measurement; poll BUSY with a software timeout (errata 2.28.1/2.28.2). */
-    FREQM_REGS->FREQM_STATUS = FREQM_STATUS_OVF_Msk;          /* clear sticky overflow */
-    FREQM_REGS->FREQM_CTRLB  = FREQM_CTRLB_START_Msk;
-    t0 = plat_now_ms();
-    int tmo = 0;
-    while (FREQM_REGS->FREQM_STATUS & FREQM_STATUS_BUSY_Msk) {
-        if (plat_now_ms() - t0 > HWCLK_TMO_MS) { tmo = 1; break; }
+    /* 2) measure with the accurate external XOSC32K reference; fall back to the
+     *    internal OSCULP32K if XOSC32K's clock is absent (FREQM times out). */
+    uint64_t hz; const char *refname; int accurate;
+    if (forceUlp) {
+        hz = freqm_measure(GCLK_GENCTRL_SRC_OSCULP32K_Val);
+        refname = "OSCULP32K (forced, approx)"; accurate = 0;
+    } else {
+        (void)enable_xosc32k();                                   /* prints raw regs + RDY */
+        hz = freqm_measure(GCLK_GENCTRL_SRC_XOSC32K_Val);         /* use it regardless of RDY */
+        if (hz != 0u) { refname = "XOSC32K (external MEMS)"; accurate = 1; }
+        else {
+            hz = freqm_measure(GCLK_GENCTRL_SRC_OSCULP32K_Val);
+            refname = "OSCULP32K (internal, approx - XOSC32K unavailable)"; accurate = 0;
+        }
     }
-    if (tmo) {
-        SYS_CONSOLE_PRINT("FREQM: measurement timed out (no reference clock? ref=%s)\r\n", refname);
+
+    if (hz == 0u) {
+        SYS_CONSOLE_PRINT("FREQM: no usable reference clock -> measurement failed\r\n");
         return;
     }
 
-    uint32_t val = FREQM_REGS->FREQM_VALUE & FREQM_VALUE_VALUE_Msk;
-    int ovf      = (FREQM_REGS->FREQM_STATUS & FREQM_STATUS_OVF_Msk) ? 1 : 0;
-
-    /* f_msr = VALUE * f_ref / REFNUM ; f_ref nominal 32768 Hz. */
-    uint64_t hz = (uint64_t)val * 32768ULL / (uint64_t)HWCLK_FREQM_REFNUM;
     long dev_ppm = (long)(((int64_t)hz - 12000000LL) * 1000000LL / 12000000LL);
-
-    SYS_CONSOLE_PRINT("FREQM ref  : %s, REFNUM=%u, VALUE=%lu%s\r\n",
-                      refname, (unsigned)HWCLK_FREQM_REFNUM, (unsigned long)val, ovf ? "  (OVF!)" : "");
+    SYS_CONSOLE_PRINT("FREQM ref  : %s, REFNUM=%u\r\n", refname, (unsigned)HWCLK_FREQM_REFNUM);
     SYS_CONSOLE_PRINT("XOSC1 freq : %lu Hz  (~%lu.%03lu MHz)\r\n",
                       (unsigned long)hz, (unsigned long)(hz / 1000000ULL),
                       (unsigned long)((hz % 1000000ULL) / 1000ULL));
-
-    if (refAccurate) {
+    if (accurate) {
         SYS_CONSOLE_PRINT("  deviation : %+ld ppm from 12.000 MHz  ->  %s\r\n",
                           dev_ppm,
                           (hz > 11976000ULL && hz < 12024000ULL) ? "PASS (~12 MHz, +/-2000 ppm)" : "FAIL");
     } else {
-        /* OSCULP32K is only ~+/-few % accurate: confirm PRESENCE, ppm not trustworthy. */
-        SYS_CONSOLE_PRINT("  note     : ref is internal OSCULP32K (~+/-several %%) -> presence check only\r\n");
-        SYS_CONSOLE_PRINT("  result   : %s   (run without 'ulp' for an accurate XOSC32K-referenced ppm)\r\n",
+        SYS_CONSOLE_PRINT("  note     : internal OSCULP32K ref (~+/-several %%) -> presence check only\r\n");
+        SYS_CONSOLE_PRINT("  result   : %s\r\n",
                           (hz > 11000000ULL && hz < 13000000ULL) ? "PASS (~12 MHz present)" : "FAIL");
     }
 }
