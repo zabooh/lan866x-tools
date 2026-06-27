@@ -20,11 +20,12 @@ fast 2 ms pro Sekunde daneben).
   **GPIO-Pin genau auf der NTP-Sekunde umschalten** (Timer-Vergleich → Event-System → Pin).
   Das ist die Grundlage, um später **ADC/DAC/PWM zeitsynchron** zu treiben.
 
-**Stand heute (auf dem Board getestet, Silizium Rev D):** Schritte **0–7 erledigt** — die
-Kette **Quarz → PLL → Hardware-Zähler → auf PC-Zeit synchronisiert → Hardware-Trigger am
-Pin** läuft und ist nachgewiesen. **Offen:** ADC-Trigger (Schritt 8), periodischer Sekunden-
-puls (Schritt 9) und die **Scope-Messung**, ob die Pin-Flanke wirklich auf ±µs genau auf der
-Sekunde liegt (die zeitliche Lage lässt sich nur mit Oszilloskop messen, nicht in Software).
+**Stand heute (auf dem Board getestet, Silizium Rev D):** **Schritte 0–10 erledigt** — die
+ganze Kette **Quarz → PLL → Hardware-Zähler → auf PC-Zeit synchronisiert → Hardware-Trigger**
+läuft und ist (funktional) nachgewiesen: GPIO-Flanke zum NTP-Instant (7), ADC-Trigger (8),
+dauerhaftes **1 PPS** auf einem Pin (9) und **synchrone PWM** auf der disziplinierten Rate (10).
+**Offen:** nur noch die **Scope-Messung** der zeitlichen Lage/Stabilität (Flanke vs. PC-PPS,
+PWM-Frequenz) — das lässt sich naturgemäß nur mit Oszilloskop messen, nicht in Software.
 
 **Eine ehrliche Einschränkung:** Auf diesem Silizium (Rev D) lässt sich die PLL-Frequenz
 **nicht im Betrieb feintunen** (Silizium-Erratum — der Versuch stoppt die PLL). Deshalb bleibt
@@ -329,11 +330,18 @@ hwclk pwm PB18 1000  →  (Scope: 1000,0xx Hz, stabil zur disziplinierten Rate)
 **Errata:** **2.20.2/2.21.6** — Retrigger **nicht** auf den Compare-Match legen (sonst
 Waveform-Glitch), oder 2-Kanal-Redundanz; **2.21.1** EVSYS **async**; **2.21.9** keine
 8/16-bit-Writes auf `STATUS`.
+> ✅ **Getestet (Board, Rev D) — funktional (ohne Scope):** `hwclk pwm` → 1000 Hz (PER=95999),
+> `hwclk pwm 5000` → 5000 Hz (PER=19199); **TCC0-COUNT zählt** (31→32735 / →13547) → PASS. TCC0
+> im **NPWM** am **selben disziplinierten 96-MHz-GEN5** wie TC2 (`PCHCTRL[25]`), Ausgang **PB16 =
+> TCC0_WO4** (PMUX Funktion G). f = 96e6/(PER+1), 50 % Duty. Phasen-Retrigger von TC2 ist (noch)
+> nicht verdrahtet — die *Frequenz* liegt aber bereits auf der syntonisierten Rate. **Offen:**
+> Scope PB16 — die Frequenzstabilität gegen die DFLL-Referenz über die Zeit.
 
 ---
 
 ## Definition of Done
-Die Kette gilt als funktionsfähig, wenn **Schritt 1–9 PASS** sind (10 optional):
+✅ **Erreicht (Rev D): Schritte 0–10 PASS** (funktional, ohne Scope). Die Kette gilt als
+funktionsfähig, wenn **Schritt 1–9 PASS** sind (10 optional):
 - XOSC1 (≈12 MHz) → DPLL1 (≈192 MHz, LOCK) → TC2 (96 MHz, 64-bit) laufen,
 - die HW-Uhr ist auf PC-Zeit **synchronisiert** (Phase) **und syntonisiert** (Frequenz,
   Holdover ≤ ~2,5 µs/s),

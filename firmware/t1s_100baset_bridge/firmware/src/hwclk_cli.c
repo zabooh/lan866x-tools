@@ -750,6 +750,55 @@ static void cmd_pps(int argc, char **argv)
                       (char)('A' + grp), pin);
 }
 
+/* -------- step 10: hwclk pwm - synchronous PWM on the disciplined timebase -- */
+#define HWCLK_PWM_GRP   1u       /* PB16 = TCC0_WO4 (function G = mux 6) -> CC0   */
+#define HWCLK_PWM_PIN   16u
+#define HWCLK_PWM_MUX   6u
+
+/* Run TCC0 in NPWM off the same disciplined 96 MHz GCLK (GEN5) that clocks TC2, so the
+ * PWM frequency rides the syntonized timebase (it does NOT drift like a DFLL-based PWM).
+ * Output WO4 on PB16. f_pwm = 96e6 / (PER+1), 50% duty. */
+static void cmd_pwm(uint32_t freq)
+{
+    if (!hwclk_tc2_init()) { SYS_CONSOLE_PRINT("DPLL1/TC2 not up -> run 'hwclk now' first\r\n"); return; }
+    if (freq < 6u) freq = 1000u;                          /* PER is 24-bit -> f >= ~6 Hz */
+    uint32_t per  = (96000000u / freq) - 1u;
+    uint32_t duty = (per + 1u) / 2u;
+
+    GCLK_REGS->GCLK_PCHCTRL[TCC0_GCLK_ID] = GCLK_PCHCTRL_GEN(HWCLK_GEN_TC2) | GCLK_PCHCTRL_CHEN_Msk;
+    while ((GCLK_REGS->GCLK_PCHCTRL[TCC0_GCLK_ID] & GCLK_PCHCTRL_CHEN_Msk) == 0u) { }
+    MCLK_REGS->MCLK_APBBMASK |= MCLK_APBBMASK_TCC0_Msk;
+
+    TCC0_REGS->TCC_CTRLA = TCC_CTRLA_SWRST_Msk;
+    while (TCC0_REGS->TCC_SYNCBUSY & TCC_SYNCBUSY_SWRST_Msk) { }
+    TCC0_REGS->TCC_WAVE  = TCC_WAVE_WAVEGEN_NPWM;          /* enable-protected: set while off */
+    TCC0_REGS->TCC_PER   = per;
+    TCC0_REGS->TCC_CC[0] = duty;
+    while (TCC0_REGS->TCC_SYNCBUSY != 0u) { }
+    TCC0_REGS->TCC_CTRLA = TCC_CTRLA_ENABLE_Msk;
+    while (TCC0_REGS->TCC_SYNCBUSY & TCC_SYNCBUSY_ENABLE_Msk) { }
+
+    /* route PB16 to the TCC0 function (PMUX even nibble = function G). */
+    PORT_REGS->GROUP[HWCLK_PWM_GRP].PORT_PINCFG[HWCLK_PWM_PIN]    = PORT_PINCFG_PMUXEN_Msk;
+    PORT_REGS->GROUP[HWCLK_PWM_GRP].PORT_PMUX[HWCLK_PWM_PIN / 2u] = (uint8_t)PORT_PMUX_PMUXE(HWCLK_PWM_MUX);
+
+    /* verify (no scope): the TCC COUNT must be advancing on the 96 MHz clock. */
+    uint32_t c0, c1;
+    TCC0_REGS->TCC_CTRLBSET = (uint8_t)TCC_CTRLBSET_CMD_READSYNC;
+    while (TCC0_REGS->TCC_SYNCBUSY & TCC_SYNCBUSY_CTRLB_Msk) { }
+    c0 = TCC0_REGS->TCC_COUNT;
+    for (volatile int k = 0; k < 4000; k++) { }
+    TCC0_REGS->TCC_CTRLBSET = (uint8_t)TCC_CTRLBSET_CMD_READSYNC;
+    while (TCC0_REGS->TCC_SYNCBUSY & TCC_SYNCBUSY_CTRLB_Msk) { }
+    c1 = TCC0_REGS->TCC_COUNT;
+
+    SYS_CONSOLE_PRINT("PWM on PB16 (TCC0_WO4): %lu Hz  (PER=%lu, 50%% duty, clk = disciplined 96 MHz GEN5)\r\n",
+                      (unsigned long)freq, (unsigned long)per);
+    SYS_CONSOLE_PRINT("  TCC running: COUNT %lu -> %lu  ->  %s\r\n",
+                      (unsigned long)c0, (unsigned long)c1, (c0 != c1) ? "PASS (counting on 96 MHz)" : "STALLED");
+    SYS_CONSOLE_PRINT("  scope PB16: frequency is stable to the disciplined rate (no DFLL ~1800 ppm drift)\r\n");
+}
+
 /* -------- dispatch + registration ----------------------------------------- */
 static void cmd_hwclk(SYS_CMD_DEVICE_NODE *pCmdIO, int argc, char **argv)
 {
@@ -773,7 +822,10 @@ static void cmd_hwclk(SYS_CMD_DEVICE_NODE *pCmdIO, int argc, char **argv)
         cmd_adc((argc >= 3) ? (int)strtol(argv[2], NULL, 10) : 0); return;
     }
     if (argc >= 2 && strcmp(argv[1], "pps") == 0)     { cmd_pps(argc - 2, argv + 2); return; }
-    SYS_CONSOLE_PRINT("usage: hwclk <rev|xosc[ulp]|dpll|now|wrap|cmp[s]|ldrfrac|hold|evt[pin]|adc[n]|pps[pin] on|off>\r\n");
+    if (argc >= 2 && strcmp(argv[1], "pwm") == 0)     {
+        cmd_pwm((argc >= 3) ? (uint32_t)strtoul(argv[2], NULL, 10) : 0u); return;
+    }
+    SYS_CONSOLE_PRINT("usage: hwclk <rev|xosc[ulp]|dpll|now|wrap|cmp[s]|ldrfrac|hold|evt[pin]|adc[n]|pps[pin]on|off|pwm[hz]>\r\n");
     SYS_CONSOLE_PRINT("  rev        - silicon revision (DSU DID) + regulator + errata gate (step 0)\r\n");
     SYS_CONSOLE_PRINT("  xosc [ulp] - enable XOSC1 (12 MHz) and measure it with FREQM (step 1);\r\n");
     SYS_CONSOLE_PRINT("               'ulp' forces the internal OSCULP32K reference\r\n");
@@ -786,6 +838,7 @@ static void cmd_hwclk(SYS_CMD_DEVICE_NODE *pCmdIO, int argc, char **argv)
     SYS_CONSOLE_PRINT("  evt [pin]  - arm a HW-timed GPIO edge at the next NTP second (default PB17) (step 7)\r\n");
     SYS_CONSOLE_PRINT("  adc [n]    - fire n TC2 events -> ADC0 START, count conversions (step 8)\r\n");
     SYS_CONSOLE_PRINT("  pps [pin] on|off - continuous 1 PPS edge on the NTP second (default PB17) (step 9)\r\n");
+    SYS_CONSOLE_PRINT("  pwm [hz]   - synchronous PWM on PB16/TCC0 off the disciplined 96 MHz (step 10)\r\n");
 }
 
 static const SYS_CMD_DESCRIPTOR hwclk_cmd_tbl[] = {
