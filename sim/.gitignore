@@ -1,0 +1,9 @@
+# build + run artefacts - all regenerable (see REPORT.md "Reproduzieren"):
+#   mingw32-make ; ./sim.exe ; bash sweep.sh ; python plot/plot_results.py
+sim
+sim.exe
+*.o
+*.exe
+*.csv
+plot/*.png
+sweep_results/
