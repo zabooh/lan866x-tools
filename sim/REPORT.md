@@ -31,6 +31,7 @@ gemittelt.
 - [9. Zielgerichtete Hebel gegen die realen Brecher](#9-zielgerichtete-hebel-gegen-die-realen-brecher-last--ausreißer--bias)
 - [10. Was diese Simulation NICHT beweist](#10-was-diese-simulation-nicht-beweist-verbindlich-simulation_specmd-8)
 - [11. Reproduzieren](#11-reproduzieren)
+- [12. Weitere Diagramme aus der Simulation](#12-weitere-diagramme-aus-der-simulation)
 
 ---
 
@@ -71,6 +72,16 @@ mit benannter Schranke) / **GEBROCHEN** (versagt schon im idealisierten Modell).
 | **D1** | stiller Index-Versatz (GO-Verlust / Reboot / DMA-Overflow) | **PASS (mit Check)** | M6: sample_loss→40, go_loss→8, reboot→4 Samples; der Master-Konsistenz-Check flaggt genau den schuldigen Knoten, Rest sauber. Ohne Check sind diese unsichtbar. |
 | **D4** | Spät-/Reboot-Einstieg vor Lock verankert falsch | **PASS (mit Check)** | M6-Reboot-Szenario geflaggt (4 Samples) |
 
+**Das Kernergebnis (M4) im Bild:**
+
+![Paarweiser Index-Skew, Baseline](plot/pw_index_skew.png)
+
+*Knotenübergreifender Index-Skew aller 21 Knotenpaare über 60 s, Baseline (7 Knoten,
+σ=2 µs).* Alle Paare bleiben ein **flaches Band um ±0,06 Samples** — die rote ±1-Sample-
+Grenze ist weit entfernt, **kein Weglaufen** über die Zeit. Das ist die zentrale
+Machbarkeitsaussage unter günstigem Jitter; die folgenden Abschnitte zeigen, wann und
+warum dieses Band aufreißt.
+
 ---
 
 ## 3. Warum es bei σ≈28 µs bricht (der Mechanismus)
@@ -87,6 +98,13 @@ max index skew ≈ 0,030 × σ[µs]      (gemessene Steigung, 3 Seeds)
   σ = 28 µs  → 1,0  Samples   ← Bruch
   σ = 150 µs → 5,4  Samples   (realer Software-NTP-Floor)
 ```
+
+![Index-Skew vs. Sync-Jitter (Bruchkurve)](plot/sweep_skew_vs_sigma.png)
+
+*Worst-case max Index-Skew über σ, gemittelt über 3 Seeds (Firmware-Regler, 8 kHz).*
+Auf log-log eine **Gerade** (Skew ∝ σ), das Band ist die Seed-Streuung. Die rote Linie
+ist die 1-Sample-Schwelle, die grüne Senkrechte der **Bruchpunkt bei σ≈28 µs**. Rechts
+davon (inkl. der realen 150 µs) liegt der Skew bei mehreren Samples.
 
 Die Grenze ist also **nicht** der Oszillator, das Dithering oder die
 Schleifendynamik — sondern der **Timestamp-Jitter von Software-NTP** (⚠B1/B2/G1).
@@ -125,6 +143,14 @@ Frage: *Eine längere Konvergenzzeit ist akzeptabel — wie lang muss sie sein, 
 **nicht** — die 6,5 Samples bei σ=150 µs sind *stationäres Rauschen*, kein
 Transient. „Konvergenzzeit verlängern" heißt: die Schleife **langsamer + glättender**
 auslegen (Ki kleiner + Kp kleiner). Das kostet Lock-Zeit und kauft Rauschunterdrückung.
+
+![s_rate_ppb-Einschwingen (Frequenz-Integral)](plot/ts_rate_ppb.png)
+
+*Das Frequenz-Integral `s_rate_ppb` (I-Anteil) je Knoten über die Zeit, Baseline.* Es
+fällt von 0 und **rastet auf `−true_ppm` ein** (gestrichelte Referenzlinien) — das ist
+der Lock. Wie stark es danach um die Referenz **zappelt**, ist die Rate-Wander, die das
+I-Glied aus dem Offset-Rauschen integriert; genau dieses Zappeln treibt bei großem σ den
+Skew, und Ki-Glättung (kleineres Ki) beruhigt es — auf Kosten eines langsameren Locks.
 
 Worst-case max Index-Skew über 3 Seeds, σ=150 µs, 180 s:
 
@@ -221,6 +247,14 @@ Marge). Unter Datenlast (`load_dep`, σ ×4 — der wahrscheinlichste reale Fall
 hält er nur bis **~50 µs Basis-σ**; `heavy_tail` bis ~100 µs; `biased` (⚠A3) bricht
 bei 150 µs ebenfalls (~1,8). Für *unter-Last-robustes* Per-Sample-Sync muss das
 **Leerlauf-σ ≲ 50 µs** sein — auf Software-NTP-Timestamping (150 µs) nicht erfüllt.
+
+![Worst-Case-Verteilung des Zeit-Versatzes](plot/stackup_worstcase.png)
+
+*Verteilung des paarweisen Zeit-Versatzes bei σ=150 µs, `heavy_tail` (getunt).* Statt
+einer Einzelzahl der **ganze Stackup**: die Verteilung ist breit (±~400 µs), der
+**Worst-Case bei ~629 µs ≈ 5 Samples**. Das illustriert ⚠B1/B4/G3 — der Worst-Case ist
+weit größer als der Mittelwert; für ereignisgenaue Koinzidenz zählt genau dieser Rand,
+nicht der Mittelwert.
 
 **Entscheidend — kein stiller Bruch:** in **allen** gebrochenen Zellen war die
 Rückkanal-Falsch-Positiv-Rate **0**. Bricht das Konzept, **erkennt und flaggt** es
@@ -324,6 +358,17 @@ Sample-Periode, und die Periode ist 1/Rate, also `skew ≈ k · σ · Rate`. Die
 mit Steigung −1**. Eine Linie **nach rechts/oben zu schieben heißt, das Konzept
 robuster zu machen**; der Abstand Firmware→getunt ist genau der Gewinn der
 Regler-Tunung (≈ ×7 in σ).
+
+**Die Grenzlinie richtig deuten.** Eine Linie (schwarz/blau) ist **kein** Betriebspunkt,
+sondern die **Schwelle (skew = 1) eines festen Reglerparametersatzes**. Für *denselben*
+Regler gilt: **links/unter** der Linie bleibt der Skew < 1 (funktioniert, mit Reserve);
+**auf** der Linie ist er genau 1; **rechts/über** der Linie wird er **> 1 → mehrere
+Samples Versatz**. Die blaue Linie zeigt also **nicht** „funktioniert meistens", sondern
+die *Kante* des getunten Reglers — alles links davon funktioniert sauber. „Mehrere
+Samples Versatz" tritt erst **rechts** der Linie auf. Heikel ist nur der **Betrieb
+direkt an der Linie** (dünne Marge): dort funktioniert es im Mittel, kann aber bei
+Spitzen oder Nicht-Gauss-Stress (der die echte Linie nach links schiebt, §7/§9) über 1
+kippen — genau die Lage des Auslegungspunkts (8 kHz, 150 µs).
 
 **Direkt ablesbar:**
 
@@ -451,3 +496,38 @@ Der Rückkanal-/Zertifizierungs-Report wird in **jedem** Lauf am Ende ausgegeben
 Alle oben referenzierten Abbildungen werden von diesen beiden Plot-Befehlen neu
 erzeugt. Seeds stehen in jeder `run_summary.csv`-Zeile; gleicher Seed → identischer
 Lauf.
+
+---
+
+## 12. Weitere Diagramme aus der Simulation
+
+**Sampletakt-Spektrum (⚠C4) — Bresenham vs. Rausch-Dither.**
+
+![Dither-Spektrum Bresenham](plot/dither_fft_bresenham.png)
+
+*FFT der Sampletakt-Periodenfolge, festes Bresenham-Dithering (Knoten 0, σ=2 µs).*
+Das Dither ist **kein weißes Rauschen**: deutlich erkennbar ein **Energie-Hügel um
+~0,34 cyc/sample** — die Carry-Rate `frac(per_ideal)`. Solche **Spurious Tones** können
+in einer Spektralanalyse der ADC-Daten als diskrete Störlinien auftauchen (genau die
+⚠C4-Sorge). Der Amplitudenwert (±10 ns) ist klein, die *spektrale Struktur* aber nicht
+harmlos.
+
+![Dither-Spektrum Rausch](plot/dither_fft_noise.png)
+
+*Dasselbe mit rauschförmigem Dither (zufälliger Schwellwert).* Der Hügel ist **weg** —
+das Spektrum ist breitbandig/flach, bei **identischem Skew**. Das ist das C4-Gegenmittel:
+spektrale Sauberkeit gegen einen winzigen Komplexitätsaufschlag.
+
+**Uhr-Fehler vs. Master (Loop A).**
+
+![Clock-Fehler vs Master](plot/ts_ntp_err.png)
+
+*`ntp_err` (disziplinierte Uhr − Master) je Knoten, Baseline.* Nach dem ersten Sync
+kollabiert der Fehler von der ms-Rampe (frei laufend) auf eine **±3-µs-Wolke um 0** —
+reiner Sync-Jitter (σ=2 µs) plus Sägezahn-Rest. Das ist die Phasen-Seite des Reglers;
+die Frequenz-Seite zeigt §5 (`s_rate_ppb`).
+
+> Reproduktion aller Diagramme: `python plot/plot_results.py .` (Pro-Lauf),
+> `python plot/plot_results.py sweep_results` (Bruchkurve), `python plot/feasibility_map.py`
+> (Karte). Die `dither_fft_*`/`stackup_worstcase`-Varianten entstehen durch Läufe mit
+> `--dither noise` bzw. `--sigma 150000 --jitter heavy_tail` (siehe §11).

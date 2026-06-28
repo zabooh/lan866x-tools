@@ -6,6 +6,13 @@ sim.exe
 *.exe
 *.csv
 plot/*.png
-# keep the capstone figure embedded in REPORT.md tracked (negation, no inline comment):
+# keep the figures embedded in REPORT.md tracked (negations, no inline comments):
 !plot/feasibility_map.png
+!plot/pw_index_skew.png
+!plot/sweep_skew_vs_sigma.png
+!plot/ts_rate_ppb.png
+!plot/ts_ntp_err.png
+!plot/stackup_worstcase.png
+!plot/dither_fft_bresenham.png
+!plot/dither_fft_noise.png
 sweep_results/
