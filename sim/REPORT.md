@@ -183,11 +183,53 @@ der Knoten **zusätzlich** als Qualitätsmaß melden. Beides zusammen — Rückk
 verlässliche Selbstauskunft. Kosten: ein kleiner Heartbeat-Roundtrip/s.
 
 > CLI: der Rückkanal-Report läuft in jedem Lauf; `run_faultcheck.csv` enthält die
-> Master-Prüfwerte. Reproduktion in §8.
+> Master-Prüfwerte. Reproduktion in §9.
 
 ---
 
-## 7. Was diese Simulation NICHT beweist (verbindlich, SIMULATION_SPEC.md §8)
+## 7. Robustheit am realen Betriebspunkt — überlebt die volle Stress-Batterie?
+
+§5 zeigte: der getunte Regler (ki=128/kp=0.125) bringt σ=150 µs unter **reinem
+Gauss** zurück auf <1. Frage: hält das auch unter den *realistischen* Stimuli
+(Ausreißer, Lastabhängigkeit, Bias)? Getunte Robustheitskarte (worst max Skew über
+3 Seeds, 300 s, Drift-Rampe):
+
+| Basis-σ | gauss | heavy_tail | load_dep (×4 unter Last) |
+|---|---|---|---|
+| 35 µs | 0,24 | 0,37 | 0,65 ✅ |
+| **50 µs** | 0,31 | 0,48 | **0,94 ✅ (Grenze)** |
+| 75 µs | 0,44 | 0,67 | 1,45 ❌ |
+| 100 µs | 0,61 | 0,86 | 1,96 ❌ |
+| **150 µs (real)** | 0,95 ✅ | **1,25 ❌** | **2,98 ❌** |
+
+**Befund:** der getunte Regler besteht bei σ=150 µs **nur für reines Gauss** (5 %
+Marge). Unter Datenlast (`load_dep`, σ ×4 — der wahrscheinlichste reale Fall, ⚠B2)
+hält er nur bis **~50 µs Basis-σ**; `heavy_tail` bis ~100 µs; `biased` (⚠A3) bricht
+bei 150 µs ebenfalls (~1,8). Für *unter-Last-robustes* Per-Sample-Sync muss das
+**Leerlauf-σ ≲ 50 µs** sein — auf Software-NTP-Timestamping (150 µs) nicht erfüllt.
+
+**Entscheidend — kein stiller Bruch:** in **allen** gebrochenen Zellen war die
+Rückkanal-Falsch-Positiv-Rate **0**. Bricht das Konzept, **erkennt und flaggt** es
+das System; es liefert nie still falsch-korrelierte Daten.
+
+### Gesamturteil (laut Simulation)
+
+| Anspruch | bruchfrei? |
+|---|---|
+| **Mittelnde Korrelation** (erklärter Zweck, §1.1) | ✅ ja (Skew mittelwertfrei) |
+| **Per-Sample** bei σ=150 µs, reines Gauss | ✅ knapp (~5 % Marge, getunt) |
+| **Per-Sample** bei σ=150 µs, unter Last/Ausreißern/Bias | ❌ bricht (~1,3–3 Samples) |
+| **Selbst-Erkennung jedes Bruchs** (kein stiller Fehler) | ✅ ja (Rückkanal 0 FP) |
+
+Also: **kein per-Sample-unzerbrechliches Konzept beim realen Jitter** — aber ein
+**robustes mittelndes** und ein **ehrliches, sich-selbst-überwachendes** Konzept. Der
+Bruch ist sauber kartiert und immer erkennbar, nicht beseitigt. Zwei Wege zu „auch
+per-Sample bruchfrei": **(a)** Leerlauf-σ unter ~50 µs drücken (HW-/PTP-Timestamping)
+oder **(b)** den Anspruch auf die mittelnde Klasse begrenzen.
+
+---
+
+## 8. Was diese Simulation NICHT beweist (verbindlich, SIMULATION_SPEC.md §8)
 
 Die Simulation kann das Konzept **falsifizieren** und seine **Robustheitsgrenzen
 kartieren**; sie kann es nicht abschließend verifizieren. Ausdrücklich außerhalb
@@ -211,7 +253,7 @@ zu messen (liegt es unter oder über der 28-µs-Grenze?) und ⚠F1 zu klären.
 
 ---
 
-## 8. Reproduzieren
+## 9. Reproduzieren
 
 ```sh
 mingw32-make                       # sim.exe bauen (gcc, 0 Warnungen)
