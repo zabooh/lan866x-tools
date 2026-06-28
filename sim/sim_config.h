@@ -47,6 +47,11 @@ typedef struct {
     int      ki_den;           /* integral smoothing (4=firmware; larger=quieter)  */
     int      sample_hz;        /* sampling rate (8000=default; 4000=half-rate knob) */
 
+    /* PROPOSED targeted levers vs the realistic breakers (REPORT.md §9) */
+    int      sync_slot;        /* 1 = dedicated sync window: sync NOT inflated under load (vs load_dep) */
+    double   outlier_k;        /* >0 = reject rounds beyond k*MAD before median (vs heavy_tail); 0=off */
+    double   bias_cal;         /* residual per-node bias fraction after calibration (1.0=none; 0.1=90% cal) (vs biased/A3) */
+
     /* logging */
     double   ts_sample_ms;     /* timeseries row period (ms) - don't log every tick */
     const char *out_dir;       /* where CSVs are written                          */
@@ -87,6 +92,9 @@ static inline sim_config_t sim_config_default(void)
     c.kp                  = 1.0;                /* firmware default                */
     c.ki_den              = 4;                  /* firmware default (Ki=1/4)       */
     c.sample_hz           = 8000;               /* 8 kHz (125 us/sample)           */
+    c.sync_slot           = 0;                  /* off (firmware default)          */
+    c.outlier_k           = 0.0;                /* off                             */
+    c.bias_cal            = 1.0;                /* no calibration                  */
 
     c.ts_sample_ms        = 125.0;              /* one row per sync by default     */
     c.out_dir             = ".";

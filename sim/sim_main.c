@@ -101,9 +101,14 @@ static void master_sync_node(sim_node_t *n, int64_t T, const sim_config_t *c, in
     int64_t raw = node_raw_ns(n);
     int64_t true_off = sc_now_ns(&n->core, raw) - master_ns(T);
     int R=c->rounds_R; if(R>64)R=64; if(R<1)R=1;
+    /* LEVER: dedicated sync slot -> the sync exchange is not behind data frames,
+     * so its jitter is NOT inflated under load (vs load_dep). */
+    int sync_load = c->sync_slot ? 0 : load_active;
+    /* LEVER: per-node bias calibration -> residual bias = bias * bias_cal (vs A3). */
+    double eff_bias = n->bias_ns * c->bias_cal;
     double off[64],dly[64];
     for(int r=0;r<R;r++){
-        off[r]=(double)true_off+sim_jitter_ns(&n->rng,c->jitter_model,c->sigma_ns,n->bias_ns,load_active);
+        off[r]=(double)true_off+sim_jitter_ns(&n->rng,c->jitter_model,c->sigma_ns,eff_bias,sync_load);
         dly[r]=c->sigma_ns+fabs(rng_gauss(&n->rng))*c->sigma_ns;
     }
     int K=R/2; if(K<1)K=1;
@@ -112,6 +117,17 @@ static void master_sync_node(sim_node_t *n, int64_t T, const sim_config_t *c, in
         if(dly[idx[j]]<dly[idx[i]]){int t=idx[i];idx[i]=idx[j];idx[j]=t;}
     double sel[64]; for(int i=0;i<K;i++)sel[i]=off[idx[i]];
     qsort(sel,(size_t)K,sizeof(double),cmp_double);
+    /* LEVER: outlier gating -> drop rounds beyond k*MAD of the median before the
+     * final median (vs heavy_tail spikes). */
+    if(c->outlier_k>0.0 && K>=3){
+        double med0=sel[K/2];
+        double dev[64]; for(int i=0;i<K;i++)dev[i]=fabs(sel[i]-med0);
+        qsort(dev,(size_t)K,sizeof(double),cmp_double);
+        double mad=dev[K/2]; double lim=c->outlier_k*1.4826*mad;
+        if(lim>0){ double keep[64]; int nk=0;
+            for(int i=0;i<K;i++) if(fabs(sel[i]-med0)<=lim) keep[nk++]=sel[i];
+            if(nk>=1){ for(int i=0;i<nk;i++)sel[i]=keep[i]; K=nk; } }
+    }
     double robust=(K&1)?sel[K/2]:0.5*(sel[K/2-1]+sel[K/2]);
     int64_t adjust=-(int64_t)robust;
     sc_apply_offset(&n->core,adjust,(uint64_t)raw);
@@ -434,6 +450,9 @@ static void usage(const char*p){
     printf("  --kp K  --kiden D   PROPOSED controller knobs (default 1.0 / 4 = firmware; REPORT.md §5)\n");
     printf("  --samplehz HZ       sampling rate (8000=default; 4000=half-rate knob)\n");
     printf("  --syncms MS         sync interval in ms (125=default; 62.5=double-rate knob)\n");
+    printf("  --syncslot          dedicated sync window (sync not inflated under load; vs load_dep)\n");
+    printf("  --outlierk K        reject rounds beyond K*MAD before median (vs heavy_tail)\n");
+    printf("  --biascal R         residual per-node bias after calibration (1.0=none, 0.1=90%%; vs biased)\n");
     printf("  --summaryonly       skip per-run detail CSVs (fast sweeps)\n");
 }
 static int parse_args(int argc,char**argv,sim_config_t*c){
@@ -454,6 +473,9 @@ static int parse_args(int argc,char**argv,sim_config_t*c){
         else if(!strcmp(argv[i],"--kiden")&&i+1<argc)c->ki_den=atoi(argv[++i]);
         else if(!strcmp(argv[i],"--samplehz")&&i+1<argc)c->sample_hz=atoi(argv[++i]);
         else if(!strcmp(argv[i],"--syncms")&&i+1<argc)c->sync_interval_ticks=(int64_t)(atof(argv[++i])/1000.0*(double)SC_HW_HZ);
+        else if(!strcmp(argv[i],"--syncslot"))c->sync_slot=1;
+        else if(!strcmp(argv[i],"--outlierk")&&i+1<argc)c->outlier_k=atof(argv[++i]);
+        else if(!strcmp(argv[i],"--biascal")&&i+1<argc)c->bias_cal=atof(argv[++i]);
         else if(!strcmp(argv[i],"--jitter")&&i+1<argc){ if(parse_jitter(argv[++i],&c->jitter_model)){fprintf(stderr,"bad --jitter\n");return -1;} }
         else if(!strcmp(argv[i],"--drift")&&i+1<argc){ if(parse_drift(argv[++i],&c->drift_model)){fprintf(stderr,"bad --drift\n");return -1;} }
         else if(!strcmp(argv[i],"--dither")&&i+1<argc){ if(parse_dither(argv[++i],&c->dither_mode)){fprintf(stderr,"bad --dither\n");return -1;} }

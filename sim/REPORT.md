@@ -183,7 +183,7 @@ der Knoten **zusätzlich** als Qualitätsmaß melden. Beides zusammen — Rückk
 verlässliche Selbstauskunft. Kosten: ein kleiner Heartbeat-Roundtrip/s.
 
 > CLI: der Rückkanal-Report läuft in jedem Lauf; `run_faultcheck.csv` enthält die
-> Master-Prüfwerte. Reproduktion in §10.
+> Master-Prüfwerte. Reproduktion in §11.
 
 ---
 
@@ -275,11 +275,61 @@ I-Glied nur mehr Gelegenheiten) und kosten Bus-Verkehr, der mit den Daten konkur
 
 Die Hebel sind **kombinierbar** und multiplizieren sich grob: halbe Sample-Rate (×2) ×
 Ki-Glättung (×~6) verschiebt die *Gauss*-Grenze weit über σ=150 µs — aber die Grenzen
-aus §7 (Last/Ausreißer, dünne Marge) und §9 (reales σ unbekannt) bleiben bestehen.
+aus §7 (Last/Ausreißer, dünne Marge) und §10 (reales σ unbekannt) bleiben bestehen.
 
 ---
 
-## 9. Was diese Simulation NICHT beweist (verbindlich, SIMULATION_SPEC.md §8)
+## 9. Zielgerichtete Hebel gegen die realen Brecher (Last / Ausreißer / Bias)
+
+§7 zeigte: bei σ=150 µs bricht der getunte Regler unter `load_dep` (~3,0),
+`heavy_tail` (~1,25) und `biased` (~1,8). Drei zielgerichtete Software-Hebel
+(Knöpfe `--syncslot`, `--outlierk`, `--biascal`), je gegen einen Brecher, σ=150 µs
+base, getunter Regler (ki=128/kp=0.125), worst über 3 Seeds:
+
+| Brecher | ohne Hebel | mit Hebel |
+|---|---|---|
+| `load_dep` (σ ×4 unter Last) | 2,98 | **0,95** — `--syncslot` (dedizierter Sync-Slot) |
+| `heavy_tail` (5 % ×10σ) | 1,25 | **0,91** — `--outlierk 2.5 --rounds 16` |
+| `biased` (±50 µs/Knoten, ⚠A3) | 1,80 | **1,03** — `--biascal 0.1` (90 % kalibriert) |
+
+**Befunde:**
+- **`load_dep` → sync-slot ist der große Treffer:** der dedizierte Sync-Slot nimmt
+  die ×4-Last-Inflation komplett heraus (2,98 → 0,95). Da `load_dep` der schlimmste
+  Brecher war, ist das der wertvollste Einzelhebel.
+- **`heavy_tail` → Outlier-Gating braucht Runden:** bei nur K=4 selektierten Runden
+  greift es nicht (1,25); mit R=16 → 0,91, R=32 → 0,71. Mehr Sync-Runden = mehr
+  Bus-Verkehr (√-Ertrag).
+- **`biased` → Bias-Kalibrierung wirkt** (1,80 → 1,03), landet aber knapp über 1, weil
+  der **Gauss-Floor bei σ=150 schon 0,95 ist** (§7). Jeder Reststressor landet damit
+  bei ~1,0 — die zielgerichteten Hebel allein reichen nicht für Marge.
+
+**Kombination mit einem Margin-Hebel.** Erst zusammen mit der **halben Sample-Rate**
+(§8, ×2 Marge) kommt alles komfortabel unter 1 — alle Hebel an, σ=150 µs base:
+
+| Brecher | alle Hebel + 4 kHz |
+|---|---|
+| `load_dep` | **0,45** ✅ |
+| `heavy_tail` | **0,46** ✅ |
+| `biased` | **0,45** ✅ |
+
+→ **Der realistische Per-Sample-Bruch bei σ=150 µs ist mit Software-Hebeln einfangbar**
+(~2× Marge), Kombination: getunter Regler + dedizierter Sync-Slot + Outlier-Gating
+(R=16) + Bias-Kalibrierung + halbe Sample-Rate.
+
+**Kosten & Vorbehalte (ehrlich):**
+- Jeder Hebel kostet: Sync-Slot (Scheduling), Gating (mehr Sync-Runden → Bus),
+  Bias-Cal (einmalige Kalibrierung), halbe Rate (halbe Signalbandbreite). Es ist ein
+  **deutlicher Umbau** gegenüber der Firmware.
+- **Ein Stressor je Lauf** (die Sim hat ein Jitter-Modell zur Zeit). Die Hebel sind
+  *orthogonal* (Slot↔Last, Gate↔Ausreißer, Cal↔Bias), sollten also komponieren — aber
+  „alle drei Stressoren gleichzeitig" ist nicht direkt getestet.
+- `--biascal 0.1` setzt **90 % Kalibriergenauigkeit** voraus (Modellannahme).
+- Die fundamentalen Grenzen (§10: reales σ unbekannt, ⚠F1, keine HW-Integration)
+  bleiben unberührt.
+
+---
+
+## 10. Was diese Simulation NICHT beweist (verbindlich, SIMULATION_SPEC.md §8)
 
 Die Simulation kann das Konzept **falsifizieren** und seine **Robustheitsgrenzen
 kartieren**; sie kann es nicht abschließend verifizieren. Ausdrücklich außerhalb
@@ -303,7 +353,7 @@ zu messen (liegt es unter oder über der 28-µs-Grenze?) und ⚠F1 zu klären.
 
 ---
 
-## 10. Reproduzieren
+## 11. Reproduzieren
 
 ```sh
 mingw32-make                       # sim.exe bauen (gcc, 0 Warnungen)
@@ -314,6 +364,11 @@ mingw32-make                       # sim.exe bauen (gcc, 0 Warnungen)
 ./sim.exe --sigma 150000 --kiden 128 --kp 0.125 --runtime 300   # §6: Rückkanal bestätigt 0 FP/FN
 ./sim.exe --samplehz 4000 --sigma 45000    # §8: halbe Sample-Rate -> Bruch-σ ~2x
 ./sim.exe --syncms 62.5 --sigma 20000      # §8: doppelte Sync-Rate (Falle, schlechter)
+# §9: realer Brecher + Gegenhebel (sigma=150us, getunt):
+./sim.exe --sigma 150000 --kiden 128 --kp 0.125 --jitter load_dep --syncslot --runtime 300
+./sim.exe --sigma 150000 --kiden 128 --kp 0.125 --jitter heavy_tail --rounds 16 --outlierk 2.5 --runtime 300
+./sim.exe --sigma 150000 --kiden 128 --kp 0.125 --jitter load_dep --syncslot --outlierk 2.5 \
+          --rounds 16 --biascal 0.1 --samplehz 4000 --runtime 300   # alle Hebel -> ~0.45
 bash sweep.sh sweep_results        # M7-Sweep -> sweep_results/run_summary.csv
 python plot/plot_results.py .                 # Pro-Lauf-Plots
 python plot/plot_results.py sweep_results      # Bruchgrenzen-Kurve

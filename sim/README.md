@@ -92,6 +92,12 @@ ein sauberer ~2×-Hebel auf das Bruch-σ; `--syncms 62.5` (doppelte Sync-Rate) i
 **Falle** (ohne Ki-Mitskalierung schlechter). Maßgeblich ist die Loop-Bandbreite
 ≈ Ki/Sync-Intervall, nicht die Sync-Rate.
 
+**Zielgerichtete Hebel gegen die realen Brecher (REPORT.md §9):** `--syncslot`
+(dedizierter Sync-Slot vs. Last-Inflation), `--outlierk` (Ausreißer-Gating vs.
+heavy_tail), `--biascal` (Bias-Kalibrierung vs. ⚠A3). Kombiniert mit halber
+Sample-Rate bringen sie den realistischen Betriebspunkt (σ=150 µs unter Last +
+Ausreißern + Bias) auf **~0,45 Samples** — Per-Sample-Sync wird einfangbar.
+
 ## Was diese Sim NICHT entscheiden kann (Spec §8)
 
 TCC0-PERBUF on-the-fly (⚠F1), reale PLCA-Bus-Dynamik (⚠E1/E2), ADC-Wandelqualität
