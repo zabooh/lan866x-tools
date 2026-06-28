@@ -49,8 +49,8 @@ Ergebnis der meilensteinweisen Simulation gemäß `SIMULATION_SPEC.md`, die die
 Regelungs-/Zeitlogik aus `SYNC_ADC_KONZEPT.md` prüft. Der `sync_core.{h,c}`-Regler
 ist **firmware-treu**: die PI-Konstanten und die Sampletakt-Rechnung sind 1:1 aus
 `ntp_sync.c` / `hwclk_cli.c` übernommen (siehe `README.md`), nicht erfunden. Alle
-Läufe sind deterministisch (seedbar); die Kennzahlen sind über die Seeds 1–3
-gemittelt.
+Läufe sind deterministisch (seedbar); die Kennzahlen sind über mehrere Seeds
+ausgewertet — sofern nicht anders genannt der **Worst-Case** über Seeds 1–3.
 
 > **Fazit.** Die Regelungs- und Zeitlogik ist **solide** — Uhr-Sync, die
 > A→B-Kaskade, die Thermik-Nachführung, das Sampletakt-Dithering und der
@@ -107,7 +107,7 @@ mit benannter Schranke) / **GEBROCHEN** (versagt schon im idealisierten Modell).
 | ID | Risiko | Urteil | Beleg (Kennzahl, Plot) |
 |---|---|---|---|
 | **Kern** | index_skew < 1 Sample über lange Läufe | **PASS für σ≲28 µs** | M4: 0,061 @ σ=2 µs (16× Reserve), `plot/pw_index_skew.png` |
-| **B1/B2** | µs ist Mittelwert, nicht pro-Sample; Floor wächst unter Last | **GRENZE / GEBROCHEN** | Sweep: skew ∝ 0,030·σ[µs]; **bricht bei σ≈28 µs**; σ=150 µs → 5,4 Samples. `sweep_results/plot/sweep_skew_vs_sigma.png` |
+| **B1/B2** | µs ist Mittelwert, nicht pro-Sample; Floor wächst unter Last | **GRENZE / GEBROCHEN** | Sweep: skew ∝ 0,030·σ[µs]; **bricht bei σ≈28 µs**; σ=150 µs → ~5 Samples. `plot/sweep_skew_vs_sigma.png` |
 | **C1/C2** | A→B-Kaskade nicht regelungstechnisch entkoppelt; verschachtelte Integratoren schwingen | **PASS** | `s_rate_ppb` rastet ein, kein Überschwingen/Pendeln in keinem Lauf. `plot/ts_rate_ppb.png` |
 | **A2/C3** | ppm nicht statisch (Thermik); Nachführbandbreite vs. Glättung | **PASS** | Drift sine ±3 ppm / ramp +2 ppm → skew 0,073 = identisch zu kein-Drift |
 | **B2** | heavy-tail PLCA/Stack-Spikes | **PASS** | heavy_tail 0,371 vs. gauss 0,364 @ σ=10 µs — robuster Schätzer (min-delay-Median) filtert die 5%×10σ-Ausreißer |
@@ -147,10 +147,20 @@ max index skew ≈ 0,030 × σ[µs]      (gemessene Steigung, 3 Seeds)
 
 ![Index-Skew vs. Sync-Jitter (Bruchkurve)](plot/sweep_skew_vs_sigma.png)
 
-*Worst-case max Index-Skew über σ, gemittelt über 3 Seeds (Firmware-Regler, 8 kHz).*
-Auf log-log eine **Gerade** (Skew ∝ σ), das Band ist die Seed-Streuung. Die rote Linie
-ist die 1-Sample-Schwelle, die grüne Senkrechte der **Bruchpunkt bei σ≈28 µs**. Rechts
-davon (inkl. der realen 150 µs) liegt der Skew bei mehreren Samples.
+*max Index-Skew (Worst-Case über die Zeit) je σ; **Kurve = Mittel über 3 Seeds, Band =
+Min..Max** (Firmware-Regler, 8 kHz).* Auf log-log eine **Gerade** (Skew ∝ σ). Die rote
+Linie ist die 1-Sample-Schwelle, die grüne Senkrechte der **Bruchpunkt bei σ≈28 µs**.
+Rechts davon (inkl. der realen 150 µs) liegt der Skew bei mehreren Samples.
+
+> **Zur Zahlengenauigkeit (gilt für den ganzen Bericht).** „max Skew" ist ein
+> *Worst-Case über die Zeit*. Bei der **Seed-Aggregation** nutzt *diese* Kurve den
+> **Mittelwert** über 3 Seeds, die Tabellen in §5/§7/§8/§9 dagegen den **Worst-Case**
+> über Seeds — deshalb liegt das Bruch-σ dort etwas niedriger (**~24 µs**, worst) als
+> hier (**~28 µs**, Mittel); die Karte (§8) liegt mit ~26 µs dazwischen. Zusätzlich
+> wächst der Extremwert mild mit Beobachtungsdauer/Gitter. Alles **dieselbe Grenze
+> (~24–28 µs)**; der Firmware-Skew bei σ=150 µs entsprechend **~5–6,5 Samples**. Headline
+> im Bericht: **~28 µs** bzw. **~5 Samples** — die Abweichungen sind Methodik/Streuung,
+> kein Widerspruch.
 
 Die Grenze ist also **nicht** der Oszillator, das Dithering oder die
 Schleifendynamik — sondern der **Timestamp-Jitter von Software-NTP** (⚠B1/B2/G1).
@@ -166,14 +176,14 @@ Zwei Hebel verschieben die Grenze:
 
 ## 4. Was das am Konzept ändert
 
-- **Mittelnde Korrelationsklasse (der erklärte Zweck, §1.1):** tragfähig. Der Skew
+- **Mittelnde Korrelationsklasse (der erklärte Zweck, Konzept §1.1):** tragfähig. Der Skew
   ist mittelwertfrei (Histogramm um 0 zentriert), also bleibt Korrelation über
   Fenster ≫ 125 ms unberührt. Das System leistet, wofür es ausgelegt wurde.
 - **Ereignisgenaue Koinzidenz (Zwei-Kanal-Flanke/Transient):** auf Software-NTP
   beim gemessenen σ nicht erreichbar. Das deckt sich mit dem ⚠B1-Vorbehalt des
   Konzepts selbst — jetzt quantifiziert: es braucht σ < 28 µs, also
   Hardware-Timestamping.
-- **Die verpflichtende Härtung (§8.1 Konsistenz-Check) ist gerechtfertigt:** M6
+- **Die verpflichtende Härtung (Konzept §8.1 Konsistenz-Check) ist gerechtfertigt:** M6
   zeigt, dass die Stillfehler-Fälle real und einzeln unsichtbar für „nur nach Index
   einsortieren" sind, und dass der billige Heartbeat-Cross-Check jeden erkennt.
 
@@ -310,7 +320,7 @@ das System; es liefert nie still falsch-korrelierte Daten.
 
 | Anspruch | bruchfrei? |
 |---|---|
-| **Mittelnde Korrelation** (erklärter Zweck, §1.1) | ✅ ja (Skew mittelwertfrei) |
+| **Mittelnde Korrelation** (erklärter Zweck, Konzept §1.1) | ✅ ja (Skew mittelwertfrei) |
 | **Per-Sample** bei σ=150 µs, reines Gauss | ✅ knapp (~5 % Marge, getunt) |
 | **Per-Sample** bei σ=150 µs, unter Last/Ausreißern/Bias | ❌ bricht (~1,3–3 Samples) |
 | **Selbst-Erkennung jedes Bruchs** (kein stiller Fehler) | ✅ ja (Rückkanal 0 FP) |
@@ -326,7 +336,8 @@ oder **(b)** den Anspruch auf die mittelnde Klasse begrenzen.
 ## 8. Zwei weitere Stellschrauben: Sample-Rate und Sync-Rate
 
 Knöpfe `--samplehz` (Default 8000) und `--syncms` (Default 125). Bruch-σ mit
-Firmware-Regler (Ki=1/4, Kp=1), gauss, worst über 3 Seeds, gegen Baseline ~24 µs:
+Firmware-Regler (Ki=1/4, Kp=1), gauss, worst über 3 Seeds, gegen Baseline ~24 µs
+(= die ~28-µs-Headline, Messstreuung — s. Hinweis in §3):
 
 | Konfiguration | Bruch-σ (skew=1) |
 |---|---|
