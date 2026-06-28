@@ -168,6 +168,8 @@ static int run(const sim_config_t *c)
         sc_init(&nd[i].core,c->dither_mode);
         nd[i].ppm_base=c->ppm_base_lo+rng_uniform(&mr)*(c->ppm_base_hi-c->ppm_base_lo);
         rng_seed(&nd[i].rng,c->seed*1000003u+(uint64_t)(i+1));
+        nd[i].core.kp=c->kp;                 /* proposed phase-gain knob (1.0=firmware) */
+        nd[i].core.ki_den=c->ki_den;         /* proposed integral smoothing (4=firmware) */
         nd[i].raw_ticks=0; nd[i].last_T=0; nd[i].lock_time_s=-1; nd[i].locked=0;
         nd[i].next_samp_T=BIG_T; nd[i].last_samp_T=0; nd[i].last_real_dt=12000.0; nd[i].samp_total=0;
         /* per-node positional bias (⚠A3): differs per node so it does NOT cancel
@@ -355,7 +357,8 @@ static void usage(const char*p){
     printf("  --jitter gauss|heavy_tail|load_dep|biased  --drift none|sine|ramp\n");
     printf("  --dither bresenham|noise   --bias NS   --rounds R   --append   --out DIR\n");
     printf("  --fault none|go_loss|reboot|sample_loss  --faultnode N  --faulttime S  --faultsamples J\n");
-    printf("\nMILESTONE M6: fault injection + master index-consistency check (D1/D4).\n");
+    printf("  --kp K  --kiden D   PROPOSED controller knobs (default 1.0 / 4 = firmware; REPORT.md §5)\n");
+    printf("  --summaryonly       skip per-run detail CSVs (fast sweeps)\n");
 }
 static int parse_args(int argc,char**argv,sim_config_t*c){
     for(int i=1;i<argc;i++){
@@ -371,6 +374,8 @@ static int parse_args(int argc,char**argv,sim_config_t*c){
         else if(!strcmp(argv[i],"--out")&&i+1<argc)c->out_dir=argv[++i];
         else if(!strcmp(argv[i],"--append"))c->append=1;
         else if(!strcmp(argv[i],"--summaryonly"))c->detail_csv=0;
+        else if(!strcmp(argv[i],"--kp")&&i+1<argc)c->kp=atof(argv[++i]);
+        else if(!strcmp(argv[i],"--kiden")&&i+1<argc)c->ki_den=atoi(argv[++i]);
         else if(!strcmp(argv[i],"--jitter")&&i+1<argc){ if(parse_jitter(argv[++i],&c->jitter_model)){fprintf(stderr,"bad --jitter\n");return -1;} }
         else if(!strcmp(argv[i],"--drift")&&i+1<argc){ if(parse_drift(argv[++i],&c->drift_model)){fprintf(stderr,"bad --drift\n");return -1;} }
         else if(!strcmp(argv[i],"--dither")&&i+1<argc){ if(parse_dither(argv[++i],&c->dither_mode)){fprintf(stderr,"bad --dither\n");return -1;} }

@@ -101,7 +101,49 @@ Zwei Hebel verschieben die Grenze:
 
 ---
 
-## 5. Was diese Simulation NICHT beweist (verbindlich, SIMULATION_SPEC.md §8)
+## 5. Hebel: längere Konvergenzzeit gegen σ≈150 µs
+
+Frage: *Eine längere Konvergenzzeit ist akzeptabel — wie lang muss sie sein, damit
+σ≈150 µs das Konzept nicht bricht?* Antwort aus der Simulation (Knöpfe `--kiden`,
+`--kp`; **vorgeschlagene** Firmware-Änderung, Default firmware-treu 4/1):
+
+**Wichtig zuerst:** mit der aktuellen Firmware (Ki=1/4, Kp=1) hilft längeres Laufen
+**nicht** — die 6,5 Samples bei σ=150 µs sind *stationäres Rauschen*, kein
+Transient. „Konvergenzzeit verlängern" heißt: die Schleife **langsamer + glättender**
+auslegen (Ki kleiner + Kp kleiner). Das kostet Lock-Zeit und kauft Rauschunterdrückung.
+
+Worst-case max Index-Skew über 3 Seeds, σ=150 µs, 180 s:
+
+| | kp=1.0 | kp=0.5 | kp=0.25 | kp=0.125 | Frequenz-Lock |
+|---|---|---|---|---|---|
+| **ki_den=16** | 2,97 | 2,12 | 2,04 | 2,44 | ~2 s |
+| **ki_den=32** | 2,39 | 1,61 | 1,50 | 1,63 | ~4 s |
+| **ki_den=64** | 2,39 | 1,36 | 1,24 | 1,13 | ~8 s |
+| **ki_den=128** | 3,12 | 1,40 | 1,03 | **0,88** ✅ | **~16 s** |
+
+**Betriebspunkt:** `Ki = 1/128`, `Kp = 1/8` → max Skew **0,92 < 1** (5 Seeds, robust;
+hält mit Thermik-Sinus ±3 ppm und Rampe +2 ppm). Firmware-Baseline dort: 6,45 Samples.
+
+**Benötigte Konvergenzzeit:** der Frequenz-Lock dominiert ≈ `ki_den × 125 ms =
+128 × 0,125 s ≈ 16 s` (Phasen-τ = 125 ms/Kp = 1 s) → gesamte Einschwingzeit grob
+**15–20 s** statt ~1,5 s heute (**≈10×**).
+
+**Warum zwei Knöpfe:** Ki kleiner glättet `s_rate_ppb` (weniger Rate-Wander zwischen
+Syncs) — der *dominante* Hebel (allein 6,5 → 2,2). Über ki_den≈128 hinaus wird es
+wieder schlechter (Loop zu langsam für den statischen ppm). Kp kleiner mittelt erst
+*danach* den Phasen-Schnapp-Floor weg; allein (bei Ki=1/4) bringt es nichts, weil das
+Rate-Rauschen dominiert.
+
+**Einschränkungen:** (a) Marge dünn (0,9 von 1,0, ~10 %) → σ=150 µs liegt gerade eben
+im Grünen; streut σ unter Last höher (⚠B2), reicht es nicht. (b) ⚠C3-Grenze: ein
+16-s-Loop trägt ±3 ppm/10 min locker, würde bei *schnellerer* Thermik (Sprung,
+Lüfteranlauf) aber nachhinken. (c) Sauberer bleibt, **σ zu senken** (HW-/PTP-
+Timestamping, σ<28 µs) — das erreicht <1 Sample ohne den Loop zu verkrüppeln und mit
+voller Drift-Bandbreite.
+
+---
+
+## 6. Was diese Simulation NICHT beweist (verbindlich, SIMULATION_SPEC.md §8)
 
 Die Simulation kann das Konzept **falsifizieren** und seine **Robustheitsgrenzen
 kartieren**; sie kann es nicht abschließend verifizieren. Ausdrücklich außerhalb
@@ -125,12 +167,13 @@ zu messen (liegt es unter oder über der 28-µs-Grenze?) und ⚠F1 zu klären.
 
 ---
 
-## 6. Reproduzieren
+## 7. Reproduzieren
 
 ```sh
 mingw32-make                       # sim.exe bauen (gcc, 0 Warnungen)
 ./sim.exe                          # Default-Lauf (7 Knoten, σ=2 µs) -> CSVs + M4-Urteil
 ./sim.exe --sigma 150000           # realistischer Jitter -> skew ~5 Samples
+./sim.exe --sigma 150000 --kiden 128 --kp 0.125 --runtime 240   # §5: ~16s Lock -> <1 Sample
 ./sim.exe --fault sample_loss      # M6: Konsistenz-Check fängt es
 bash sweep.sh sweep_results        # M7-Sweep -> sweep_results/run_summary.csv
 python plot/plot_results.py .                 # Pro-Lauf-Plots

@@ -14,6 +14,8 @@ void sc_init(sc_node_t *n, sc_dither_mode_t dither_mode)
     n->s_lastInterval= 0;
     n->s_synced      = 0;
     n->s_syncCount   = 0;
+    n->kp            = 1.0;          /* firmware default (full phase step) */
+    n->ki_den        = SC_KI_DEN;    /* firmware default (Ki = 1/4)        */
     n->dither_mode   = dither_mode;
     n->per_resid     = 0;
     n->noise_thresh  = SC_ONE_E9 / 2;   /* harmless default until first draw */
@@ -55,11 +57,15 @@ void sc_apply_offset(sc_node_t *n, int64_t adjust, uint64_t raw_ns)
         int64_t iv_us = n->s_lastInterval / 1000;
         if (iv_us > 0) {
             int64_t drift_ppb = (adjust * 1000000LL) / iv_us; /* ns/interval -> ppb */
-            n->s_rate_ppb += drift_ppb / SC_KI_DEN;
+            n->s_rate_ppb += drift_ppb / (n->ki_den > 0 ? n->ki_den : SC_KI_DEN);
         }
     }
 
-    n->s_offset_ns += adjust;                                  /* 4 (P, Kp=1) */
+    /* 4 (P): firmware is Kp=1 (full step). kp<1 low-passes the phase -> first-order
+     * IIR with pole (1-kp): steady-state phase-noise variance scales as kp/(2-kp),
+     * at the cost of a slower transient (time constant ~ interval/kp). */
+    if (n->kp >= 1.0) n->s_offset_ns += adjust;
+    else              n->s_offset_ns += (int64_t)(n->kp * (double)adjust);
     n->s_synced = 1;
     n->s_syncCount++;
 }

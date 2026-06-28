@@ -77,6 +77,10 @@ jitter-limitiert auf **σ ≲ 28 µs** — per-Sample-Sync braucht also PTP/HW-
 Timestamping. Vollständige Analyse und der verbindliche Abschnitt „was die Sim
 *nicht* beweist" stehen in `REPORT.md`.
 
+**Längere Konvergenzzeit als Hebel (REPORT.md §5):** mit den vorgeschlagenen
+Knöpfen `--kiden 128 --kp 0.125` (Ki/Kp-Glättung, Default firmware-treu 4/1) hält
+σ≈150 µs auch <1 Sample — Preis ist ~16 s Frequenz-Lock statt ~1,5 s (≈10×).
+
 ## Was diese Sim NICHT entscheiden kann (Spec §8)
 
 TCC0-PERBUF on-the-fly (⚠F1), reale PLCA-Bus-Dynamik (⚠E1/E2), ADC-Wandelqualität

@@ -40,6 +40,12 @@ typedef struct {
     /* sample clock (spec §4.4) */
     sc_dither_mode_t dither_mode;
 
+    /* PROPOSED controller knob (not firmware): phase proportional gain.
+     * 1.0 = firmware (full phase snap). <1 averages the phase -> lower skew,
+     * slower convergence. See "longer convergence" analysis in REPORT.md. */
+    double   kp;
+    int      ki_den;           /* integral smoothing (4=firmware; larger=quieter)  */
+
     /* logging */
     double   ts_sample_ms;     /* timeseries row period (ms) - don't log every tick */
     const char *out_dir;       /* where CSVs are written                          */
@@ -77,6 +83,8 @@ static inline sim_config_t sim_config_default(void)
     c.rounds_R            = 8;                   /* like the PC tool min-delay set */
 
     c.dither_mode         = SC_DITHER_BRESENHAM;
+    c.kp                  = 1.0;                /* firmware default                */
+    c.ki_den              = 4;                  /* firmware default (Ki=1/4)       */
 
     c.ts_sample_ms        = 125.0;              /* one row per sync by default     */
     c.out_dir             = ".";

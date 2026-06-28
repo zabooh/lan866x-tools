@@ -56,6 +56,17 @@ typedef struct {
     int      s_synced;        /* (ntp_sync.c:58)                                    */
     uint32_t s_syncCount;     /* (ntp_sync.c:59)                                    */
 
+    /* PROPOSED change (NOT in current firmware): phase proportional gain. kp=1.0
+     * is the firmware behaviour (full phase snap, Kp=1). kp<1 low-passes the phase
+     * correction -> trades convergence time for steady-state skew (see REPORT.md
+     * "How long must convergence be"). The integral path (Ki=1/4) is unchanged. */
+    double   kp;              /* default 1.0 = firmware                            */
+    /* PROPOSED: integral smoothing. ki_den = NTP_KI_DEN (firmware 4). LARGER =
+     * smaller Ki = quieter s_rate_ppb (less rate wander from offset noise) at the
+     * cost of slower frequency lock and slower thermal-drift tracking (⚠C3). This
+     * is the dominant lever at high sync jitter. */
+    int      ki_den;         /* default 4 = firmware                             */
+
     /* ---- Loop B: sample-clock dithering (concept §5.3, sign-corrected) ---- */
     sc_dither_mode_t dither_mode;
     int64_t  per_resid;       /* Bresenham residual, scaled by 1e9 (fraction of a tick) */
