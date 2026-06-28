@@ -66,6 +66,8 @@ typedef struct {
      * cost of slower frequency lock and slower thermal-drift tracking (⚠C3). This
      * is the dominant lever at high sync jitter. */
     int      ki_den;         /* default 4 = firmware                             */
+    int64_t  per_nom;        /* sample period length in ticks (default SC_PER_NOM=12000
+                              * = 8 kHz; e.g. 24000 = 4 kHz). Set from config.    */
 
     /* ---- Loop B: sample-clock dithering (concept §5.3, sign-corrected) ---- */
     sc_dither_mode_t dither_mode;

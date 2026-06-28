@@ -155,12 +155,12 @@ static void do_go(sim_node_t *nodes, const sim_config_t *c, int64_t T_go, int64_
  *   expected = (ntp - X)/125us ;  flag if |reported - expected| > tol.
  * Returns 1 if this node is flagged inconsistent. */
 static int heartbeat_check(sim_node_t *n, int64_t X_ns, const sim_config_t *c,
-                           double *skew_out, double *exp_out)
+                           double samp_ns, double *skew_out, double *exp_out)
 {
     uint64_t raw = node_raw_ns(n);
     int64_t  ntp = sc_now_ns(&n->core, raw);
     double reported = (double)((long long)n->core.sample_k - 1);  /* 0-based index   */
-    double expected = (double)(ntp - X_ns) / 125000.0;
+    double expected = (double)(ntp - X_ns) / samp_ns;
     double skew = reported - expected;
     *skew_out = skew; *exp_out = expected;
     if (fabs(skew) > n->hb_max_skew) n->hb_max_skew = fabs(skew);
@@ -174,6 +174,8 @@ static FILE *open_out(const sim_config_t *c,const char*name)
 static int run(const sim_config_t *c)
 {
     rng_t mr; rng_seed(&mr,c->seed);
+    int64_t per_nom = SC_HW_HZ / c->sample_hz;          /* sample period in ticks   */
+    double  samp_ns = 1.0e9 / (double)c->sample_hz;     /* sample period in ns      */
     sim_node_t *nd=(sim_node_t*)calloc((size_t)c->n_nodes,sizeof *nd);
     if(!nd){fprintf(stderr,"OOM\n");return 1;}
     for(int i=0;i<c->n_nodes;i++){
@@ -182,8 +184,9 @@ static int run(const sim_config_t *c)
         rng_seed(&nd[i].rng,c->seed*1000003u+(uint64_t)(i+1));
         nd[i].core.kp=c->kp;                 /* proposed phase-gain knob (1.0=firmware) */
         nd[i].core.ki_den=c->ki_den;         /* proposed integral smoothing (4=firmware) */
+        nd[i].core.per_nom=per_nom;          /* sample rate knob (12000=8kHz, 24000=4kHz) */
         nd[i].raw_ticks=0; nd[i].last_T=0; nd[i].lock_time_s=-1; nd[i].locked=0;
-        nd[i].next_samp_T=BIG_T; nd[i].last_samp_T=0; nd[i].last_real_dt=12000.0; nd[i].samp_total=0;
+        nd[i].next_samp_T=BIG_T; nd[i].last_samp_T=0; nd[i].last_real_dt=(double)per_nom; nd[i].samp_total=0;
         /* per-node positional bias (⚠A3): differs per node so it does NOT cancel
          * in pairwise; only the common part would. Drawn deterministically. */
         nd[i].bias_ns = (2.0*rng_uniform(&mr)-1.0) * c->bias_ns;
@@ -237,7 +240,7 @@ static int run(const sim_config_t *c)
                     sc_dither_mode_t dm=nd[fn].core.dither_mode;
                     uint64_t raw=node_raw_ns(&nd[fn]);
                     sc_init(&nd[fn].core,dm);                 /* sample_k=0, offset/rate=0 */
-                    int64_t join=(int64_t)(((int64_t)raw - X_ns)/125000); /* offset=0 -> wrong */
+                    int64_t join=(int64_t)(((int64_t)raw - X_ns)/(int64_t)samp_ns); /* offset=0 -> wrong */
                     if(join<0) join=0;
                     nd[fn].core.sample_k=(uint64_t)(join+1);
                 }
@@ -260,7 +263,7 @@ static int run(const sim_config_t *c)
             for(int a=0;a<c->n_nodes;a++)for(int b=a+1;b<c->n_nodes;b++){
                 double ia=idx_cont(&nd[a],te), ib=idx_cont(&nd[b],te);
                 if(isnan(ia)||isnan(ib)) continue;
-                double skew=ia-ib; double tskew=skew*125000.0;
+                double skew=ia-ib; double tskew=skew*samp_ns;
                 if(pw)fprintf(pw,"%.3f,%d,%d,%.6f,%.3f\n",t_s*1000.0,a,b,skew,tskew);
                 if(t_s>c->runtime_s*0.5){
                     if(fabs(skew)>max_skew)max_skew=fabs(skew);
@@ -275,7 +278,7 @@ static int run(const sim_config_t *c)
             for(int i=0;i<c->n_nodes;i++){
                 node_advance(&nd[i],Ti,t_s,c);
                 if(nd[i].core.sample_k==0) continue;     /* not sampling yet */
-                double skew,expd; int fl=heartbeat_check(&nd[i],X_ns,c,&skew,&expd);
+                double skew,expd; int fl=heartbeat_check(&nd[i],X_ns,c,samp_ns,&skew,&expd);
                 if(fc)fprintf(fc,"%.3f,%d,%lld,%.3f,%.3f,%d\n",t_s*1000.0,i,
                         (long long)nd[i].core.sample_k-1,expd,skew,fl);
                 hb_total++; if(fl){hb_flagged_rows++; nd[i].hb_flagged=1;}
@@ -289,8 +292,8 @@ static int run(const sim_config_t *c)
                  * survives the averaging, the jitter beats down. The verdict is
                  * relayed back; the node only trusts "in sync" when CONFIRMED. */
                 double skew_true = idx_cont(&nd[i],te)
-                                 - (double)(master_ns(Ti)-X_ns)/125000.0;  /* continuous */
-                double meas = skew_true + rng_gauss(&nd[i].rng)*(c->sigma_ns/125000.0);
+                                 - (double)(master_ns(Ti)-X_ns)/samp_ns;  /* continuous */
+                double meas = skew_true + rng_gauss(&nd[i].rng)*(c->sigma_ns/samp_ns);
                 if(!nd[i].bc_init){nd[i].bc_skew_ema=meas;nd[i].bc_init=1;}
                 else nd[i].bc_skew_ema = 0.2*meas + 0.8*nd[i].bc_skew_ema;
                 int anchor_ok = fabs(nd[i].bc_skew_ema) < 1.0;   /* anchor tol = 1 sample */
@@ -379,7 +382,7 @@ static int run(const sim_config_t *c)
         for(int i=0;i<c->n_nodes;i++){
             double var=nd[i].adj2_ema-nd[i].adj_ema*nd[i].adj_ema; if(var<0)var=0;
             double lsig=sqrt(var);                         /* local sync sigma [ns]  */
-            int cert_local  = nd[i].locked && lsig < 33000.0;   /* break threshold    */
+            int cert_local  = nd[i].locked && lsig < 0.264*samp_ns; /* break threshold ~σ */
             int cert_master = nd[i].master_confirmed;
             double amean = nd[i].gt_n? nd[i].gt_sum_abs/(double)nd[i].gt_n : 0.0;
             int truly_in = amean < 1.0;                    /* correctly anchored      */
@@ -429,6 +432,8 @@ static void usage(const char*p){
     printf("  --dither bresenham|noise   --bias NS   --rounds R   --append   --out DIR\n");
     printf("  --fault none|go_loss|reboot|sample_loss  --faultnode N  --faulttime S  --faultsamples J\n");
     printf("  --kp K  --kiden D   PROPOSED controller knobs (default 1.0 / 4 = firmware; REPORT.md §5)\n");
+    printf("  --samplehz HZ       sampling rate (8000=default; 4000=half-rate knob)\n");
+    printf("  --syncms MS         sync interval in ms (125=default; 62.5=double-rate knob)\n");
     printf("  --summaryonly       skip per-run detail CSVs (fast sweeps)\n");
 }
 static int parse_args(int argc,char**argv,sim_config_t*c){
@@ -447,6 +452,8 @@ static int parse_args(int argc,char**argv,sim_config_t*c){
         else if(!strcmp(argv[i],"--summaryonly"))c->detail_csv=0;
         else if(!strcmp(argv[i],"--kp")&&i+1<argc)c->kp=atof(argv[++i]);
         else if(!strcmp(argv[i],"--kiden")&&i+1<argc)c->ki_den=atoi(argv[++i]);
+        else if(!strcmp(argv[i],"--samplehz")&&i+1<argc)c->sample_hz=atoi(argv[++i]);
+        else if(!strcmp(argv[i],"--syncms")&&i+1<argc)c->sync_interval_ticks=(int64_t)(atof(argv[++i])/1000.0*(double)SC_HW_HZ);
         else if(!strcmp(argv[i],"--jitter")&&i+1<argc){ if(parse_jitter(argv[++i],&c->jitter_model)){fprintf(stderr,"bad --jitter\n");return -1;} }
         else if(!strcmp(argv[i],"--drift")&&i+1<argc){ if(parse_drift(argv[++i],&c->drift_model)){fprintf(stderr,"bad --drift\n");return -1;} }
         else if(!strcmp(argv[i],"--dither")&&i+1<argc){ if(parse_dither(argv[++i],&c->dither_mode)){fprintf(stderr,"bad --dither\n");return -1;} }
@@ -467,6 +474,9 @@ int main(int argc,char**argv){
         cfg.n_nodes,cfg.runtime_s,(unsigned long long)cfg.seed,jitter_name(cfg.jitter_model),
         cfg.sigma_ns,cfg.bias_ns,cfg.rounds_R,drift_name(cfg.drift_model),
         dither_name(cfg.dither_mode),cfg.go_at_s);
+    printf("knobs: kp=%.3f ki_den=%d sample=%d Hz (%.0f us/sample) sync=%.1f ms\n",
+        cfg.kp,cfg.ki_den,cfg.sample_hz,1e6/(double)cfg.sample_hz,
+        (double)cfg.sync_interval_ticks/(double)SC_HW_HZ*1000.0);
     printf("fw constants: Ki=1/%d Kp=%d HW=%lld Hz tick=%lld/%lld ns PER_NOM=%lld\n",
         SC_KI_DEN,SC_KP_NUM,(long long)SC_HW_HZ,(long long)SC_TICK_NUM,
         (long long)SC_TICK_DEN,(long long)SC_PER_NOM);

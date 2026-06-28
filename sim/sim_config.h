@@ -45,6 +45,7 @@ typedef struct {
      * slower convergence. See "longer convergence" analysis in REPORT.md. */
     double   kp;
     int      ki_den;           /* integral smoothing (4=firmware; larger=quieter)  */
+    int      sample_hz;        /* sampling rate (8000=default; 4000=half-rate knob) */
 
     /* logging */
     double   ts_sample_ms;     /* timeseries row period (ms) - don't log every tick */
@@ -85,6 +86,7 @@ static inline sim_config_t sim_config_default(void)
     c.dither_mode         = SC_DITHER_BRESENHAM;
     c.kp                  = 1.0;                /* firmware default                */
     c.ki_den              = 4;                  /* firmware default (Ki=1/4)       */
+    c.sample_hz           = 8000;               /* 8 kHz (125 us/sample)           */
 
     c.ts_sample_ms        = 125.0;              /* one row per sync by default     */
     c.out_dir             = ".";

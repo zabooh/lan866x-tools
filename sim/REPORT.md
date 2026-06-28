@@ -183,7 +183,7 @@ der Knoten **zusätzlich** als Qualitätsmaß melden. Beides zusammen — Rückk
 verlässliche Selbstauskunft. Kosten: ein kleiner Heartbeat-Roundtrip/s.
 
 > CLI: der Rückkanal-Report läuft in jedem Lauf; `run_faultcheck.csv` enthält die
-> Master-Prüfwerte. Reproduktion in §9.
+> Master-Prüfwerte. Reproduktion in §10.
 
 ---
 
@@ -229,7 +229,57 @@ oder **(b)** den Anspruch auf die mittelnde Klasse begrenzen.
 
 ---
 
-## 8. Was diese Simulation NICHT beweist (verbindlich, SIMULATION_SPEC.md §8)
+## 8. Zwei weitere Stellschrauben: Sample-Rate und Sync-Rate
+
+Knöpfe `--samplehz` (Default 8000) und `--syncms` (Default 125). Bruch-σ mit
+Firmware-Regler (Ki=1/4, Kp=1), gauss, worst über 3 Seeds, gegen Baseline ~24 µs:
+
+| Konfiguration | Bruch-σ (skew=1) |
+|---|---|
+| Baseline 8 kHz / 125 ms | ~24 µs |
+| **halbe Sample-Rate (4 kHz)** | **~47 µs (≈2×)** |
+| **doppelte Sync-Rate (62,5 ms)** | **~19 µs (schlechter!)** |
+| beide | ~38 µs |
+
+**Sample-Rate halbieren = sauberer 2×-Hebel.** Skew = Zeit-Versatz / Sample-Periode;
+doppelte Periode (250 µs) → halber Skew → doppeltes Bruch-σ. Geometrisch, robust.
+Preis: halbe Signalbandbreite (Nyquist).
+
+**Sync-Rate verdoppeln = Falle.** Mit Firmware-Ki *verschlechtert* es das Bruch-σ
+(24→19 µs): bei halbem Intervall verdoppelt sich `drift_ppb = adjust·1e6/iv_us` pro
+Sync → das I-Glied pumpt doppelt so viel Rauschen in die Rate. Die maßgebliche Größe
+ist die **Loop-Bandbreite ≈ Ki/Sync-Intervall**, nicht die Sync-Rate. Co-skaliert man
+Ki, bekommt man nur dieselbe Bandbreite zurück:
+
+| Variante | Bruch-σ |
+|---|---|
+| doppelte Sync-Rate, Ki=1/4 | ~19 µs |
+| doppelte Sync-Rate, Ki=1/8 | ~29 µs |
+| doppelte Sync-Rate, Ki=1/16 | ~38 µs |
+| **nur Ki=1/8 @ 125 ms** | **~36 µs** |
+
+„Ki=1/16 @ 62,5 ms" und „Ki=1/8 @ 125 ms" haben dieselbe Bandbreite → gleiches Bruch-σ
+(~37 µs). Schnellere Syncs allein bringen also **nichts** (sie geben dem verrauschten
+I-Glied nur mehr Gelegenheiten) und kosten Bus-Verkehr, der mit den Daten konkurriert
+(⚠B2/E1). Denselben Effekt holt man billiger über Ki-Glättung bei normaler Rate.
+
+### Hebel-Landschaft (gesamt)
+
+| Hebel | Effekt auf Bruch-σ | Kosten |
+|---|---|---|
+| Sample-Rate halbieren | **×2** (24→47 µs) | halbe Signalbandbreite |
+| Ki-Glättung (Loop-Bandbreite ↓, §5) | bis ~×6 (ki=128 → σ=150) | langsamer Lock (~16 s) |
+| Phasen-Kp ↓ (§5) | nur *nach* Ki-Glättung wirksam | langsamerer Phasen-Einschwung |
+| Sync-Rate verdoppeln | **~0 / negativ** allein | mehr Bus-Verkehr |
+| σ direkt senken (PTP/HW) | beliebig | Hardware |
+
+Die Hebel sind **kombinierbar** und multiplizieren sich grob: halbe Sample-Rate (×2) ×
+Ki-Glättung (×~6) verschiebt die *Gauss*-Grenze weit über σ=150 µs — aber die Grenzen
+aus §7 (Last/Ausreißer, dünne Marge) und §9 (reales σ unbekannt) bleiben bestehen.
+
+---
+
+## 9. Was diese Simulation NICHT beweist (verbindlich, SIMULATION_SPEC.md §8)
 
 Die Simulation kann das Konzept **falsifizieren** und seine **Robustheitsgrenzen
 kartieren**; sie kann es nicht abschließend verifizieren. Ausdrücklich außerhalb
@@ -253,7 +303,7 @@ zu messen (liegt es unter oder über der 28-µs-Grenze?) und ⚠F1 zu klären.
 
 ---
 
-## 9. Reproduzieren
+## 10. Reproduzieren
 
 ```sh
 mingw32-make                       # sim.exe bauen (gcc, 0 Warnungen)
@@ -262,6 +312,8 @@ mingw32-make                       # sim.exe bauen (gcc, 0 Warnungen)
 ./sim.exe --sigma 150000 --kiden 128 --kp 0.125 --runtime 240   # §5: ~16s Lock -> <1 Sample
 ./sim.exe --fault go_loss --faultnode 5      # §6: Rückkanal fängt stillen Anker-Fehler
 ./sim.exe --sigma 150000 --kiden 128 --kp 0.125 --runtime 300   # §6: Rückkanal bestätigt 0 FP/FN
+./sim.exe --samplehz 4000 --sigma 45000    # §8: halbe Sample-Rate -> Bruch-σ ~2x
+./sim.exe --syncms 62.5 --sigma 20000      # §8: doppelte Sync-Rate (Falle, schlechter)
 bash sweep.sh sweep_results        # M7-Sweep -> sweep_results/run_summary.csv
 python plot/plot_results.py .                 # Pro-Lauf-Plots
 python plot/plot_results.py sweep_results      # Bruchgrenzen-Kurve

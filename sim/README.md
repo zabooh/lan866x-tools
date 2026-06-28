@@ -87,6 +87,11 @@ Index+Zeit → Master prüft auf seiner Achse, EMA-gemittelt → CONFIRMED zurü
 **verlässlich (0 Falsch-Positive)**, ob ein Knoten wirklich im Sync ist — inkl. der
 stillen Anker-Fehler, die die Lokaldiagnose übersieht.
 
+**Weitere Stellschrauben (REPORT.md §8):** `--samplehz 4000` (halbe Sample-Rate) ist
+ein sauberer ~2×-Hebel auf das Bruch-σ; `--syncms 62.5` (doppelte Sync-Rate) ist eine
+**Falle** (ohne Ki-Mitskalierung schlechter). Maßgeblich ist die Loop-Bandbreite
+≈ Ki/Sync-Intervall, nicht die Sync-Rate.
+
 ## Was diese Sim NICHT entscheiden kann (Spec §8)
 
 TCC0-PERBUF on-the-fly (⚠F1), reale PLCA-Bus-Dynamik (⚠E1/E2), ADC-Wandelqualität

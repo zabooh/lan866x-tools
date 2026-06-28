@@ -16,6 +16,7 @@ void sc_init(sc_node_t *n, sc_dither_mode_t dither_mode)
     n->s_syncCount   = 0;
     n->kp            = 1.0;          /* firmware default (full phase step) */
     n->ki_den        = SC_KI_DEN;    /* firmware default (Ki = 1/4)        */
+    n->per_nom       = SC_PER_NOM;   /* default 8 kHz (12000 ticks)        */
     n->dither_mode   = dither_mode;
     n->per_resid     = 0;
     n->noise_thresh  = SC_ONE_E9 / 2;   /* harmless default until first draw */
@@ -75,7 +76,8 @@ void sc_apply_offset(sc_node_t *n, int64_t adjust, uint64_t raw_ns)
  * Sigma-delta dither the fractional tick so the *mean* period equals per_ideal. */
 uint32_t sc_next_period(sc_node_t *n, int64_t rnd_thresh_e9)
 {
-    int64_t per_e9 = SC_PER_NOM * SC_ONE_E9 - SC_PER_NOM * n->s_rate_ppb;
+    int64_t pn = (n->per_nom > 0) ? n->per_nom : SC_PER_NOM;
+    int64_t per_e9 = pn * SC_ONE_E9 - pn * n->s_rate_ppb;
     int64_t base   = per_e9 / SC_ONE_E9;
     int64_t frac   = per_e9 - base * SC_ONE_E9;   /* in [0,1e9) for plausible ppm */
 
