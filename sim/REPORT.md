@@ -32,6 +32,7 @@ gemittelt.
 - [10. Was diese Simulation NICHT beweist](#10-was-diese-simulation-nicht-beweist-verbindlich-simulation_specmd-8)
 - [11. Reproduzieren](#11-reproduzieren)
 - [12. Weitere Diagramme aus der Simulation](#12-weitere-diagramme-aus-der-simulation)
+- [13. Zusammenfassung in einfachen Worten](#13-zusammenfassung-in-einfachen-worten)
 
 ---
 
@@ -531,3 +532,48 @@ die Frequenz-Seite zeigt §5 (`s_rate_ppb`).
 > `python plot/plot_results.py sweep_results` (Bruchkurve), `python plot/feasibility_map.py`
 > (Karte). Die `dither_fft_*`/`stackup_worstcase`-Varianten entstehen durch Läufe mit
 > `--dither noise` bzw. `--sigma 150000 --jitter heavy_tail` (siehe §11).
+
+---
+
+## 13. Zusammenfassung in einfachen Worten
+
+**Worum es geht.** Mehrere Messknoten an *einem* Kabel sollen **gleichzeitig** abtasten,
+sodass „Messwert Nr. *k*" auf jedem Knoten denselben Augenblick meint. Dann kann ein
+Master die Datenströme einfach **nach Nummer zusammenlegen**, ohne sie nachträglich
+zeitlich zu verschieben.
+
+**Was das System kann:**
+- Es hält die **Uhren aller Knoten auf wenige Mikrosekunden gleich** (Netzwerk-Abgleich
+  alle 125 ms).
+- Es erzeugt auf jedem Knoten einen Abtakt, der **im Mittel exakt gleich schnell** läuft
+  — **kein Messwert geht verloren, keiner kommt doppelt**, die Nummerierung bleibt lückenlos.
+- Für **mittelnde Auswertung** (Korrelation über längere Zeitfenster) sind die Ströme
+  damit **gut genug ausgerichtet** — das ist der erklärte Zweck, und den erfüllt es.
+- Es **merkt selbst, wenn etwas nicht stimmt:** ein Rückkanal zum Master bestätigt
+  „wirklich im Takt" und markiert fehlerhafte Knoten. Es liefert **nie still falsche
+  Daten** — im Zweifel sagt es „unsicher", statt heimlich daneben zu liegen.
+
+**Was es (noch) nicht kann:**
+- **Ereignisgenaue Gleichzeitigkeit** — also *jeder einzelne* Messwert auf besser als
+  einen Abtastschritt genau — bei der **real gemessenen Netzwerk-Streuung (~150 µs)**.
+  Da liegen zwei Knoten momentan **mehrere Messwerte** auseinander (im Mittel heben sie
+  sich auf, im Einzelmoment nicht). Dafür braucht es **Hardware-Zeitstempel (PTP)**, eine
+  **kleinere Abtastrate** oder einen **ruhiger eingestellten Regler**.
+
+**Warum es das kann (die Mechanik ganz einfach):**
+- *Uhren gleich halten:* Jeder Knoten hat eine genaue Hardware-Uhr. Der Master misst
+  regelmäßig, **wie weit sie daneben liegt**, und der Knoten zieht nach — sowohl den
+  **Stand** (Phase) als auch das **Tempo** (die Drift wird gelernt und herausgerechnet).
+- *Abtakt gleich halten:* Die **Länge des Abtakt-Timers** wird ständig mikro-nachjustiert
+  (mal 12000, mal 12001 Takte), sodass der **Durchschnitt exakt** stimmt. Deshalb laufen
+  die Nummern-Achsen über Stunden nicht auseinander.
+- *Warum die Grenze existiert:* Die Ausrichtung kann nur **so gut sein, wie der Master die
+  Zeit jedes Knotens über das Netzwerk messen kann**. Diese Messung wird per Software
+  gestempelt und **streut ~150 µs** — das ist die Untergrenze. Der Versatz ist grob
+  **Streuung × Abtastrate**; darum hilft jede der drei Maßnahmen oben (weniger Streuung,
+  kleinere Rate, ruhigerer Regler).
+
+**In einem Satz.** Das System liefert **verlässlich zusammenführbare, lückenlose, im
+Mittel exakt gleich schnelle Datenströme mit eingebauter Selbstüberwachung** — die
+*ereignisgenaue* Gleichzeitigkeit pro Einzelmesswert ist durch die Software-Netzwerk-
+Zeitmessung begrenzt und braucht für den letzten Schritt Hardware-Zeitstempel.
