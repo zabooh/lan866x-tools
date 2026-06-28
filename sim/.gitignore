@@ -6,4 +6,6 @@ sim.exe
 *.exe
 *.csv
 plot/*.png
+# keep the capstone figure embedded in REPORT.md tracked (negation, no inline comment):
+!plot/feasibility_map.png
 sweep_results/

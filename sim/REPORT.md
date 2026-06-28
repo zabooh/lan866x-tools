@@ -18,6 +18,20 @@ gemittelt.
 > bleibt es tragfähig, weil der Skew mittelwertfrei ist und sich wegmittelt; für
 > ereignisgenaue Koinzidenz nicht.
 
+## Inhalt
+
+- [1. Verwendete Firmware-Konstanten](#1-verwendete-firmware-konstanten-extrahiert-nicht-erfunden)
+- [2. Urteil je Risiko](#2-urteil-je-risiko)
+- [3. Warum es bei σ≈28 µs bricht (der Mechanismus)](#3-warum-es-bei-σ28-µs-bricht-der-mechanismus)
+- [4. Was das am Konzept ändert](#4-was-das-am-konzept-ändert)
+- [5. Hebel: längere Konvergenzzeit gegen σ≈150 µs](#5-hebel-längere-konvergenzzeit-gegen-σ150-µs)
+- [6. Rückkanal — Selbstzertifizierung des Sync](#6-rückkanal--kann-ein-knoten-verlässlich-wissen-dass-er-wirklich-im-sync-ist)
+- [7. Robustheit am realen Betriebspunkt](#7-robustheit-am-realen-betriebspunkt--überlebt-die-volle-stress-batterie)
+- [8. Stellschrauben + Machbarkeitskarte (Rate vs σ)](#8-zwei-weitere-stellschrauben-sample-rate-und-sync-rate)
+- [9. Zielgerichtete Hebel gegen die realen Brecher](#9-zielgerichtete-hebel-gegen-die-realen-brecher-last--ausreißer--bias)
+- [10. Was diese Simulation NICHT beweist](#10-was-diese-simulation-nicht-beweist-verbindlich-simulation_specmd-8)
+- [11. Reproduzieren](#11-reproduzieren)
+
 ---
 
 ## 1. Verwendete Firmware-Konstanten (extrahiert, nicht erfunden)
@@ -279,21 +293,59 @@ aus §7 (Last/Ausreißer, dünne Marge) und §10 (reales σ unbekannt) bleiben b
 
 ### Machbarkeitskarte (Abtastrate vs. Sync-Jitter)
 
-Die ganze Tradeoff-Fläche auf einen Blick (`plot/feasibility_map.py` →
-`plot/feasibility_map.png`): x = σ, y = Sample-Rate, Heatmap = max Index-Skew
-(Firmware), zwei „skew=1"-Grenzlinien (Firmware + getunt). **Unter/links einer Linie =
-Index bleibt < 1 Sample.** Beide Linien haben Steigung −1 (die Hyperbel `fs·σ = const`).
-Direkt ablesbar:
+Die ganze Tradeoff-Fläche auf einen Blick — *welche Abtastrate ist bei welcher
+Sync-Streuung noch möglich?* (erzeugt mit `plot/feasibility_map.py`):
+
+![Machbarkeitskarte: Sample-Rate vs Sync-Jitter](plot/feasibility_map.png)
+
+**Die Komponenten der Karte:**
+
+| Element | Bedeutung |
+|---|---|
+| **x-Achse** (log) | Sync-Offset-Jitter **σ** in µs — die Streuung des NTP-Sync (klein = präzise) |
+| **y-Achse** (log) | **Sample-Rate** in Hz |
+| **Farbfläche** (Heatmap) | max Index-Skew des **Firmware**-Reglers, log-Farbskala: **grün ≪1** (gut) → **gelb ≈1** (Grenze) → **rot ≫1** (gebrochen) |
+| **schwarze Linie** | „skew = 1"-Grenze des **Firmware**-Reglers (Ki=1/4, Kp=1) |
+| **blaue gestrichelte Linie** | „skew = 1"-Grenze des **getunten** Reglers (Ki=1/128, Kp=1/8, §5) |
+| **lila Senkrechte** | reales σ ≈ 150 µs (Software-NTP-Floor) |
+| **graue Waagerechte** | 8-kHz-Auslegungsrate |
+
+**Wie man sie liest.** Jeder Punkt (σ, Rate) ist ein Betriebspunkt; entscheidend ist
+seine Lage **relativ zur Grenzlinie**: **unter/links = grün = Index bleibt < 1 Sample
+(machbar)**, **über/rechts = rot = bricht**. Zwei Ableserichtungen:
+- **σ gegeben → maximale Rate:** bei deinem σ **senkrecht hoch** bis zur Linie → dort
+  die höchste noch zulässige Sample-Rate ablesen.
+- **Rate gegeben → maximales σ:** bei deiner Rate **waagerecht nach rechts** bis zur
+  Linie → das größte tolerierbare σ.
+
+**Wie man es versteht (warum Geraden mit Steigung −1).** Der Skew ist Zeitversatz /
+Sample-Periode, und die Periode ist 1/Rate, also `skew ≈ k · σ · Rate`. Die Grenze
+`skew = 1` ist damit `Rate = 1/(k·σ)` — eine **Hyperbel**, auf log-log eine **Gerade
+mit Steigung −1**. Eine Linie **nach rechts/oben zu schieben heißt, das Konzept
+robuster zu machen**; der Abstand Firmware→getunt ist genau der Gewinn der
+Regler-Tunung (≈ ×7 in σ).
+
+**Direkt ablesbar:**
 
 | | Firmware (Ki=1/4, Kp=1) | getunt (Ki=1/128, Kp=1/8) |
 |---|---|---|
 | max σ bei **8 kHz** | ~26 µs | ~190 µs |
 | max Sample-Rate bei **σ=150 µs** | ~1,3 kHz | ~10 kHz |
 
-Der Auslegungspunkt (8 kHz, 150 µs) liegt mit der Firmware **tief im roten Bereich**,
-mit der Tunung **knapp innerhalb** der Grenze. Die targeted-Hebel aus §9 (Sync-Slot,
-Gating, Bias-Cal) verschieben die getunte Linie unter Last/Ausreißern zusätzlich nach
-rechts; reines Gauss ist hier gezeigt.
+**Was man daraus ableitet.** Der reale Auslegungspunkt ist der **Schnittpunkt lila ×
+grau = (150 µs, 8 kHz)**. Er liegt **rechts der schwarzen Linie** (Firmware bricht
+dort, ~5 Samples) und **knapp links/auf der blauen** (getunt grenzwertig machbar).
+Engineering-Konsequenz:
+- Mit **Firmware-Default** ist bei σ=150 µs nur **≤ ~1,3 kHz** index-sync-fähig — zu
+  langsam für 8 kHz.
+- **8 kHz bei σ=150 µs** geht nur mit **Regler-Tunung** (und dünner Marge), und unter
+  Last/Ausreißern erst mit den targeted-Hebeln aus §9 (die die blaue Linie weiter nach
+  rechts schieben — die Karte zeigt reines Gauss).
+- Wer **8 kHz mit Reserve** will, muss **σ senken** (PTP/HW-Timestamping → der Punkt
+  wandert nach links, tief ins Grüne) — der sauberste Weg.
+
+Die Karte ist damit das **Entwurfswerkzeug**: realen σ messen, Punkt eintragen, Lage
+zur passenden Linie ablesen → Entscheidung Rate/Tunung/PTP.
 
 ---
 
