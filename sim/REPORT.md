@@ -277,6 +277,24 @@ Die Hebel sind **kombinierbar** und multiplizieren sich grob: halbe Sample-Rate 
 Ki-Glättung (×~6) verschiebt die *Gauss*-Grenze weit über σ=150 µs — aber die Grenzen
 aus §7 (Last/Ausreißer, dünne Marge) und §10 (reales σ unbekannt) bleiben bestehen.
 
+### Machbarkeitskarte (Abtastrate vs. Sync-Jitter)
+
+Die ganze Tradeoff-Fläche auf einen Blick (`plot/feasibility_map.py` →
+`plot/feasibility_map.png`): x = σ, y = Sample-Rate, Heatmap = max Index-Skew
+(Firmware), zwei „skew=1"-Grenzlinien (Firmware + getunt). **Unter/links einer Linie =
+Index bleibt < 1 Sample.** Beide Linien haben Steigung −1 (die Hyperbel `fs·σ = const`).
+Direkt ablesbar:
+
+| | Firmware (Ki=1/4, Kp=1) | getunt (Ki=1/128, Kp=1/8) |
+|---|---|---|
+| max σ bei **8 kHz** | ~26 µs | ~190 µs |
+| max Sample-Rate bei **σ=150 µs** | ~1,3 kHz | ~10 kHz |
+
+Der Auslegungspunkt (8 kHz, 150 µs) liegt mit der Firmware **tief im roten Bereich**,
+mit der Tunung **knapp innerhalb** der Grenze. Die targeted-Hebel aus §9 (Sync-Slot,
+Gating, Bias-Cal) verschieben die getunte Linie unter Last/Ausreißern zusätzlich nach
+rechts; reines Gauss ist hier gezeigt.
+
 ---
 
 ## 9. Zielgerichtete Hebel gegen die realen Brecher (Last / Ausreißer / Bias)
@@ -372,6 +390,7 @@ mingw32-make                       # sim.exe bauen (gcc, 0 Warnungen)
 bash sweep.sh sweep_results        # M7-Sweep -> sweep_results/run_summary.csv
 python plot/plot_results.py .                 # Pro-Lauf-Plots
 python plot/plot_results.py sweep_results      # Bruchgrenzen-Kurve
+python plot/feasibility_map.py                 # §8: Machbarkeitskarte (Rate vs σ)
 ```
 
 Der Rückkanal-/Zertifizierungs-Report wird in **jedem** Lauf am Ende ausgegeben

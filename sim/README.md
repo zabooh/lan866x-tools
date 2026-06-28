@@ -61,6 +61,11 @@ Liest die vorhandenen CSVs und schreibt PNGs nach `<lauf_verzeichnis>/plot/`:
 `sweep_skew_vs_sigma.png` (M7-Sweep). Braucht `matplotlib` (und `numpy` für das
 FFT-Panel).
 
+**Machbarkeitskarte** (`python plot/feasibility_map.py` → `plot/feasibility_map.png`):
+x = σ, y = Sample-Rate, Grenzlinie „skew=1" für Firmware- und getunten Regler —
+direkt ablesbar, welche Abtastrate bei welcher Sync-Streuung noch <1 Sample bleibt
+(REPORT.md §8).
+
 ## Meilensteine (Spec §7) — alle abgeschlossen; siehe `REPORT.md`
 
 - **M0** ✅ Gerüst: baut, Dummy-CSV
