@@ -81,6 +81,12 @@ Timestamping. Vollständige Analyse und der verbindliche Abschnitt „was die Si
 Knöpfen `--kiden 128 --kp 0.125` (Ki/Kp-Glättung, Default firmware-treu 4/1) hält
 σ≈150 µs auch <1 Sample — Preis ist ~16 s Frequenz-Lock statt ~1,5 s (≈10×).
 
+**Rückkanal-Selbstzertifizierung (REPORT.md §6):** jeder Lauf gibt am Ende einen
+Vergleich „lokal-allein vs. Master-Rückkanal" aus. Der Rückkanal (Knoten heartbeatet
+Index+Zeit → Master prüft auf seiner Achse, EMA-gemittelt → CONFIRMED zurück) erkennt
+**verlässlich (0 Falsch-Positive)**, ob ein Knoten wirklich im Sync ist — inkl. der
+stillen Anker-Fehler, die die Lokaldiagnose übersieht.
+
 ## Was diese Sim NICHT entscheiden kann (Spec §8)
 
 TCC0-PERBUF on-the-fly (⚠F1), reale PLCA-Bus-Dynamik (⚠E1/E2), ADC-Wandelqualität

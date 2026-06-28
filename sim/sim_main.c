@@ -42,6 +42,11 @@ typedef struct {
     long      lost_total;
     int       hb_flagged;      /* ever flagged by the master consistency check     */
     double    hb_max_skew;     /* worst |reported-expected| seen [samples]         */
+    /* back-channel certification state */
+    double    adj_ema, adj2_ema; int adj_init;  /* local sync-jitter estimate (std of adjust) */
+    double    bc_skew_ema; int bc_init;         /* master's averaged skew estimate [samples]  */
+    int       master_confirmed;                 /* back-channel verdict relayed to the node    */
+    double    gt_sum_abs, gt_max; long gt_n;    /* ground-truth abs skew vs master axis (steady)*/
 } sim_node_t;
 
 static const char *jitter_name(jitter_model_t m){switch(m){case JITTER_GAUSS:return"gauss";
@@ -108,7 +113,14 @@ static void master_sync_node(sim_node_t *n, int64_t T, const sim_config_t *c, in
     double sel[64]; for(int i=0;i<K;i++)sel[i]=off[idx[i]];
     qsort(sel,(size_t)K,sizeof(double),cmp_double);
     double robust=(K&1)?sel[K/2]:0.5*(sel[K/2-1]+sel[K/2]);
-    sc_apply_offset(&n->core,-(int64_t)robust,(uint64_t)raw);
+    int64_t adjust=-(int64_t)robust;
+    sc_apply_offset(&n->core,adjust,(uint64_t)raw);
+    /* local sync-jitter estimate: EMA mean/var of the post-lock 'adjust' stream.
+     * std(adjust) ~ the node's own sync sigma -> local self-assessment of per-sample
+     * uncertainty (necessary, not sufficient: blind to a constant anchor error). */
+    if(n->locked){ double a=(double)adjust;
+        if(!n->adj_init){n->adj_ema=a;n->adj2_ema=a*a;n->adj_init=1;}
+        else{n->adj_ema=0.1*a+0.9*n->adj_ema; n->adj2_ema=0.1*a*a+0.9*n->adj2_ema;} }
     if(!n->locked){ double tg=-n->ppm_base*1000.0;
         if(fabs((double)n->core.s_rate_ppb-tg)<0.10*fabs(tg)){n->locked=1;n->lock_time_s=(double)T/(double)SC_HW_HZ;} }
 }
@@ -267,6 +279,27 @@ static int run(const sim_config_t *c)
                 if(fc)fprintf(fc,"%.3f,%d,%lld,%.3f,%.3f,%d\n",t_s*1000.0,i,
                         (long long)nd[i].core.sample_k-1,expd,skew,fl);
                 hb_total++; if(fl){hb_flagged_rows++; nd[i].hb_flagged=1;}
+
+                /* ---- back-channel certification ----
+                 * The node heartbeats (index, its NTP time). The master places the
+                 * index on its OWN clock axis (ground-truth reference here), so the
+                 * check does NOT trust the node's clock -> catches clock AND anchor
+                 * errors. The heartbeat carries the same software-timestamp jitter
+                 * (sigma), so the master AVERAGES (EMA) -> a constant anchor error
+                 * survives the averaging, the jitter beats down. The verdict is
+                 * relayed back; the node only trusts "in sync" when CONFIRMED. */
+                double skew_true = idx_cont(&nd[i],te)
+                                 - (double)(master_ns(Ti)-X_ns)/125000.0;  /* continuous */
+                double meas = skew_true + rng_gauss(&nd[i].rng)*(c->sigma_ns/125000.0);
+                if(!nd[i].bc_init){nd[i].bc_skew_ema=meas;nd[i].bc_init=1;}
+                else nd[i].bc_skew_ema = 0.2*meas + 0.8*nd[i].bc_skew_ema;
+                int anchor_ok = fabs(nd[i].bc_skew_ema) < 1.0;   /* anchor tol = 1 sample */
+                nd[i].master_confirmed = anchor_ok && nd[i].locked;
+
+                if(t_s>c->runtime_s*0.5){
+                    double a=fabs(skew_true);
+                    nd[i].gt_sum_abs+=a; if(a>nd[i].gt_max)nd[i].gt_max=a; nd[i].gt_n++;
+                }
             }
             next_hb+=hb_dt;
         }
@@ -328,6 +361,44 @@ static int run(const sim_config_t *c)
         printf(" -> %s\n", (only_faulty&&others_clean)
                ? "CHECK CAUGHT the faulty node, others clean (M6 PASS)"
                : "check did NOT cleanly isolate the fault");
+    }
+
+    /* ---- back-channel certification report ----
+     * Compares two ways for the system to decide "am I really in sync":
+     *   local-only  : locked AND own sync-jitter sigma below the break threshold
+     *                 (necessary, but BLIND to a constant anchor error)
+     *   back-channel: master confirms the index is correctly anchored on the
+     *                 master axis (catches the silent anchor faults too).
+     * "Truly in sync" ground truth = mean |skew vs master axis| < 1 sample. A
+     * certification that says IN SYNC while truly-out is a dangerous FALSE POSITIVE. */
+    {
+        printf("\n=== back-channel certification (\"am I really in sync?\") ===\n");
+        printf(" node | local_sigma | actual mean|skew| | actual max | local | master | \n");
+        printf("------+-------------+-------------------+------------+-------+--------+\n");
+        int fp_local=0, fp_master=0, fn_local=0, fn_master=0;
+        for(int i=0;i<c->n_nodes;i++){
+            double var=nd[i].adj2_ema-nd[i].adj_ema*nd[i].adj_ema; if(var<0)var=0;
+            double lsig=sqrt(var);                         /* local sync sigma [ns]  */
+            int cert_local  = nd[i].locked && lsig < 33000.0;   /* break threshold    */
+            int cert_master = nd[i].master_confirmed;
+            double amean = nd[i].gt_n? nd[i].gt_sum_abs/(double)nd[i].gt_n : 0.0;
+            int truly_in = amean < 1.0;                    /* correctly anchored      */
+            if(cert_local  && !truly_in) fp_local++;
+            if(cert_master && !truly_in) fp_master++;
+            if(!cert_local  && truly_in) fn_local++;
+            if(!cert_master && truly_in) fn_master++;
+            printf(" %4d | %8.1f ns | %17.3f | %10.3f | %5s | %6s |%s\n",
+                   i, lsig, amean, nd[i].gt_max,
+                   cert_local?"IN":"out", cert_master?"IN":"out",
+                   (cert_local&&!truly_in)?"  <- local FALSE POSITIVE":"");
+        }
+        printf("\n local-only : false-positives=%d  false-negatives=%d\n", fp_local, fn_local);
+        printf(" back-chan  : false-positives=%d  false-negatives=%d  -> %s\n",
+               fp_master, fn_master,
+               fp_master==0 ? "reliable (no node wrongly certifies in-sync)" : "UNRELIABLE");
+        printf(" note: \"IN\" = correctly anchored & locked. Per-sample jitter is still\n");
+        printf("       ~sigma/125us samples (report it separately); at high sigma a node can be\n");
+        printf("       correctly anchored (master IN) yet have several-sample instantaneous skew.\n");
     }
 
     /* summary: --append opens "a" and writes the header only if the file is new

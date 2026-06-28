@@ -143,7 +143,51 @@ voller Drift-Bandbreite.
 
 ---
 
-## 6. Was diese Simulation NICHT beweist (verbindlich, SIMULATION_SPEC.md §8)
+## 6. Rückkanal — kann ein Knoten verlässlich wissen, dass er wirklich im Sync ist?
+
+Frage: lokal allein kann ein Knoten nur die *Voraussetzung* prüfen (sein eigenes
+Sync-σ), nicht den *tatsächlichen* Versatz oder einen still falschen Anker — seine
+eigene Uhr ist ja die Referenz, die infrage steht. Lösung: ein **Rückkanal** zum
+Master.
+
+**Protokoll (modelliert):** jeder Knoten sendet periodisch (1 s) einen Heartbeat
+`(Index, eigene NTP-Zeit)`. Der Master legt den Index auf **seine eigene** Zeitachse
+(traut der Knoten-Uhr nicht → fängt Uhr- *und* Anker-Fehler), **mittelt** über mehrere
+Heartbeats (EMA — ein konstanter Anker-Fehler überlebt die Mittelung, der Timestamp-
+Jitter wird herausgemittelt) und schickt **CONFIRMED/FLAGGED** zurück. Der Knoten
+zertifiziert seine Daten nur bei frischem CONFIRMED.
+
+Verglichen werden zwei Selbstdiagnosen gegen die **Ground Truth** der Sim (mittlerer
+\|Skew vs. Master-Achse\| < 1 Sample = „wirklich verankert im Sync"):
+
+| Szenario | tats. mean \|skew\| | lokal allein | Rückkanal |
+|---|---|---|---|
+| gesund, σ=2 µs | ~0 | IN ✅ | IN ✅ |
+| **go_loss** (stiller Anker, σ=2) | ~8 (Knoten 5) | **IN — FALSE POSITIVE** ❌ | **out — gefangen** ✅ |
+| **reboot** (Pre-Lock-Rejoin) | ~4 | **IN — FALSE POSITIVE** ❌ | out — gefangen ✅ |
+| σ=150 µs, **Firmware**-Regler | 1–2 (echt daneben) | out | out (korrekt zurückhaltend) |
+| σ=150 µs, **getunt** (ki=128/kp=0.125) | 0,15–0,47 (<1) | **out ×7 — FALSE NEGATIVE** ❌ | **IN ×7 — korrekt** ✅ |
+| σ=150 µs getunt **+ go_loss** | Schuldiger ~8, Rest <1 | gemischt | **0 FP, 0 FN — reliable** ✅ |
+
+**Ergebnis:** Der Rückkanal hat über alle Szenarien **0 Falsch-Positive** — kein Knoten
+zertifiziert sich fälschlich als „im Sync". Er löst beide Schwächen der Lokaldiagnose:
+- **unsicher** (Lokal-FP bei stillem Anker-Fehler) → Rückkanal fängt go_loss/reboot.
+- **überkonservativ** (Lokal-FN: erkennt nicht, dass der getunte Regler σ=150 fixt) →
+  nur der Rückkanal bestätigt den real erreichten Sync.
+
+**Ehrliche Grenze:** „CONFIRMED" heißt **„korrekt verankert & gelockt" (mean < 1)**, nicht
+„jeder Sample < 1". Bei σ=150 µs mit *ungetuntem* Regler ist die Ausrichtung real >1 — der
+Rückkanal bestätigt dann korrekt **nicht**. Die *per-Sample*-Unsicherheit (~σ/125 µs) muss
+der Knoten **zusätzlich** als Qualitätsmaß melden. Beides zusammen — Rückkanal-CONFIRMED
+(Struktur/Anker) **plus** gemeldetes σ (Streuung) — gibt dem Knoten eine vollständige,
+verlässliche Selbstauskunft. Kosten: ein kleiner Heartbeat-Roundtrip/s.
+
+> CLI: der Rückkanal-Report läuft in jedem Lauf; `run_faultcheck.csv` enthält die
+> Master-Prüfwerte. Reproduktion in §8.
+
+---
+
+## 7. Was diese Simulation NICHT beweist (verbindlich, SIMULATION_SPEC.md §8)
 
 Die Simulation kann das Konzept **falsifizieren** und seine **Robustheitsgrenzen
 kartieren**; sie kann es nicht abschließend verifizieren. Ausdrücklich außerhalb
@@ -167,18 +211,22 @@ zu messen (liegt es unter oder über der 28-µs-Grenze?) und ⚠F1 zu klären.
 
 ---
 
-## 7. Reproduzieren
+## 8. Reproduzieren
 
 ```sh
 mingw32-make                       # sim.exe bauen (gcc, 0 Warnungen)
 ./sim.exe                          # Default-Lauf (7 Knoten, σ=2 µs) -> CSVs + M4-Urteil
 ./sim.exe --sigma 150000           # realistischer Jitter -> skew ~5 Samples
 ./sim.exe --sigma 150000 --kiden 128 --kp 0.125 --runtime 240   # §5: ~16s Lock -> <1 Sample
-./sim.exe --fault sample_loss      # M6: Konsistenz-Check fängt es
+./sim.exe --fault go_loss --faultnode 5      # §6: Rückkanal fängt stillen Anker-Fehler
+./sim.exe --sigma 150000 --kiden 128 --kp 0.125 --runtime 300   # §6: Rückkanal bestätigt 0 FP/FN
 bash sweep.sh sweep_results        # M7-Sweep -> sweep_results/run_summary.csv
 python plot/plot_results.py .                 # Pro-Lauf-Plots
 python plot/plot_results.py sweep_results      # Bruchgrenzen-Kurve
 ```
+
+Der Rückkanal-/Zertifizierungs-Report wird in **jedem** Lauf am Ende ausgegeben
+(Vergleich lokal-allein vs. Rückkanal, mit Falsch-Positiv/Negativ-Zählung).
 
 Alle oben referenzierten Abbildungen werden von diesen beiden Plot-Befehlen neu
 erzeugt. Seeds stehen in jeder `run_summary.csv`-Zeile; gleicher Seed → identischer
